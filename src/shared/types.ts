@@ -54,6 +54,15 @@ export interface GameState {
   endReason: EndReason
   /** 下一个 Tile 身份的计数器，参与持久化（T16 要求身份可恢复） */
   nextTileId: number
+  /**
+   * 本局最初使用的种子。Daily 由 UTC 日期推导（seedFromUtcDate），其余模式由调用方抽取
+   *
+   * 不是多余的字段：Daily 的种子来自**外部且会变**的输入（日期），把这个推导结果
+   * 收进状态里才是「这一局认自己的种子」的直接表达。否则推导结果只以 rngState 的
+   * 形式隐式存在，跨 UTC 零点那条不变量就没法直接断言（T08 的两条不变量之一）。
+   * T16 持久化时也顺手把它存下来，刷新续玩不用重新推日期。
+   */
+  initialSeed: number
   rngState: RngState
   /** 有效 Move 计数。T11/T16 的长局实测（1,000 / 10,000 次）按它统计 */
   moves: number

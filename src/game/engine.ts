@@ -24,6 +24,9 @@ export function createGame(modeId: ModeId, seed: number): GameState {
     phase: 'playing',
     endReason: null,
     nextTileId: 1,
+    // 开局种子同时记在 initialSeed 上：之后每一步只读 rngState，这个值跟着状态走
+    // 但不参与规则——它是「这一局的题号」，给 T08 的跨零点不变量与 T16 的持久化读
+    initialSeed: seed,
     rngState: rng.serialize(),
     moves: 0,
     deadline: null,

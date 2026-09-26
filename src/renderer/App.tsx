@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import type { ModeId } from '../shared/modes'
 import { Board } from './components/Board'
+import { DailyDateLabel } from './components/DailyDateLabel'
 import { GameOverPanel } from './components/GameOverPanel'
 import { StatusBar } from './components/StatusBar'
 import { StartScreen } from './components/StartScreen'
@@ -16,6 +17,7 @@ import { useGameStore } from './stores/useGameStore'
  */
 export default function App(): JSX.Element {
   const game = useGameStore((state) => state.game)
+  const dailyDate = useGameStore((state) => state.dailyDate)
   const startRun = useGameStore((state) => state.startRun)
   const move = useGameStore((state) => state.move)
   const continueRun = useGameStore((state) => state.continueRun)
@@ -34,6 +36,9 @@ export default function App(): JSX.Element {
         <div className="flex flex-col items-center gap-4">
           <h1 className="shell__title text-5xl">2048</h1>
           <StatusBar game={game} />
+          {/* Daily 的日期说明（T08）：写的是这一局抽题那天的 UTC 日期，跨零点也不翻篇。
+              摆在外壳里，与 Board 平级——ADR-0002 的棋盘固定结构不许塞进来说明文字。 */}
+          {game.modeId === 'daily' && dailyDate !== null && <DailyDateLabel date={dailyDate} />}
           {/* 棋盘与面板共用一个相对定位的壳。面板是外壳元素（Tailwind 也只在外壳这侧），
               不能塞进 .board：那层是 ADR-0002 的固定 DOM 结构。w-fit 让这个壳正好
               裹住棋盘，面板 inset:0 才只盖住棋盘，不会横铺整个页面。 */}

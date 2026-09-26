@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Direction, GameState } from '../../shared/types'
 import type { ModeId } from '../../shared/modes'
 import { abandon, continueRun, createGame, move, settle } from '../../game/engine'
+import { seedFromUtcDate } from '../../shared/rng'
 import { fixtureFromQuery } from './fixture'
 
 /**
@@ -9,9 +10,21 @@ import { fixtureFromQuery } from './fixture'
  *
  * 它是**协调者，不是第二套规则引擎**：只负责调 createGame / move / continueRun /
  * settle / abandon 并把结果收着，一切规则判断（含 phase 迁移）都在 src/game/ 里。
+ *
+ * 它同时是**读钟的那一方**（ADR-0001）：Math.random 与 UTC 日期都在这里取，
+ * src/game/ 与 src/shared/ 里一行 Date 都没有。
  */
 export interface GameStore {
   game: GameState | null // null = 尚未开局
+  /**
+   * Daily 这一局的 UTC 日期串（'YYYY-MM-DD'）；非 Daily 模式为 null
+   *
+   * 为什么它不住进 GameState：它是**外壳要显示的一句话**，不是规则数据。规则数据是
+   * initialSeed（种子本身），而日期串从种子里反推不回来（哈希是单向的），所以开局抽题
+   * 那一刻由 store 把它收着。也正因如此它记的是「这一局抽题那天的日期」，不是渲染时
+   * 现算的今天——跨过 UTC 零点之后，昨天开的那局标签不能跟着翻篇。
+   */
+  dailyDate: string | null
   startRun(modeId: ModeId): void
   move(direction: Direction): void
   /** 从胜利面板继续玩：分数与棋盘保留，phase 由引擎判回 playing 还是 stuck */
@@ -28,11 +41,35 @@ function drawSeed(): number {
 }
 
 /**
+ * 今天（UTC）的日期串，`'YYYY-MM-DD'`
+ *
+ * 只认 UTC：Daily 的承诺是「同一个 UTC 日期全球同一题」，本地时区一掺进来，
+ * 东半球与西半球就会在不同的日期上抽题。toISOString 本身就是 UTC 口径。
+ */
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+/** Daily 抽题：日期串 → 种子，连它要显示的那句话一起交出来 */
+function drawDailySeed(): { seed: number; date: string } {
+  const date = todayUtc()
+  return { seed: seedFromUtcDate(date), date }
+}
+
+/**
  * 确定性测试缝：`?seed=12345` 替代随机种子。
  *
  * Playwright 的「固定局面合并测试」与 T08 的每日复现都走这个入口——同一个 seed 得到
  * 同一个初始局面和同一条随机流。本项目无服务器、无排行榜、也不主张竞技公平
  * （SPEC §6），所以它是调试/验收入口，不是作弊面；不带该参数时行为不变。
+ *
+ * **Daily 不吃这条缝**：题目由日期决定，`?seed=` 只对其它模式生效。三条理由：
+ *   1. 本模式的承诺是「同一个 UTC 日期 → 同一张盘」。一条 URL 就能把题换掉的话，
+ *      这个承诺处处是洞，分享出去的链接会把每个人都带去不同的盘；
+ *   2. 日期标签写的是 initialSeed 所属的那个日期。?seed= 把题面换掉，标签与盘面就
+ *      对不上——这正是本模式最不该出现的错；
+ *   3. 要固定日期，测试该固定的是时钟（Playwright 的 page.clock），而不是借道一个
+ *      与 Daily 语义无关的参数。
  */
 function seedFromLocation(): number | null {
   if (typeof window === 'undefined') return null
@@ -44,12 +81,19 @@ function seedFromLocation(): number | null {
 
 export const useGameStore = create<GameStore>()((set) => ({
   game: null,
+  dailyDate: null,
   startRun: (modeId) => {
-    // 种子在这里抽：store 是调用方，Math.random 由它用（ADR-0001 禁的是 src/game/ 自己抽）
-    const seed = seedFromLocation() ?? drawSeed()
+    // 种子在这里抽：store 是调用方，Math.random 与 UTC 日期都由它取
+    // （ADR-0001 禁的是 src/game/ 自己抽，不是禁调用方抽）。
+    // Daily 用 UTC 日期推导，其余模式才看 ?seed=（见 seedFromLocation 的说明）。
+    const daily = modeId === 'daily' ? drawDailySeed() : null
+    const seed = daily?.seed ?? seedFromLocation() ?? drawSeed()
     // 开局局面夹具：?board= 给了合法局面就从那开局（T04 的终局 e2e 靠它复现局面，
     // 后续每一步仍走真实按键与真实内核）。只有开局读它——「新游戏」用的是 drawSeed。
-    set({ game: fixtureFromQuery(window.location.search, modeId, seed) ?? createGame(modeId, seed) })
+    set({
+      game: fixtureFromQuery(window.location.search, modeId, seed) ?? createGame(modeId, seed),
+      dailyDate: daily?.date ?? null,
+    })
   },
   move: (direction) => {
     set((state) => {
@@ -85,7 +129,13 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 别删：它是 T17「写记录」要接的那道缝——届时被放弃的那个终态就是 abandoned 记录的
       // 依据，在此之前它刻意保持惰性，不写任何东西。
       const abandoned = abandon(state.game)
-      return { game: createGame(abandoned.modeId, drawSeed()) }
+      const modeId = abandoned.modeId
+      // 「新游戏」重新抽题：Daily 按**当前** UTC 日期抽——跨过零点再开新局就是新题
+      // （T08 不变式 B 的「新局」半边）。其余模式照旧随机，这里不再读 ?seed=：
+      // 那条缝只在开局那一刻读（T03 起的行为，T04/T06/T07 的 e2e 依赖它不变）。
+      const daily = modeId === 'daily' ? drawDailySeed() : null
+      const seed = daily?.seed ?? drawSeed()
+      return { game: createGame(modeId, seed), dailyDate: daily?.date ?? null }
     })
   },
 }))

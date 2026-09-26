@@ -111,14 +111,14 @@ function backgroundColorOf(page: Page, selector: string): Promise<string> {
     .evaluate((el) => getComputedStyle(el).backgroundColor)
 }
 
-test('开局界面能选障碍：四个模式一个不多，棋盘切到 4×4 带四格墙', async ({ page }) => {
+test('开局界面能选障碍：五个模式一个不多，棋盘切到 4×4 带四格墙', async ({ page }) => {
   const problems = watchProblems(page)
   await page.goto(SEED_URL)
 
-  // AVAILABLE_MODE_IDS 放宽到正好这四个：未实现的 daily / time-attack
-  // 不该以「不可点」的样子出现在界面上（StartScreen 不从 MODES 过滤）
+  // AVAILABLE_MODE_IDS 从三个放宽到正好五个（T08 加进 daily）：未实现的
+  // time-attack 不该以「不可点」的样子出现在界面上（StartScreen 不从 MODES 过滤）
   const modes = page.getByRole('group', { name: '模式' }).getByRole('button')
-  await expect(modes).toHaveText(['经典', '斐波那契', '大棋盘', '障碍'])
+  await expect(modes).toHaveText(['经典', '斐波那契', '大棋盘', '障碍', '每日'])
 
   const walls = page.getByRole('button', { name: '障碍' })
   await walls.click()
