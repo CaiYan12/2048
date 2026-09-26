@@ -2,6 +2,14 @@ import type { Board, EndReason, GameState, StyleId } from '../../shared/types'
 import { MODES, type ModeId } from '../../shared/modes'
 import { THEMES } from '../styles/themes'
 import {
+  applyRunToAchievements,
+  countMergesAlongPath,
+  decodeAchievementProgress,
+  emptyAchievementProgress,
+  type AchievementId,
+  type AchievementProgress,
+} from '../../game/achievements'
+import {
   STORAGE_VERSION,
   describeStorageFailure,
   type RejectReason,
@@ -18,13 +26,14 @@ import {
  * 形状（SPEC §3.3）：
  *   · `records[mode][style]` 存 **最高分**与**最高 Tile**，一局只归**结算那一刻**
  *     所处的风格（mode-contract §3「成绩归结算那一刻所处的风格」）；
- *   · `stats` 存 **总局数、胜局、累计时长、成就解锁**。成就归 T18，所以
- *     `achievementUnlocks` 只声明、恒为空、原样带过——提前按 T18 的想象去塑造它，
- *     等于替一票未写的需求定型（与 settings.mute 占位同一个理由）。
+ *   · `stats` 存 **总局数、胜局、累计时长、成就解锁**。成就归 T18，本票只把
+ *     `achievements` 这个插槽接到 `src/game/achievements.ts` 的纯判定上——进度存在哪里、
+ *     怎么拒绝坏形状都由那边定，这里只负责搬它过「结算即作废 session」那道边界。
  *
  * **没有任何「这一局用过撤销」的标记，也没有「完美一局」标志**（ADR-0003 + SPEC §6）：
- * 用过撤销的一局与干净的一局在记录里逐字节同形。T18 要从 `history.length - moves`
- * 推什么是它自己的事，那不许变成记录的字段。
+ * 用过撤销的一局与干净的一局在记录里逐字节同形。T18 的两个「不使用撤销 / 不使用交换」
+ * 成就要的「曾经用过」在持久状态里不可推导（撤销弹掉前态后不留痕迹），按 owner 裁决
+ * 之前不实现、也不为它们加字段——见 achievements.ts 头注。
  */
 
 /** 两个新桶的名字（I/O 半边在 sessionStore.ts，两处必须一致） */
@@ -50,10 +59,14 @@ export interface StatsRecord {
   /** 累计时长（毫秒）。公式见 Settlement.timePlayedMs */
   timePlayedMs: number
   /**
-   * 成就解锁列表（T18）。本票只声明、恒为空、写盘时原样带过：
-   * 它是什么形状由 T18 定，这里替它定型只会造出两个互相矛盾的真话
+   * 成就进度（T18 · SPEC §3.3 的「achievement unlocks」）
+   *
+   * 形状与判据都在 `src/game/achievements.ts`：那一层是纯函数，本文件只管把它搬过
+   * 「结算即作废 session」那道边界。**缺这个字段不是错误**——T17 时代的 stats 没有它，
+   * 那时按「还没有任何成就进度」收（与 SessionRecord.startedAt 同一条理由：没给不是错，
+   * 给错了才是）；给了却对不上形状则整桶拒绝，绝不猜一个默认值。理由见 decodeStats。
    */
-  achievementUnlocks: readonly string[]
+  achievements: AchievementProgress
   /**
    * 上一次被数进统计的那一局的起始时刻 = 「结算只执行一次」的幂等键
    *
@@ -101,6 +114,23 @@ export interface Settlement {
   timePlayedMs: number
   /** 本局起始时刻；同时是统计的幂等键（StatsRecord.lastRunStartedAt） */
   startedAt: number | null
+  /**
+   * 本局合并次数（T18 的合并机器读它）
+   *
+   * 它只能沿**结算时的撤销路径**数：合并吞掉一个 Tile 身份、生成只新增身份，于是
+   * 相邻两个状态的「消失身份数」就是这一段完成的合并数（achievements.mergeCountBetween）。
+   * 所以结算必须把路径一起带来——而路径随 session 存档一起作废，能读的时刻与
+   * timePlayedMs 一样，只有作废之前（见 settlementOf 的 prior 参数）。
+   */
+  merges: number
+  /**
+   * 本局的 Daily UTC 日期串；非 Daily 为 null（T18 的每日坚守读它）
+   *
+   * 来源只能是 `SessionRecord.dailyDate`：种子是单向哈希，日期串从 initialSeed 反推
+   * 不回来（T08）。它不是规则数据，但必须跟着这一局活到结算那一刻，于是与 startedAt
+   * 同一条路——住 session 桶、在结算时由调用方带进来。
+   */
+  dailyDate: string | null
 }
 
 /** 读出来给界面看的一条记录。键里的身份与值里的数字在这里合起来 */
@@ -135,9 +165,12 @@ export type StatsParse =
  * `rejected` 是与「写不进去」并列的另一种失败：桶里的旧数据读不出来，于是**什么
  * 都不写**——把它静默重置成 0 比写不进去更糟（SPEC §3.3「不许假装持久化成功」）。
  * 界面上那句话由 notice 带着走。
+ *
+ * `unlocked` 是**这一次**新解锁的成就（T18 的即时提示靠它）：它由落库前后的进度相减
+ * 得到，只在真的写了盘的那一次存在。结算只执行一次，于是提示也只可能响一次。
  */
 export type SettlementWrite =
-  | { kind: 'written' }
+  | { kind: 'written'; unlocked: readonly AchievementId[] }
   | { kind: 'rejected'; notice: StorageNotice }
 
 /** 键就是身份：`records[mode][style]` 摊平后的那一个串（与 T16 的 e2e 种子值同一个口径） */
@@ -161,12 +194,19 @@ export function highestTileOf(board: Board): number {
  * `startedAt` 允许为 null：一个在 T17 之前开局的 session 恢复出来就是这个形状，
  * 那时本局时长无从得知（记 0，分数与最高方块照记）。这是为「不因为一个统计字段
  * 毁掉一局还能下的棋」付的代价，写在这里免得日后有人以为那是漏算。
+ *
+ * `prior` 是结算那一刻的**撤销路径**（store 的 history，索引 0 是开局那一个状态）。
+ * 它必须在这一刻传进来，是因为合并次数只能沿它数（见 Settlement.merges），而路径与
+ * session 存档一起在结算时作废——晚一步就没有了。`dailyDate` 同理：它是 session 桶
+ * 里的字段，不是规则数据，结算方不带过来就丢了。
  */
 export function settlementOf(
   game: GameState,
   styleId: StyleId,
   startedAt: number | null,
-  now: number
+  now: number,
+  prior: readonly GameState[],
+  dailyDate: string | null
 ): Settlement {
   return {
     modeId: game.modeId,
@@ -177,17 +217,20 @@ export function settlementOf(
     endReason: game.endReason,
     timePlayedMs: startedAt === null ? 0 : Math.max(0, now - startedAt),
     startedAt,
+    // 合并次数只能沿撤销路径数，判据在 achievements.countMergesAlongPath
+    merges: countMergesAlongPath(prior, game),
+    dailyDate,
   }
 }
 
-/** 从没结算过时的统计。四个数字全 0，成就恒空 */
+/** 从没结算过时的统计。四个数字全 0，成就进度为空 */
 export function emptyStats(): StatsRecord {
   return {
     version: STORAGE_VERSION,
     totalRuns: 0,
     wins: 0,
     timePlayedMs: 0,
-    achievementUnlocks: [],
+    achievements: emptyAchievementProgress(),
     lastRunStartedAt: null,
   }
 }
@@ -208,6 +251,13 @@ export function applySettlement(record: StyleRecord | null, settlement: Settleme
   }
 }
 
+/** 把一次结算并进统计的结论。`unlocked` 只装**这一次**新解锁的成就 */
+export interface StatsOutcome {
+  stats: StatsRecord
+  /** 本次新解锁的成就 id。空数组 = 这一局没有解锁任何成就 */
+  unlocked: readonly AchievementId[]
+}
+
 /**
  * 把一次结算并进统计。**同一次结算只数一次**（mode-contract §3「结算只执行一次」）。
  *
@@ -216,20 +266,32 @@ export function applySettlement(record: StyleRecord | null, settlement: Settleme
  * 那边本来就幂等，所以这里只管计数。
  *
  * 胜局数按 `reachedTarget` 而不按 `endReason`，理由写在 Settlement.reachedTarget 上。
+ *
+ * **成就进度与计数在同一条路上走**：`unlocked` 是「这一次新解锁了哪些」，由
+ * 落库前的进度与落库后的进度相减得到——不是界面上算出来的一份。界面提示因此只响一次：
+ * 刷新之后 hydrate 只读盘上那份已解锁列表，谁也不再算一次差。
  */
-export function applyRunToStats(stats: StatsRecord | null, settlement: Settlement): StatsRecord {
+export function applyRunToStats(
+  stats: StatsRecord | null,
+  settlement: Settlement
+): StatsOutcome {
   const previous = stats ?? emptyStats()
   if (settlement.startedAt !== null && settlement.startedAt === previous.lastRunStartedAt) {
-    return previous
+    // 已经数过这一局了。原样返回**同一个对象**（引用相等），调用方拿它当「什么都没发生」看
+    return { stats: previous, unlocked: [] }
   }
+  // 结算载荷与 RunFacts 结构同名（成就那边刻意不 import 渲染层的类型），直接递过去
+  const outcome = applyRunToAchievements(previous.achievements, settlement)
   return {
-    version: STORAGE_VERSION,
-    totalRuns: previous.totalRuns + 1,
-    wins: previous.wins + (settlement.reachedTarget ? 1 : 0),
-    timePlayedMs: previous.timePlayedMs + settlement.timePlayedMs,
-    // T18 的字段：本票一个字都不写，原样带过去
-    achievementUnlocks: previous.achievementUnlocks,
-    lastRunStartedAt: settlement.startedAt,
+    stats: {
+      version: STORAGE_VERSION,
+      totalRuns: previous.totalRuns + 1,
+      wins: previous.wins + (settlement.reachedTarget ? 1 : 0),
+      timePlayedMs: previous.timePlayedMs + settlement.timePlayedMs,
+      achievements: outcome.progress,
+      lastRunStartedAt: settlement.startedAt,
+    },
+    unlocked: outcome.unlocked,
   }
 }
 
@@ -300,12 +362,10 @@ export function decodeStats(raw: unknown): StatsParse {
   if (!isInteger(raw.totalRuns, 0)) return { kind: 'rejected', reason: 'shape' }
   if (!isInteger(raw.wins, 0)) return { kind: 'rejected', reason: 'shape' }
   if (!isInteger(raw.timePlayedMs, 0)) return { kind: 'rejected', reason: 'shape' }
-  if (
-    !Array.isArray(raw.achievementUnlocks) ||
-    raw.achievementUnlocks.some((item) => typeof item !== 'string')
-  ) {
-    return { kind: 'rejected', reason: 'shape' }
-  }
+  const achievements = decodeAchievementProgress(raw.achievements)
+  // 成就进度这一层只说形状（版本上面已经判过）：缺字段按「还没有进度」收，给了却对不上
+  // 形状则整桶拒绝——猜一个默认进度会造出「解锁了一半成就」的假象，而本地存储没有谁能修
+  if (achievements.kind === 'rejected') return { kind: 'rejected', reason: 'shape' }
   // 幂等键允许 null（从没结算过），否则必须是 ≥1 的整数——与 startedAt 同一道判据
   if (raw.lastRunStartedAt !== null && !isInteger(raw.lastRunStartedAt, 1)) {
     return { kind: 'rejected', reason: 'shape' }
@@ -317,7 +377,8 @@ export function decodeStats(raw: unknown): StatsParse {
       totalRuns: raw.totalRuns,
       wins: raw.wins,
       timePlayedMs: raw.timePlayedMs,
-      achievementUnlocks: raw.achievementUnlocks as readonly string[],
+      achievements:
+        achievements.kind === 'ok' ? achievements.progress : emptyAchievementProgress(),
       lastRunStartedAt: raw.lastRunStartedAt as number | null,
     },
   }

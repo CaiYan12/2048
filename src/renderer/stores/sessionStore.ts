@@ -304,10 +304,15 @@ export async function writeSettlement(settlement: Settlement): Promise<Settlemen
     parsedRecord.kind === 'ok' ? parsedRecord.record : null,
     settlement
   )
-  const stats = applyRunToStats(parsedStats.kind === 'ok' ? parsedStats.record : null, settlement)
+  const outcome = applyRunToStats(
+    parsedStats.kind === 'ok' ? parsedStats.record : null,
+    settlement
+  )
   await settleWrite(transaction, [
     fromRequest(recordsStore.put(record, key)),
-    fromRequest(statsStore.put(stats, SINGLETON_KEY)),
+    fromRequest(statsStore.put(outcome.stats, SINGLETON_KEY)),
   ])
-  return { kind: 'written' }
+  // 「这一次新解锁了哪些」跟着一次真正的写盘一起回来。界面上那句提示只从这里出，
+  // 而这里只在写成功时跑一次（结算只执行一次）——刷新之后没有人再算一次差
+  return { kind: 'written', unlocked: outcome.unlocked }
 }

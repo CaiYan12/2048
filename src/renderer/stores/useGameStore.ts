@@ -39,6 +39,7 @@ import {
   type RecordEntry,
   type StatsRecord,
 } from './records'
+import type { AchievementId } from '../../game/achievements'
 import {
   clearRun,
   readHistoryRaw,
@@ -141,6 +142,17 @@ export interface GameStore {
   records: readonly RecordEntry[]
   /** 基础统计（stats 桶）；null = 一次都还没结算过 */
   stats: StatsRecord | null
+  /**
+   * 这一次结算新解锁的成就；null = 没有待提示的解锁
+   *
+   * 它**不落盘**：解锁本身在 stats 桶里（Refresh 之后照旧看得到），而这一个字段只是
+   * 「刚才多出来的那几个」。落盘的话，刷新之后它会再响一次——那正是验收标准 3 要禁的。
+   * 也不从 stats 反推：反推就要比较「上一份」与「这一份」，而上一份在刷新之后就没了。
+   * 唯一来源是写盘那一层返回的差值，而结算只执行一次，于是提示也只可能响一次。
+   */
+  achievementNotice: readonly AchievementId[] | null
+  /** 收起解锁提示。提示是一次性事件，收起不是撤销解锁 */
+  dismissAchievementNotice(): void
   /** 换开局界面上选中的模式（T16：写 settings 桶）。不改动已经开的那一局 */
   selectMode(id: ModeId): void
   /** 换风格。只改呈现；同一 id 重复调用连 state 都不换 */
@@ -264,9 +276,9 @@ function clearPersistedRun(): void {
 /**
  * 结算的写入半边（T17）。
  *
- * **它在 session 存档被作废之前被调用**，终态与起始时刻都是当场从 store 取的：
- * T16 把「已结算的一局」定义为没有可恢复的东西，于是结算之后 session 就没了，
- * 能读到这局是什么的时刻只有作废之前。所以记录不是从内存里「补」出来的——
+ * **它在 session 存档被作废之前被调用**，终态、起始时刻、撤销路径与 Daily 日期都是
+ * 当场从 store 取的：T16 把「已结算的一局」定义为没有可恢复的东西，于是结算之后
+ * session 就没了，能读到这局是什么的时刻只有作废之前。所以记录不是从内存里「补」出来的——
  * 它是这一局终止那一刻的快照，与刷新后会看到的终局是同一个东西。
  *
  * 「结算只执行一次」有两层，缺一不可：
@@ -274,8 +286,16 @@ function clearPersistedRun(): void {
  *   2. `applyRunToStats` 的幂等键挡住**同一次结算被递进来两次**——写盘的那一方
  *      也要自己说了算，否则计数会变成 2（records.ts 的 StatsRecord.lastRunStartedAt）。
  */
-function persistSettlement(game: GameState, styleId: StyleId, startedAt: number | null): void {
-  const settlement = settlementOf(game, styleId, startedAt, Date.now())
+function persistSettlement(
+  game: GameState,
+  styleId: StyleId,
+  startedAt: number | null,
+  /** 结算那一刻的撤销路径：合并次数只能沿它数，而它随 session 存档一起作废 */
+  prior: readonly GameState[],
+  /** 本局的 Daily UTC 日期串；非 Daily 为 null（SessionRecord.dailyDate） */
+  dailyDate: string | null
+): void {
+  const settlement = settlementOf(game, styleId, startedAt, Date.now(), prior, dailyDate)
   void writeSettlement(settlement)
     .then((result) => {
       if (result.kind === 'rejected') {
@@ -289,7 +309,14 @@ function persistSettlement(game: GameState, styleId: StyleId, startedAt: number 
       // 的两份真相——那正是 T16 那批测试要抓的形态
       void loadSettled()
         .then((loaded) => {
-          useGameStore.setState({ records: loaded.records, stats: loaded.stats })
+          useGameStore.setState({
+            records: loaded.records,
+            stats: loaded.stats,
+            // 解锁提示只在这里出现一次：`unlocked` 是落库前后的进度相减，只在**真的
+            // 写了盘**的那一次存在。刷新之后 hydrate 只读盘上那份已解锁列表，谁也不再
+            // 算一次差——所以它不可能第二次响（T18 验收标准 3）
+            achievementNotice: result.unlocked.length > 0 ? result.unlocked : null,
+          })
         })
         .catch(reportWriteFailure)
     })
@@ -439,6 +466,8 @@ export const useGameStore = create<GameStore>()((set) => ({
   // 开局时两个新桶已经在 hydrate 里读过；这里是「还没读过」的诚实初值
   records: [],
   stats: null,
+  // 还没有解锁可提示：这个字段只在结算写盘成功的那一刻被填上（见 persistSettlement）
+  achievementNotice: null,
   // 开局界面上的选中项与风格同一性质：刷新之后该还选着玩家上次选的那个（T16 的
   // settings 桶）。它不随开局清空，也不受新游戏影响——选过什么模式是「设置」，
   // 不是「这一局在打哪个模式」
@@ -685,7 +714,7 @@ export const useGameStore = create<GameStore>()((set) => ({
         // abandoned 不写记录（mode-contract §3），而 settle 只从 stuck / won 进来，
         // 所以这道判断不是防御，是把「只有 ended 且不是放弃」这句话钉在写入点上
         if (next.endReason !== 'abandoned') {
-          persistSettlement(next, state.styleId, state.runStartedAt)
+          persistSettlement(next, state.styleId, state.runStartedAt, state.history, state.dailyDate)
         }
         clearPersistedRun()
       } else {
@@ -721,7 +750,7 @@ export const useGameStore = create<GameStore>()((set) => ({
       if (next.phase === 'ended') {
         // 超时结算同样写记录（T17），理由见上：它是一条结算路径，不是放弃
         if (next.endReason !== 'abandoned') {
-          persistSettlement(next, state.styleId, state.runStartedAt)
+          persistSettlement(next, state.styleId, state.runStartedAt, state.history, state.dailyDate)
         }
         clearPersistedRun()
       } else {
@@ -791,6 +820,10 @@ export const useGameStore = create<GameStore>()((set) => ({
   // 还没有提示，也还没有在读存档（false 由 hydrate 在读完之后落）
   storageNotice: null,
   restoring: true,
+  dismissAchievementNotice: () => {
+    // 只收摊这一句提示：解锁本身已经在盘上，收起它不碰 stats
+    useGameStore.setState({ achievementNotice: null })
+  },
   hydrate: () => {
     // 记一次正在进行的读：React StrictMode 会把挂载效果跑两遍，两遍读同一份
     // 才不会有两次 IndexedDB 读、两次 setState。读完就清空，之后还想再读可以再调

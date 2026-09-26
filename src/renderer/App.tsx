@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ModeId } from '../shared/modes'
+import { AchievementNotice } from './components/AchievementNotice'
 import { Board } from './components/Board'
 import { Countdown } from './components/Countdown'
 import { DailyDateLabel } from './components/DailyDateLabel'
@@ -36,6 +37,8 @@ import { useGameStore } from './stores/useGameStore'
  * 一次「我的一局好像没了」的闪烁。
  * T17 起同一批读取把记录与统计（records / stats 两个桶）一起带回来，外壳上多一个
  * 「战绩与统计」入口：开局前与局中都能看，它不盖棋盘、不抢焦点。
+ * T18 起同一个位置多一条**成就解锁提示**：一次解锁只出现一次（它由写盘那一次产生，
+ * 刷新不会重播），收起它不动盘上任何数据。
  */
 export default function App(): JSX.Element {
   // 外壳元素本身。字体重探需要它：这一套风格的字体栈挂在 data-style 上，
@@ -63,6 +66,8 @@ export default function App(): JSX.Element {
   const clearSwap = useGameStore((state) => state.clearSwap)
   const records = useGameStore((state) => state.records)
   const stats = useGameStore((state) => state.stats)
+  const achievementNotice = useGameStore((state) => state.achievementNotice)
+  const dismissAchievementNotice = useGameStore((state) => state.dismissAchievementNotice)
 
   // 战绩面板的开合。住在 App 而不是 store：它只被这一处用到，而 store 里的每个
   // 字段都会被 hydrate / setState 的字段表牵着走（T16 的形状判据就是这么变复杂的）
@@ -101,6 +106,12 @@ export default function App(): JSX.Element {
           棋盘都看得到的地方——写入失败是在打一局的过程中冒出来的，只在开局界面
           提示等于在玩家唯一还在玩的时刻闭嘴 */}
       {storageNotice !== null && <StorageNotice notice={storageNotice} />}
+      {/* 成就解锁提示（T18）。与存档那句同一个位置：结算发生在打一局的过程中，
+          只在开局界面提示等于在玩家唯一还在玩的时刻闭嘴。它由写盘结果带来，
+          一次解锁只出现一次，刷新不会重播（见 AchievementNotice 的头注） */}
+      {achievementNotice !== null && (
+        <AchievementNotice ids={achievementNotice} onDismiss={dismissAchievementNotice} />
+      )}
       {restoring ? (
         <section className="flex flex-col items-center gap-2 py-8">
           <h1 className="shell__title text-6xl">2048</h1>
