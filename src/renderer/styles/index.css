@@ -14,10 +14,13 @@
  *    切风格就可能换不掉字体。
  *
  *    --font-mono 故意不在这里映射：它是 Tailwind 自带主题的同名变量，alias 它
- *    会让 Tailwind 往 @layer theme 里吐一条 `--font-mono: var(--font-mono)`
- *    自引用声明（实测存在），只能靠 layer 顺序侥幸不死。而 Tailwind 的 font-mono
- *    utility 本身就是 `font-family: var(--font-mono)`，天然解析到 fonts.css 的
- *    值，无需再映射一次。等宽类由后续 ticket 按需再加。
+ *    只会让 Tailwind 往 @layer theme 里多吐一条 `--font-mono: var(--font-mono)`
+ *    自引用声明（实测存在），纯属重复造表——出了层 @layer theme 之后，fonts.css
+ *    那条**不在任何 layer 里**的 `:root{--font-mono:"JetBrains Mono",…}` 在级联中
+ *    稳定压过层内声明（未分层声明的优先级高于 @layer，这是规范行为不是巧合），
+ *    所以字体始终是 fonts.css 的值，不会坏。而 Tailwind 的 font-mono utility
+ *    本身就是 `font-family: var(--font-mono)`，天然解析到 fonts.css 的值，
+ *    无需再映射一次。等宽类由后续 ticket 按需再加。
  *
  * 3. 棋盘与方块层不用 Tailwind utility（ADR-0002、全局约束 3），那份样式在
  *    board.css，由后续 ticket 建立；Tailwind 只修饰外壳。

@@ -270,6 +270,11 @@ React 19 + TypeScript + Vite 8 + Tailwind 4 + Zustand（单 store，无 slice / 
 回退基线：`tailwindcss@3.4.19`（npm `v3-lts`）+ Vite 7 + Vitest 4 + plugin-react 5，理由见
 SDD ledger 的「依赖版本走当前」裁决。Node 需 `>=22.12.0`（`engines`）。
 
+关于 lockfile 的 registry：`package-lock.json` 里每条 `resolved` 都指向
+`registry.npmmirror.com`，因为这台机器在国内网络，走官方源装不动。**这是有意的**，
+不是谁手滑写进镜像——所以别去「修正」回 npmjs。也不要因此给仓库加 `.npmrc` 去 pin 镜像源：
+`npm ci` 严格按 lockfile 安装，pin 了既无效、又只会拖慢 ubuntu runner。
+
 六模式的规则声明在 `src/shared/modes.ts`；本次只实现 `classic`、`material`、`claude`
 三套基准风格，放在 `src/renderer/styles/themes/`。其余特色风格见 `README.md` 的 TODO。
 当前实现范围与验收见 `docs/SPEC.md`，纵向任务见 `docs/tickets/`；原阶段蓝图见
