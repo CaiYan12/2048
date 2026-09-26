@@ -1,5 +1,5 @@
 {
-  "$comment": "Classic 风格实际使用的文字 / 控件 / 焦点前景背景组合。ratio 是设计卡定稿时的实测值（WCAG 2.x 相对亮度公式），T14 的 check-contrast 从渲染后的 CSS 重新取色再算一遍，两边不一致或低于 minimum 即报错。空格（--cell-bg）与棋盘框（--board）不在表内：那是装饰性的明度层级，不承载信息，理由见 DESIGN.md 第 9 节。",
+  "$comment": "Classic 风格实际使用的文字 / 控件 / 焦点前景背景组合。ratio 是设计卡定稿时的实测值（WCAG 2.x 相对亮度公式），T14 的 check-contrast 从渲染后的 CSS 重新取色再算一遍，两边不一致或低于 minimum 即报错。空格（--cell-bg）与棋盘框（--board）不在表内：那是装饰性的明度层级，在经典模式里每个可玩格长得一模一样，那一对不承载信息（1.24:1，理由见 DESIGN.md 第 9 节）。**例外是障碍（T07）**：障碍与可玩空格在 Walls 模式里承载「哪些格能放方块」，所以另列一对；障碍与数值方块之间没有第二道比值要满足，判据是方块永远带数字、障碍永远不带，以及障碍色值落在方块阶梯的暖色之外（同样见 DESIGN.md 第 9 节）。",
   "styleId": "classic",
   "pairs": [
     {
@@ -36,6 +36,13 @@
       "background": "#faf8ef",
       "minimum": 3,
       "ratio": 9.01
+    },
+    {
+      "usage": "障碍格 vs 可玩空格（Walls 模式的四格固定障碍；玩家靠它认出「哪些格不能放方块」）",
+      "foreground": "#3f4a52",
+      "background": "#cdc1b4",
+      "minimum": 3,
+      "ratio": 5.14
     },
     {
       "usage": "方块 2 上的数值",

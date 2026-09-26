@@ -158,10 +158,10 @@ test('开局界面能选大棋盘：三个模式一个不多，25 格与目标 4
   const problems = watchProblems(page)
   await page.goto(SEED_URL)
 
-  // AVAILABLE_MODE_IDS 放宽到正好这三个：未实现的 walls / daily / time-attack
+  // AVAILABLE_MODE_IDS 放宽到正好这四个：未实现的 daily / time-attack
   // 不该以「不可点」的样子出现在界面上（StartScreen 不从 MODES 过滤）
   const modes = page.getByRole('group', { name: '模式' }).getByRole('button')
-  await expect(modes).toHaveText(['经典', '斐波那契', '大棋盘'])
+  await expect(modes).toHaveText(['经典', '斐波那契', '大棋盘', '障碍'])
 
   const bigBoard = page.getByRole('button', { name: '大棋盘' })
   await bigBoard.click()

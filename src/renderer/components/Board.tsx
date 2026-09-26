@@ -111,6 +111,10 @@ export function Board({ game, onMove }: Props): JSX.Element {
             <div
               key={`${row}-${col}`}
               className="board__cell"
+              // data-cell 是底板层的「这一格是什么」：T07 之前空格与障碍渲染得一模一样，
+              // 于是四格墙是四个看不见的洞。风格按它上色（board.css 的 [data-cell='wall']），
+              // 无障碍模式的每个格子都是 'empty'，行为与改动前一致。
+              data-cell={game.board[row][col] === 'wall' ? 'wall' : 'empty'}
               style={{ transform: `translate(${x}px, ${y}px)` }}
             />
           )

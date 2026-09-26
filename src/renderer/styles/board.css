@@ -41,6 +41,15 @@
   border-radius: var(--cell-radius, 6px);
 }
 
+/* 障碍（T07）：永不移动、永不合并、永不生成。
+   它与「可玩空格」必须分得开——那是「哪些格能放方块」在画面上的样子，这一对在
+   contrast.json 里按非文字指示器的 3:1 走。它与「数值方块」也必须分得开，判据有两条：
+   色值刻意落在方块阶梯的暖色之外（tokens.css 的 --wall-bg），以及**障碍不带数字**——
+   方块永远带数字，所以玩家不会朝障碍按方向键。 */
+.board__cell[data-cell='wall'] {
+  background: var(--wall-bg);
+}
+
 .board__tile {
   /* 阶梯默认值：超过 2048 的取值（4096 起）落在 --tile-beyond 上 */
   --tile-bg: var(--tile-beyond);
