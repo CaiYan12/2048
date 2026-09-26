@@ -83,7 +83,15 @@ describe('模式声明与冻结契约一致', () => {
     )
     const tiles = occupied.filter(({ cell }) => isTile(cell))
     expect(tiles).toHaveLength(contract.walls.initialTiles)
-    expect(tiles.every(({ cell }) => cell !== 'wall')).toBe(true)
+    // 引擎永不把方块放到障碍格上：契约冻结的这几个坐标必须原样是 'wall'。
+    // 原来这里断言的是「isTile 收窄之后的 cell !== 'wall'」——运行时恒真，抓不到
+    // 它声称要防的那个 bug（方块生在障碍上时那一格存的是 Tile，照样满足）。
+    // 改成逐坐标查墙：只要障碍坐标上出现数值方块，这条立刻炸。
+    // 说明：T03 的 store 只会开 classic（无墙），但引擎公开面 createGame('walls', seed)
+    // 是可走的，所以这条断言够得到真正带墙的棋盘，不需要退到更低层。
+    for (const [row, col] of contract.walls.blocked) {
+      expect(opening.board[row][col], `wall ${row},${col}`).toBe('wall')
+    }
     if (contract.walls.initialTilesMustBeDistinctCells) {
       expect(new Set(tiles.map(({ at }) => at)).size).toBe(contract.walls.initialTiles)
     }

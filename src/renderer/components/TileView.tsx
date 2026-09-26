@@ -2,7 +2,8 @@ import type { JSX } from 'react'
 import type { Tile } from '../../shared/types'
 import { tileDigits, tileLabel } from './TileLabel'
 
-export interface Props {
+// Props 保持局部：仓库里每个组件都只在自己文件里用，导出没有第二个消费者
+interface Props {
   tile: Tile
   row: number
   col: number

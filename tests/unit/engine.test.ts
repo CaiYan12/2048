@@ -216,3 +216,33 @@ describe('move：无效移动', () => {
     expect(tilesOf(outcome.state.board)).toHaveLength(16)
   })
 })
+
+/**
+ * 不可变性是撤销（T11）的全部依据：store 只要留着旧对象，历史就自然无限长
+ * （ADR-0003）。所以这里必须钉住「传入的那个对象一个字节都没被碰」——
+ *
+ * 只比引用是不够的：move 完全可以返回一个新对象，却顺手把旧棋盘里的 Tile
+ * 改掉（slideBoard 复制的是行数组，Tile 本身是共享的）。快照逐字段比对
+ * 才能抓住这种「新壳旧瓤」的污染，所以用 JSON 快照做主判，引用判断做兜底。
+ */
+describe('move：不可变过渡', () => {
+  test('一次合法移动之后，传入的 state 逐字段保持原样', () => {
+    // 局面同上：第 2 行会合并、会生成，状态对象的所有字段都会被新值覆盖
+    const before = stateWithBoard([
+      [4, 2, 4, 2],
+      [8, 4, 8, 4],
+      [2, 2, 4, 8],
+      [4, 2, 4, 2],
+    ])
+    const snapshot = JSON.stringify(before)
+
+    const outcome = move(before, 'left')
+
+    expect(outcome.changed).toBe(true)
+    // 旧对象没被就地改写——这是「留着旧对象就是完整历史」的前提
+    expect(JSON.stringify(before)).toBe(snapshot)
+    // 内容对了还得换个壳：连对象带棋盘都必须是新的
+    expect(outcome.state).not.toBe(before)
+    expect(outcome.state.board).not.toBe(before.board)
+  })
+})

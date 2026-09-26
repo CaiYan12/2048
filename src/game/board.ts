@@ -62,7 +62,6 @@ export function slideBoard(
   family: MergeFamily
 ): SlideResult {
   const merge = MERGE[family]
-  const size = board.length
   const next: Cell[][] = board.map((row) => [...row])
   let gained = 0
 
