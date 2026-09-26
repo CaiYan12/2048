@@ -122,6 +122,15 @@
 .board__tile[data-digits='5'] {
   font-size: calc(var(--cell-size) * 0.23);
 }
-.board__tile[data-digits='6'] {
+
+/* 末档不写死「正好 6 位」，而是 6～9 位共用：斐波那契合并表的项数上限卡在操作数之和上
+   （见 src/game/merge.ts 的 FIBONACCI_CEILING），最后进表的是 F42+F43 → 701408733，
+   九位数封顶。七位往上（1346269 起，TileLabel.ts 里记着这个阈值）在超长对局里真能落
+   到盘面上，只认 6 位的话这些方块会掉回上面 1 位档的 0.45 倍格边长、溢出格子。
+   上限哪天动，这一档要跟着加位数。 */
+.board__tile[data-digits='6'],
+.board__tile[data-digits='7'],
+.board__tile[data-digits='8'],
+.board__tile[data-digits='9'] {
   font-size: calc(var(--cell-size) * 0.2);
 }

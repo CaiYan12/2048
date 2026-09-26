@@ -29,8 +29,10 @@ const INERT_ROWS: (number | null)[][] = [
 
 /** 手铺一个只有该行会变的局面：input 压紧后贴在目标边那端，其余三行惰性且铺满 */
 function rowBoard(input: readonly number[], direction: 'left' | 'right'): (number | null)[][] {
-  const row: (number | null)[] = [null, null, null, null]
-  const start = direction === 'left' ? 0 : 4 - input.length
+  // 行宽从模式声明读，不写死 4：棋盘尺寸是 mode 的数据，这里再抄一份早晚和 modes.ts 长歪
+  const size = getMode('fibonacci').size
+  const row: (number | null)[] = Array.from({ length: size }, () => null)
+  const start = direction === 'left' ? 0 : size - input.length
   input.forEach((value, index) => {
     row[start + index] = value
   })
