@@ -23,6 +23,7 @@ import { createGestureTracker, type GestureTracker } from './GestureTracker'
 interface Props {
   game: GameState
   onMove(direction: Direction): void
+  onUndo(): void
 }
 
 /**
@@ -39,6 +40,19 @@ const MOVE_KEYS: Readonly<Record<string, Direction>> = {
   a: 'left',
   d: 'right',
 }
+
+/**
+ * 撤销键（T11，ADR-0003）。与 MOVE_KEYS 并排放，为的是让两条键位** visibly 共用
+ * 同一条查表路子**：查表前先 toLowerCase，所以 Shift+Z 的 `Z` 自动命中同一个键，
+ * WASD 的大写也是这样命中的——不必为大写单列一行。加撤销键只改这一处。
+ *
+ * **为什么不是 Ctrl+Z**：那个组合在浏览器与操作系统里已经被占用（多数桌面是文本
+ * 撤销，有的路径被浏览器自身吃掉），而本项目的撤销不是文本编辑撤销，是把一局游戏
+ * 推回上一步；共用一个手势只会让玩家在「不知道哪一个会生效」的地方按错。处理器里
+ * 因此另有一条「带 Ctrl / Meta / Alt 的 z 一律不撤销」，把这个决定做到底。
+ * `u` 也考虑过：它不撞车，但读起来像菜单助记键，不像一个游戏动作。
+ */
+const UNDO_KEYS: Readonly<Record<string, boolean>> = { z: true }
 
 /** 键盘事件落在交互控件上就放行：它们要保留原生键盘行为（SPEC §3.4） */
 function isInteractiveTarget(target: EventTarget | null): boolean {
@@ -67,7 +81,7 @@ function useCellSize(size: number): number {
  * 插槽永远从风格配置解构出来渲染，不写死成 null——否则 T13/T15 想加装饰时
  * 又得回来改这个组件。
  */
-export function Board({ game, onMove }: Props): JSX.Element {
+export function Board({ game, onMove, onUndo }: Props): JSX.Element {
   const mode = getMode(game.modeId)
   const theme = getTheme(DEFAULT_THEME_ID)
   // 插槽的数据名叫 boardOverlay / tileOverlay（interface sheet 定的形状），
@@ -85,10 +99,21 @@ export function Board({ game, onMove }: Props): JSX.Element {
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (isInteractiveTarget(event.target)) return
-    const direction = MOVE_KEYS[event.key.toLowerCase()]
-    if (!direction) return
-    event.preventDefault()
-    onMove(direction)
+    const key = event.key.toLowerCase()
+    const direction = MOVE_KEYS[key]
+    if (direction) {
+      event.preventDefault()
+      onMove(direction)
+      return
+    }
+    // 带修饰键的 z 不算撤销：Ctrl+Z / Cmd+Z 是浏览器与操作系统的文本撤销，本项目
+    // 刻意不给它让路（见 UNDO_KEYS 的说明）。放行的意义是让浏览器照旧处理它自己的
+    // 组合，而不是被棋盘吃掉。移动键不改这条——那是既有行为，这票不动它。
+    if (event.ctrlKey || event.metaKey || event.altKey) return
+    if (UNDO_KEYS[key]) {
+      event.preventDefault()
+      onUndo()
+    }
   }
 
   // 手势起点只进 ref，不进 state：拖动过程中没有任何东西要显示它，而每帧

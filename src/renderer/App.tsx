@@ -16,13 +16,16 @@ import { useGameStore } from './stores/useGameStore'
  * 这里只做编排——规则在 src/game/，呈现规则在 themes/<id>/，状态在单 store。
  * T04 起按 phase 挂面板：won → 胜利里程碑，stuck / ended → 死局与终局。
  * T09 起按 deadline 挂倒计时：限时模式才读表，其余模式的 deadline 是 null。
- * 撤销（T11）与作弊交换（T12）将来加在死局面板上，不预埋结构。
+ * T11 起把撤销接到死局面板与键盘 z 上：面板只在 stuck 时给它留入口（ended 之后
+ * 不可用，那道判断在 store 的 undo 里），键盘那条路在 won 阶段同样有效——
+ * mode-contract §3 只禁 ended 之后的撤销。作弊交换是 T12 的事，这里不预埋。
  */
 export default function App(): JSX.Element {
   const game = useGameStore((state) => state.game)
   const dailyDate = useGameStore((state) => state.dailyDate)
   const startRun = useGameStore((state) => state.startRun)
   const move = useGameStore((state) => state.move)
+  const undo = useGameStore((state) => state.undo)
   const continueRun = useGameStore((state) => state.continueRun)
   const settle = useGameStore((state) => state.settle)
   const newGame = useGameStore((state) => state.newGame)
@@ -53,12 +56,17 @@ export default function App(): JSX.Element {
               不能塞进 .board：那层是 ADR-0002 的固定 DOM 结构。w-fit 让这个壳正好
               裹住棋盘，面板 inset:0 才只盖住棋盘，不会横铺整个页面。 */}
           <div className="relative w-fit">
-            <Board game={game} onMove={move} />
+            <Board game={game} onMove={move} onUndo={undo} />
             {game.phase === 'won' && (
               <WinPanel onContinue={continueRun} onSettle={settle} onNewGame={newGame} />
             )}
             {(game.phase === 'stuck' || game.phase === 'ended') && (
-              <GameOverPanel game={game} onSettle={settle} onNewGame={newGame} />
+              <GameOverPanel
+                game={game}
+                onSettle={settle}
+                onNewGame={newGame}
+                onUndo={undo}
+              />
             )}
           </div>
           {/* 屏幕方向按钮（T10）：外壳元素，与 Board 平级——ADR-0002 的棋盘固定
@@ -77,8 +85,11 @@ export default function App(): JSX.Element {
               </button>
               <p className="hint">
                 {/* 两句话按输入设备二选一（T10）：触摸设备上没有方向键也没有 WASD，
-                    摆着那一版是在骗人。判据与方向按钮同一条 pointer: coarse */}
-                <span className="hint__pointer">方向键或 WASD 移动方块</span>
+                    摆着那一版是在骗人。判据与方向按钮同一条 pointer: coarse。
+                    Z 撤销只写在前一句里：键盘用户才用得上它，触摸设备的撤销入口是
+                    死局面板上的「撤销」按钮。快捷键不写出来等于没有——这票加的就是
+                    一条没人告诉玩家的隐藏键。 */}
+                <span className="hint__pointer">方向键或 WASD 移动方块，Z 撤销</span>
                 <span className="hint__touch">滑动或点方向按钮移动方块</span>
               </p>
             </>

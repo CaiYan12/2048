@@ -6,6 +6,8 @@ interface Props {
   game: GameState
   onSettle(): void
   onNewGame(): void
+  /** 撤销一步（T11）。只摆在还没结算的死局面板上——ended 之后一律不可用 */
+  onUndo(): void
 }
 
 /**
@@ -18,10 +20,13 @@ interface Props {
  * 「为什么结束」从 game.endReason 读，不靠面板自己推断（SPEC 用户故事 7）：
  * 死局与超时必须是两句不同的话，读懂 endReason 即可。
  *
- * T04 只给「结束并记录」和「新游戏」。撤销与交换是 T11 / T12 的事：那两个按钮
- * 将来加在同一个面板上；这里连禁用的占位都不放——一个点不动的按钮只会被当成 bug。
+ * T04 只给「结束并记录」和「新游戏」。T11 在这里补「撤销」——mode-contract §3 的
+ * `stuckRecoveryMoves: ["undo", "swap"]` 说明死局是**可恢复**的，而 T12 的作弊交换
+ * 将来摆在它旁边。已结算那一侧什么都不加：进入 ended 后撤销一律不可用
+ * （mode-contract §3 关键不变量 4），那道判断住在 store 的 undo 里，面板只是照着
+ * phase 决定露不露入口。
  */
-export function GameOverPanel({ game, onSettle, onNewGame }: Props): JSX.Element {
+export function GameOverPanel({ game, onSettle, onNewGame, onUndo }: Props): JSX.Element {
   const settled = game.phase === 'ended'
 
   return (
@@ -39,6 +44,10 @@ export function GameOverPanel({ game, onSettle, onNewGame }: Props): JSX.Element
           </button>
         ) : (
           <>
+            {/* 撤销摆在最前：死局是给玩家反悔的，不是给玩家认命的 */}
+            <button type="button" className="control" onClick={onUndo}>
+              撤销
+            </button>
             <button type="button" className="control" onClick={onSettle}>
               结束并记录
             </button>

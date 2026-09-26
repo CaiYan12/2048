@@ -19,6 +19,14 @@ import { seedFromSearch } from './seed'
 export interface GameStore {
   game: GameState | null // null = 尚未开局
   /**
+   * 前一状态栈。索引 0 是本局第一次有效移动之前的那一个状态，越往后越新。
+   *
+   * 无上限、不截断、不做环形缓冲（ADR-0003：撤销要能一路回到开局，「第 N 步之前
+   * 是什么」必须全在）。`startRun` 与 `newGame` 把它清空——开局棋盘就是 `game`
+   * 自己，历史里没有比它更早的东西，所以**从开局撤销不可能，也不会绕回第 N 步**。
+   */
+  history: readonly GameState[]
+  /**
    * Daily 这一局的 UTC 日期串（'YYYY-MM-DD'）；非 Daily 模式为 null
    *
    * 为什么它不住进 GameState：它是**外壳要显示的一句话**，不是规则数据。规则数据是
@@ -29,6 +37,8 @@ export interface GameStore {
   dailyDate: string | null
   startRun(modeId: ModeId): void
   move(direction: Direction): void
+  /** 撤销一步：把栈顶那个完整前态搬回 game。空栈与已结算都是原样返回 */
+  undo(): void
   /** 从胜利面板继续玩：分数与棋盘保留，phase 由引擎判回 playing 还是 stuck */
   continueRun(): void
   /** 结束并记录：死局与胜利面板都进得去；幂等（结算只执行一次） */
@@ -63,6 +73,8 @@ function drawDailySeed(): { seed: number; date: string } {
 export const useGameStore = create<GameStore>()((set) => ({
   game: null,
   dailyDate: null,
+  // 还没开局，也就没有历史可言：空栈让开局后的第一次撤销必然空操作
+  history: [],
   startRun: (modeId) => {
     // 种子在这里抽：store 是调用方，Math.random 与 UTC 日期都由它取
     // （ADR-0001 禁的是 src/game/ 自己抽，不是禁调用方抽）。
@@ -81,6 +93,9 @@ export const useGameStore = create<GameStore>()((set) => ({
         fixtureFromQuery(window.location.search, modeId, seed, now) ??
         createGame(modeId, seed, now),
       dailyDate: daily?.date ?? null,
+      // 每一局的历史从空开始：开局棋盘就是 game 自己，往前没有更早的状态。
+      // 「新游戏」同样在这里清空（见 newGame），否则新一局能撤回到上一局去。
+      history: [],
     })
   },
   move: (direction) => {
@@ -89,7 +104,36 @@ export const useGameStore = create<GameStore>()((set) => ({
       const outcome = move(state.game, direction)
       // 无效移动连 state 都不换：React 看到同一个对象就直接跳过重渲染。
       // 面板挡着（won / stuck / ended）时 move 也返回同一个对象，同理。
-      return outcome.changed ? { game: outcome.state } : state
+      if (!outcome.changed) return state
+      // 只有真的走通了一步，才把**移动前**那个状态收进历史。判据就是 changed：
+      // 无效移动时引擎原样返回同一个引用（engine.move 的两条早退），所以「棋盘
+      // 根本没变」已经包含在 changed 里，再补一道引用比较是多余的。这条性质由
+      // tests/unit/undo.test.ts 钉着，不在这里靠「相信引擎」活着。
+      //
+      // 展开成新数组而不是 push：history 对外是 readonly，原地改会绕过 zustand
+      // 的引用相等比较，撤销后的重渲染就漏了。代价是每次 O(n)——长局因此是
+      // O(n²)，mode-contract §4 要求实测这个成本（task-11 的测量那一笔），
+      // 现在既没有上限也没有环形缓冲，ADR-0003 禁的就是悄悄丢历史。
+      return { game: outcome.state, history: [...state.history, state.game] }
+    })
+  },
+  undo: () => {
+    set((state) => {
+      if (!state.game) return state
+      // 空栈 = 已经撤回开局（开局棋盘就是 game 自己），原样返回：
+      // 绝不能绕回第 N 步，那等于把开局和历史尾巴缝成一个环。
+      if (state.history.length === 0) return state
+      // mode-contract §3：「进入 ended 后，Undo 与作弊交换一律不可用」。
+      // 三个终局原因（deadlock / abandoned / timeout）共用这一条守卫。
+      // 写在 store 而不是面板里，是因为 T12 的作弊交换要的是同一条守卫——
+      // 面板各自判断的话，那条规则在仓库里就会出现两份。
+      if (state.game.phase === 'ended') return state
+      // 弹栈顶，不递归：栈是数组，一步撤销就是换两个字段。
+      // stuck 不是终局（mode-contract §3），所以死局面板上的「撤销」走这条路。
+      return {
+        game: state.history[state.history.length - 1],
+        history: state.history.slice(0, -1),
+      }
     })
   },
   continueRun: () => {
@@ -133,7 +177,13 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 那条缝只在开局那一刻读（T03 起的行为，T04/T06/T07 的 e2e 依赖它不变）。
       const daily = modeId === 'daily' ? drawDailySeed() : null
       const seed = daily?.seed ?? drawSeed()
-      return { game: createGame(modeId, seed, Date.now()), dailyDate: daily?.date ?? null }
+      // 新一局的历史从空开始：撤销的边界是「本局的开局」，跨不过「新游戏」这道墙。
+      // 不这么做的话，新一局能一路撤回到上一局的棋盘上。
+      return {
+        game: createGame(modeId, seed, Date.now()),
+        dailyDate: daily?.date ?? null,
+        history: [],
+      }
     })
   },
 }))
