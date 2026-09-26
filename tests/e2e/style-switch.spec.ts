@@ -122,6 +122,15 @@ test('material → classic → material 与完全不切换的同一 seed 同一�
   // 开局局面与对照组逐格一致
   expect(await readRun(page)).toEqual(controlStart)
 
+  // 点风格按钮把焦点从棋盘上带走了。方向键只在棋盘是事件目标时才生效——这不是巧合，
+  // 是被钉住的契约（game.spec.ts「移动键只在棋盘是预定目标时生效」：焦点不在棋盘上时
+  // 同一个键不许推动棋盘）。所以按键序列之前要先把焦点还回棋盘，仓库里每个走键盘的
+  // 用例都是这么办的（swap.spec.ts 的 :183 / :240 / :438）。
+  // 对照组不需要这一步：它点完「开始游戏」就直接由 Board 的挂载 effect 拿到了焦点。
+  // 少了这一行，三个方向键全都落在风格按钮上、一个 Move 都不产生，
+  // 「同 seed 同按键序列」这条就退化成了「根本没走完序列」
+  await page.locator('[data-board]').focus()
+
   await page.keyboard.press('ArrowUp')
   await page.keyboard.press('ArrowLeft')
   await page.keyboard.press('ArrowDown')
@@ -225,9 +234,13 @@ test('同一副棋盘在两套风格下渲染出不同的方块色，且 Classic
 test('data-rank 是阶梯位置、data-bucket 是色档：两套语义不混', async ({ page }) => {
   const problems = watchProblems(page)
 
-  // 斐波那契 17 级阶梯压到 11 档：rank 一路到 17，bucket 只到 11
+  // 斐波那契 17 级阶梯压到 11 档：rank 一路到 17，bucket 只到 11。
+  // **必须先点「斐波那契」再开局**：模式没有 URL 入口（fibonacci.spec.ts 的文件头
+  // 写明了理由），不点就是默认的 classic——而盘面上这些值一个都不在 classic 的
+  // 11 级阶梯里，整盘会落到 beyond 档，这张表证的就不是斐波那契的分档算术了
   const fibBoard = '1,2,3,5,8,13,21,34,55,89,144,233,377,610,987,1597'
   await page.goto(`/?board=${fibBoard}`)
+  await page.getByRole('button', { name: '斐波那契' }).click()
   await page.getByRole('button', { name: '开始游戏' }).click()
   await expect(page.locator('[data-board]')).toBeVisible()
 
@@ -263,10 +276,12 @@ test('data-rank 是阶梯位置、data-bucket 是色档：两套语义不混', a
     [1597, 16, 11],
   ])
 
-  // 16 枚方块只用到 11 个色档里的 9 个：rank 到 16 而 bucket 到 11，两个语义确实分开
+  // 11 个色档全用上，rank 却一路到 16：两个语义确实分开。bucket 会撞车（3 与 5 同档、
+  // 13 与 21 同档），rank 从不撞车——把两者混成一个数字，撞车的那几行会立刻看得出来
   const slots = new Set(seen.map((tile) => tile.slot))
   expect(slots.size).toBeLessThan(seen.length)
   expect(Math.max(...seen.map((tile) => tile.slot))).toBe(11)
+  expect(new Set(seen.map((tile) => tile.rank)).size).toBe(seen.length)
 
   expect(problems).toEqual([])
 })
