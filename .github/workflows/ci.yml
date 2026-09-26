@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # lockfile 已提交，CI 用 npm ci 保证装的就是仓库验过的那一版
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # P0 阶段这里是零测试通过，只证明 vitest 装配正确（vitest.config.ts 的
+      # passWithNoTests 有同样说明）；第一条真实单测落下后必须撤掉该开关
+      - run: npm test
+
+      - run: npm run build
+
+      # 部署与 Pages 发布留给 T24：GOAL 明确暂不上线，这里不配置部署任务，
+      # 也不申请 pages 写权限。仓库子路径 base 已在 vite.config.ts 设好。

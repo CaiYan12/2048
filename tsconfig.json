@@ -1,0 +1,28 @@
+{
+  // strict 全开；以下三项按房子风格保持关闭（开它们会让棋盘/方块那类
+  // 索引访问与可选属性代码到处都是收窄噪音，收益不抵成本）：
+  //   noUncheckedIndexedAccess / exactOptionalPropertyTypes / verbatimModuleSyntax
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
+  },
+  // 配置文件一并纳入检查：vite/vitest/playwright 的配置写错要在 typecheck 暴露，
+  // 而不是等到跑 scripts 时才炸。
+  "include": [
+    "src",
+    "tests",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts"
+  ]
+}

@@ -2,9 +2,9 @@
 
 设定日期：2026-09-26 · 由项目所有者指定
 
-> **关于「/goal」**：本机不存在 `/goal` 技能或工具（已核查 `~/.agents/skills`、
-> `~/.claude/skills`、superpowers 插件缓存三处）。因此改以本文件 + 项目记忆
-> 固化目标。后续 session 读到本文件即视为目标仍然有效。
+> **关于「/goal」**：`/goal` 是 **Claude Code 的内置模式**，不是技能——通过 session-scoped
+> Stop hook 生效，会话退出即清除。本文件不是它的替代品，而是把同一份目标与约束写进仓库，
+> 让它跨 session 可查、对每个读到仓库的 agent 生效。两者并存，不冲突。
 
 ## 目标
 
