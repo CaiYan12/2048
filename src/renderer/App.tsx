@@ -1,10 +1,11 @@
-import { useEffect, useRef, type JSX } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ModeId } from '../shared/modes'
 import { Board } from './components/Board'
 import { Countdown } from './components/Countdown'
 import { DailyDateLabel } from './components/DailyDateLabel'
 import { DirectionPad } from './components/DirectionPad'
 import { GameOverPanel } from './components/GameOverPanel'
+import { StatsPanel } from './components/StatsPanel'
 import { StatusBar } from './components/StatusBar'
 import { StorageNotice } from './components/StorageNotice'
 import { StartScreen } from './components/StartScreen'
@@ -33,6 +34,8 @@ import { useGameStore } from './stores/useGameStore'
  * T16 起在挂载时读一次存档：刷新之后这一局接着打。读存档是异步的，所以第一帧
  * 显示的是「正在恢复」而不是开局界面——先把开局界面画出来再撤掉，玩家看见的就是
  * 一次「我的一局好像没了」的闪烁。
+ * T17 起同一批读取把记录与统计（records / stats 两个桶）一起带回来，外壳上多一个
+ * 「战绩与统计」入口：开局前与局中都能看，它不盖棋盘、不抢焦点。
  */
 export default function App(): JSX.Element {
   // 外壳元素本身。字体重探需要它：这一套风格的字体栈挂在 data-style 上，
@@ -58,6 +61,12 @@ export default function App(): JSX.Element {
   const toggleSwap = useGameStore((state) => state.toggleSwap)
   const selectCell = useGameStore((state) => state.selectCell)
   const clearSwap = useGameStore((state) => state.clearSwap)
+  const records = useGameStore((state) => state.records)
+  const stats = useGameStore((state) => state.stats)
+
+  // 战绩面板的开合。住在 App 而不是 store：它只被这一处用到，而 store 里的每个
+  // 字段都会被 hydrate / setState 的字段表牵着走（T16 的形状判据就是这么变复杂的）
+  const [statsOpen, setStatsOpen] = useState(false)
 
   const handleStart = (modeId: ModeId): void => {
     startRun(modeId)
@@ -186,6 +195,27 @@ export default function App(): JSX.Element {
                 <span className="hint__touch">滑动或点方向按钮移动方块</span>
               </p>
             </>
+          )}
+        </div>
+      )}
+
+      {/* 战绩与统计（T17 · 用户故事 22）。摆在两个分支**外面**：开局前看得到
+          「上一局留下了什么」，局中也看得到，而入口只有一个——同一个组件、同一个
+          按钮，不按 phase 分叉。它是 `.board` 的兄弟（ADR-0002 的固定 DOM 不许
+          往棋盘里塞东西），所以打开它不盖棋盘、也不打断这一局；键盘到达它走普通
+          Tab 顺序，不带 autofocus——一把焦点从棋盘上拽走，玩家会以为这局被打断了。 */}
+      {!restoring && (
+        <div className="mt-4 flex flex-col items-center gap-4">
+          <button
+            type="button"
+            className="control"
+            aria-expanded={statsOpen}
+            onClick={() => setStatsOpen((open) => !open)}
+          >
+            战绩与统计
+          </button>
+          {statsOpen && (
+            <StatsPanel records={records} stats={stats} onClose={() => setStatsOpen(false)} />
           )}
         </div>
       )}

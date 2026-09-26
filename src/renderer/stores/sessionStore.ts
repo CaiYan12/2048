@@ -5,27 +5,56 @@ import {
   SETTINGS_STORE,
   SINGLETON_KEY,
   STORAGE_DB_NAME,
-  STORAGE_VERSION,
+  restoreNotice,
   type HistoryDelta,
   type SessionRecord,
   type SettingsRecord,
 } from './session'
+import {
+  RECORDS_STORE,
+  STATS_STORE,
+  applyRunToStats,
+  applySettlement,
+  decodeStats,
+  decodeStyleRecord,
+  recordKey,
+  type Settlement,
+  type SettlementWrite,
+} from './records'
 
 /**
  * 本地存储的 I/O 半边：IndexedDB 的打开、读写、失败翻译
  *
- * 判定（旧版 / 损坏 / 形状）全部在 ./session.ts，这里**只搬字节**：把平台错误
- * 变成一个拒绝的 Promise，把「一条记录 / 一条历史」变成一个事务。
+ * 判定（旧版 / 损坏 / 形状）全部在 ./session.ts 与 ./records.ts，这里**只搬字节**：
+ * 把平台错误变成一个拒绝的 Promise，把「一条记录 / 一条历史」变成一个事务。
  *
  * 为什么只有 IndexedDB，没有 localStorage 退路：localStorage 只能整体存一个值，
  * 而撤销路径是几百 KB 到几 MB 的数组——走它就得每步把整条历史重新序列化一遍，
  * 那正是 T11 实测出不划算的形态（10,000 次累计约 30 GB）。存储不可用时诚实的
  * 做法是**说清楚存不了**（mode-contract §4 的写入失败条款），而不是换一个
  * 把同一件事做得更贵的后端。SPEC §6 也把后端排除在外，这里纯本地。
+ *
+ * T17 起这个文件多管两个桶：`records`（按 `${modeId}:${styleId}` 一个键一条）与
+ * `stats`（单例）。它们的纯逻辑半边在 ./records.ts，这里仍然只搬字节。
  */
 
-/** 数据库版本。与存档格式版本同一个数是巧合而不是依赖：两者各升各的 */
-const DB_VERSION = 1
+/**
+ * 数据库版本。**T17 从 1 涨到 2**：新桶必须靠 onupgradeneeded 才建得出来，
+ * 而那个回调只在版本号变大时才跑——不涨的话，已经打开过一次 v1 的浏览器永远
+ * 看不到 records / stats 两个对象存储，之后每一次写都会撞 NotFoundError。
+ * 它与会话记录的 version（session.ts 的 STORAGE_VERSION）各升各的：一个说
+ * 「库里有哪几个桶」，一个说「一条记录是什么形状」。
+ */
+const DB_VERSION = 2
+
+/** 五个桶的建库清单。顺序无含义，逐个 contains 判断 */
+const BUCKETS: readonly string[] = [
+  SETTINGS_STORE,
+  SESSION_STORE,
+  HISTORY_STORE,
+  RECORDS_STORE,
+  STATS_STORE,
+]
 
 /** 打开过一次就留着：每步都 open 一次是把一次网络往返换成一次本地握手 */
 let connection: Promise<IDBDatabase> | null = null
@@ -35,18 +64,13 @@ function openStorage(): Promise<IDBDatabase> {
     const request = indexedDB.open(STORAGE_DB_NAME, DB_VERSION)
     request.onupgradeneeded = () => {
       const db = request.result
-      // 三个桶只建两个：records / stats 归 T17 / T18（本票不替它们定型，
-      // 见 session.ts 文件头）。history 用**外联键**（数字索引），不开 keyPath：
-      // 键就是「第几条前态」，撤销弹掉第 n 条就是 delete(n)，与 New Game 的 clear
-      // 是同一套索引口径。
-      if (!db.objectStoreNames.contains(SETTINGS_STORE)) {
-        db.createObjectStore(SETTINGS_STORE)
-      }
-      if (!db.objectStoreNames.contains(SESSION_STORE)) {
-        db.createObjectStore(SESSION_STORE)
-      }
-      if (!db.objectStoreNames.contains(HISTORY_STORE)) {
-        db.createObjectStore(HISTORY_STORE)
+      // 一张清单建齐五个桶（T17 加 records / stats 两个，见 DB_VERSION 为什么涨）。
+      // history 用**外联键**（数字索引），不开 keyPath：键就是「第几条前态」，
+      // 撤销弹掉第 n 条就是 delete(n)，与 New Game 的 clear 是同一套索引口径。
+      for (const name of BUCKETS) {
+        if (!db.objectStoreNames.contains(name)) {
+          db.createObjectStore(name)
+        }
       }
     }
     request.onsuccess = () => {
@@ -197,8 +221,8 @@ export async function saveRun(record: SessionRecord, delta: HistoryDelta): Promi
 
 /**
  * 放弃这一局：清 session 记录 + 整条撤销历史。**绝不动 records / stats**
- * （验收标准 3 的「不擦除已结算数据」——那两个桶 T17 才有写入方，本 Ticket 连
- * 对象存储都不为它们建，所以想擦也擦不到）
+ * （验收标准 3 的「不擦除已结算数据」——那两个桶由 T17 的 records.ts 定形状，
+ * 这里只有结算那一条写入路径碰得到它们，而它只在结算时被调用）
  */
 export async function clearRun(): Promise<void> {
   const db = await openStorage()
@@ -208,4 +232,82 @@ export async function clearRun(): Promise<void> {
     fromRequest(transaction.objectStore(HISTORY_STORE).clear()),
   ]
   await settleWrite(transaction, requests)
+}
+
+// ─── T17：战绩与统计 ─────────────────────────────────────────────────────────
+
+/**
+ * 读出全部记录（键 + 值成对给出）。
+ *
+ * 键与值分开读再配对，是因为**身份在键里**（`${modeId}:${styleId}`）而值里只有数字。
+ * 那正是 T16 的 e2e 往 records 桶摆种子值时的形状（`put({bestScore, highestTile},
+ * 'classic:material')`），本票沿用同一个口径，不另造一套「值里再抄一遍身份」的形状——
+ * 抄一份就能对不上，而对不上的两份身份没有裁判。
+ */
+export async function readRecordsEntries(): Promise<readonly { key: string; value: unknown }[]> {
+  const db = await openStorage()
+  const store = db.transaction(RECORDS_STORE, 'readonly').objectStore(RECORDS_STORE)
+  // getAllKeys 与 getAll 按键同一顺序给，逐位配上即可
+  const [keys, values] = await Promise.all([
+    fromRequest(store.getAllKeys()),
+    fromRequest(store.getAll()),
+  ])
+  return (keys as IDBValidKey[]).map((key, index) => ({
+    key: String(key),
+    value: (values as unknown[])[index],
+  }))
+}
+
+/** 统计桶读出来（判定归 records.ts 的 decodeStats） */
+export async function readStatsRaw(): Promise<unknown> {
+  const db = await openStorage()
+  const store = db.transaction(STATS_STORE, 'readonly').objectStore(STATS_STORE)
+  const raw = await fromRequest(store.get(SINGLETON_KEY))
+  return raw ?? null
+}
+
+/**
+ * 写一次结算：records 与 stats **同一个事务**。
+ *
+ * 为什么必须同事务：一条记录说「最高分涨了」，统计就得说「总局数 +1」。分两次写的
+ * 话，中间崩一次会留下一对互相矛盾的数字（分数变了、局数没变），而那对数字谁都不能
+ * 修——本地存储没有谁能修。与 saveRun 把 session 与 history 放进同一个事务是同一条理由。
+ *
+ * 读也在这个事务里（get 之后再 put，中间不落事件循环）：先读后写，才能保证「在旧值
+ * 之上取 max」这件事读到的确实是旧值，而不是上一次写盘留下的中间态。
+ *
+ * **读不出来就什么都不写**，返回 rejected 而不是抛：桶里的旧数据读不得时，
+ * 静默重置成 0 比写不进去更糟（SPEC §3.3「不许假装持久化成功」）。界面上那句话
+ * 由返回值带着走，磁盘上那份原样留着。
+ */
+export async function writeSettlement(settlement: Settlement): Promise<SettlementWrite> {
+  const db = await openStorage()
+  const transaction = db.transaction([RECORDS_STORE, STATS_STORE], 'readwrite')
+  const recordsStore = transaction.objectStore(RECORDS_STORE)
+  const statsStore = transaction.objectStore(STATS_STORE)
+  const key = recordKey(settlement.modeId, settlement.styleId)
+
+  const rawRecord = fromRequest(recordsStore.get(key))
+  const rawStats = fromRequest(statsStore.get(SINGLETON_KEY))
+  const [existingRecord, existingStats] = await Promise.all([rawRecord, rawStats])
+
+  const parsedRecord = decodeStyleRecord(existingRecord)
+  if (parsedRecord.kind === 'rejected') {
+    return { kind: 'rejected', notice: restoreNotice(parsedRecord.reason, 'records') }
+  }
+  const parsedStats = decodeStats(existingStats)
+  if (parsedStats.kind === 'rejected') {
+    return { kind: 'rejected', notice: restoreNotice(parsedStats.reason, 'stats') }
+  }
+
+  const record = applySettlement(
+    parsedRecord.kind === 'ok' ? parsedRecord.record : null,
+    settlement
+  )
+  const stats = applyRunToStats(parsedStats.kind === 'ok' ? parsedStats.record : null, settlement)
+  await settleWrite(transaction, [
+    fromRequest(recordsStore.put(record, key)),
+    fromRequest(statsStore.put(stats, SINGLETON_KEY)),
+  ])
+  return { kind: 'written' }
 }

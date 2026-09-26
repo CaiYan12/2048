@@ -21,8 +21,9 @@ import {
  *   · 读回来的东西怎么落到 store 上，落完之后还能不能一路撤到开局；
  *   · 新游戏擦什么、不擦什么。
  *
- * 假后端的桶与真库一一对应（settings / session / history / records），
- * 其中 records 是 T17 的桶——**只放一个种子值用来证明没人碰它**。
+ * 假后端的桶与真库一一对应（settings / session / history / records / stats）。
+ * records 与 stats 由 T17 建起来，这里**只证明没人乱碰**：T17 自己那套断言的
+ * 家在 tests/unit/records-settle.test.ts。
  */
 
 /** 假后端。vi.hoisted 保证工厂在 import 之前就建好 */
@@ -31,10 +32,14 @@ const fake = vi.hoisted(() => {
     settings: new Map<string, unknown>(),
     session: new Map<string, unknown>(),
     history: new Map<number, unknown>(),
-    /** T17 的桶。本 Ticket 既不建也不写，这里只证明「没人碰它」 */
+    /** T17 的 records 桶：键是 `${modeId}:${styleId}`，值是 {version,bestScore,highestTile} */
     records: new Map<string, unknown>(),
+    /** T17 的 stats 桶：单例 */
+    stats: new Map<string, unknown>(),
     /** 每一次写盘的类目序列，按发生顺序 */
     writes: [] as string[],
+    /** writeSettlement 被调了几次（T17：结算只写一次） */
+    settlements: 0,
   }
   /** 读被挂住时等在那里的解锁函数，逐个收着（读有几步就有几个） */
   let gates: (() => void)[] = []
@@ -47,7 +52,7 @@ const fake = vi.hoisted(() => {
     /** 打开这个开关之后每一次读都失败（隐私模式 / 存储被禁用） */
     failReads: false,
     releaseReads(): void {
-      // 解锁之后就不再拦：读存档是好几步（settings → session → 历史），
+      // 解锁之后就不再拦：读存档是好几步（settings → session → 历史 → 记录 → 统计），
       // 只放行第一步会把第二步永远挂在原地
       api.blockReads = false
       const pending = gates
@@ -81,12 +86,62 @@ vi.mock('../../src/renderer/stores/sessionStore', () => ({
     for (let index = 0; index < count; index += 1) out.push(fake.store.history.get(index))
     return out
   },
+  readRecordsEntries: async (): Promise<readonly { key: string; value: unknown }[]> =>
+    [...fake.store.records].map(([key, value]) => ({ key, value })),
+  readStatsRaw: async (): Promise<unknown> => fake.store.stats.get('current') ?? null,
   writeSettings: async (record: unknown): Promise<void> => {
     if (fake.failWrites) {
       throw new DOMException('Simulated quota exceeded', 'QuotaExceededError')
     }
     fake.store.writes.push('settings')
     fake.store.settings.set('current', record)
+  },
+  writeSettlement: async (settlement: {
+    modeId: string
+    styleId: string
+    score: number
+    highestTile: number
+    reachedTarget: boolean
+    timePlayedMs: number
+    startedAt: number | null
+  }): Promise<{ kind: 'written' } | { kind: 'rejected'; notice: unknown }> => {
+    if (fake.failWrites) {
+      throw new DOMException('Simulated quota exceeded', 'QuotaExceededError')
+    }
+    fake.store.settlements += 1
+    fake.store.writes.push('settlement')
+    const key = `${settlement.modeId}:${settlement.styleId}`
+    const previous = (fake.store.records.get(key) ?? { bestScore: 0, highestTile: 0 }) as {
+      bestScore: number
+      highestTile: number
+    }
+    fake.store.records.set(key, {
+      version: 1,
+      bestScore: Math.max(previous.bestScore, settlement.score),
+      highestTile: Math.max(previous.highestTile, settlement.highestTile),
+    })
+    const stats = (fake.store.stats.get('current') ?? {
+      version: 1,
+      totalRuns: 0,
+      wins: 0,
+      timePlayedMs: 0,
+      achievementUnlocks: [],
+      lastRunStartedAt: null,
+    }) as {
+      totalRuns: number
+      wins: number
+      timePlayedMs: number
+      lastRunStartedAt: number | null
+    }
+    // 与真库同一条幂等键：同一次结算递两次只数一次（T17）
+    if (settlement.startedAt === null || settlement.startedAt !== stats.lastRunStartedAt) {
+      stats.totalRuns += 1
+      stats.wins += settlement.reachedTarget ? 1 : 0
+      stats.timePlayedMs += settlement.timePlayedMs
+      stats.lastRunStartedAt = settlement.startedAt
+    }
+    fake.store.stats.set('current', stats)
+    return { kind: 'written' }
   },
   saveRun: async (
     record: unknown,
@@ -126,6 +181,9 @@ async function settleHydration(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
+/** 本票用的一局起始时刻：与 seedBackend 里的存档一起落，让 T17 的时长公式有数可算 */
+const RUN_START = Date.UTC(2026, 8, 26, 11, 30)
+
 function pristineStore(): void {
   useGameStore.setState({
     game: null,
@@ -135,6 +193,9 @@ function pristineStore(): void {
     swapSelection: null,
     styleId: 'classic',
     selectedModeId: 'classic',
+    runStartedAt: null,
+    records: [],
+    stats: null,
     storageNotice: null,
     restoring: true,
   })
@@ -148,6 +209,8 @@ function mount(game: GameState): void {
     history: [],
     swapArmed: false,
     swapSelection: null,
+    // T17 的本局起始时刻：与 game 一起落下，于是结算时算得出本局时长
+    runStartedAt: RUN_START,
   })
 }
 
@@ -178,6 +241,7 @@ function seedBackend(): SessionRecord {
     dailyDate: state.dailyDate,
     styleId: state.styleId,
     historyLength: state.history.length,
+    startedAt: state.runStartedAt,
   })
   fake.store.session.set('current', record)
   state.history.forEach((entry, index) => {
@@ -190,8 +254,12 @@ beforeEach(() => {
   fake.store.settings.clear()
   fake.store.session.clear()
   fake.store.history.clear()
-  fake.store.records.set('classic:material', { bestScore: 9999 })
+  fake.store.records.clear()
+  fake.store.stats.clear()
+  // 形状与真的写入方一致：version + bestScore + highestTile（T17 的 decodeStyleRecord）
+  fake.store.records.set('classic:material', { version: 1, bestScore: 9999, highestTile: 2048 })
   fake.store.writes = []
+  fake.store.settlements = 0
   fake.failWrites = false
   fake.failReads = false
   fake.blockReads = false
@@ -283,7 +351,11 @@ describe('一步写多少', () => {
     expect(fake.store.history.size).toBe(0)
     // 后半句：已结算数据不擦。records 是 T17 的桶，本 Ticket 连建都不建，
     // 所以「不擦」不是靠一条小心翼翼的排除项，而是压根没有能擦它的代码路径
-    expect(fake.store.records.get('classic:material')).toEqual({ bestScore: 9999 })
+    expect(fake.store.records.get('classic:material')).toEqual({
+      version: 1,
+      bestScore: 9999,
+      highestTile: 2048,
+    })
     expect(fake.store.writes.some((entry) => entry.includes('records'))).toBe(false)
   })
 
@@ -306,11 +378,19 @@ describe('一步写多少', () => {
     useGameStore.getState().settle()
 
     expect(useGameStore.getState().game?.phase).toBe('ended')
-    expect(fake.store.writes).toEqual(['clear'])
+    // settlement 先落（T17 的记录写入），clear 跟着：这一局的存档作废，
+    // 但成绩已经写进 records / stats，所以下一次加载回到开局界面时记录还在
+    expect(fake.store.writes).toEqual(['settlement', 'clear'])
     expect(fake.store.session.size).toBe(0)
     expect(fake.store.history.size).toBe(0)
-    // records 仍然没被碰
-    expect(fake.store.records.get('classic:material')).toEqual({ bestScore: 9999 })
+    // records 仍然没被擦：那一次写入是「加」而不是「覆盖整个桶」
+    expect(fake.store.records.get('classic:material')).toEqual({
+      version: 1,
+      bestScore: 9999,
+      highestTile: 2048,
+    })
+    // 死局的一局：分数不高，所以种下去的那个 9999 一条都没被拉低
+    expect(fake.store.stats.get('current')).toMatchObject({ totalRuns: 1, wins: 0 })
   })
 })
 
@@ -442,6 +522,7 @@ describe('读回来怎么落到 store 上', () => {
         dailyDate: null,
         styleId: 'classic',
         historyLength: 0,
+        startedAt: RUN_START,
       })
     )
 
@@ -530,6 +611,7 @@ describe('读回来怎么落到 store 上', () => {
         dailyDate: null,
         styleId: 'classic',
         historyLength: 0,
+        startedAt: RUN_START,
       })
     )
 
@@ -606,6 +688,7 @@ describe('开局界面上的选择也进 settings', () => {
         dailyDate: null,
         styleId: 'material',
         historyLength: 0,
+        startedAt: RUN_START,
       })
     )
 

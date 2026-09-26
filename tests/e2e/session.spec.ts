@@ -310,9 +310,12 @@ test('写入失败：界面给出警告，且说的是实话——页面内的�
 test('新游戏不擦已结算数据：records 桶里的东西原样留在原地', async ({ page }) => {
   const problems = watchProblems(page)
 
-  // 先把「已结算数据」摆进 records 桶。**本 Ticket 还没有 records 的写入方**
-  // （那是 T17），所以这里直接用浏览器自己的 IndexedDB 摆一个进去；要验的是
-  // 「新游戏的写入路径不碰它」。四个桶在建库那一刻就摆好，因为应用持有连接时
+  // 先把「已结算数据」摆进 records 桶。T17 之前这里只能手工摆一个进去；T17 起
+  // 写入方真的存在了，而这个用例要验的仍然是「新游戏的写入路径不碰它」，所以要摆
+  // 的是一个**结算写不出来的键**（classic:material——本用例打的是 classic 风格）。
+  // 形状照真的写入方给齐：version + bestScore + highestTile（records.ts 的
+  // decodeStyleRecord），少了 version 会被判成旧版记录，那时冒出来的提示会让
+  // 下面那句 toHaveCount(0) 红。四个桶在建库那一刻就摆好，因为应用持有连接时
   // 升级数据库会被它挡住
   await page.addInitScript(() => {
     const request = indexedDB.open('2048', 1)
@@ -323,7 +326,7 @@ test('新游戏不擦已结算数据：records 桶里的东西原样留在原地
       }
       db.transaction('records', 'readwrite')
         .objectStore('records')
-        .put({ bestScore: 9999, highestTile: 2048 }, 'classic:material')
+        .put({ version: 1, bestScore: 9999, highestTile: 2048 }, 'classic:material')
     }
   })
 
@@ -360,7 +363,7 @@ test('新游戏不擦已结算数据：records 桶里的东西原样留在原地
     db.close()
     return value
   })
-  expect(survived).toEqual({ bestScore: 9999, highestTile: 2048 })
+  expect(survived).toEqual({ version: 1, bestScore: 9999, highestTile: 2048 })
 
   expect(problems).toEqual([])
 })

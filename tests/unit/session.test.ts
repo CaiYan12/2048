@@ -28,6 +28,9 @@ import { stateWithBoard } from './support'
  * （support.ts 的口径）。断言落在一串巧合的初始值上就什么也证明不了。
  */
 
+/** 本局起始时刻：开局早于 NOW 半小时，于是 T17 的时长公式有一个能算的数 */
+const RUN_START = Date.UTC(2026, 8, 26, 11, 30)
+
 /** 一局每个字段都不取默认值的对局：walls 打底（盘面上有墙），四个非活跃字段各给一个数 */
 function distinctiveGame(): GameState {
   return {
@@ -56,6 +59,9 @@ function distinctiveRecord(): SessionRecord {
     version: STORAGE_VERSION,
     styleId: 'material',
     dailyDate: null,
+    // T17 的本局起始时刻。给一个与 NOW 不同的值：时长公式要从它算到结算那一刻，
+    // 而断言落在一串巧合的初始值上就什么也证明不了
+    startedAt: RUN_START,
     game: distinctiveGame(),
     historyLength: 3,
   }
@@ -101,6 +107,7 @@ describe('一整个 session 的往返', () => {
       dailyDate: null,
       styleId: 'material',
       historyLength: 3,
+      startedAt: RUN_START,
     })
 
     const parsed = roundTrip(record)
@@ -113,6 +120,9 @@ describe('一整个 session 的往返', () => {
     expect(parsed.record.dailyDate).toBeNull()
     expect(parsed.record.historyLength).toBe(3)
     expect(parsed.record.version).toBe(STORAGE_VERSION)
+    // 起始时刻一个毫秒都不差：T17 的「本局时长」从它算到结算那一刻，
+    // 差一秒就是统计上平白多出来的一秒
+    expect(parsed.record.startedAt).toBe(RUN_START)
     // 墙与空格各就各位：walls 模式恢复出来还得是四格墙
     expect(parsed.record.game.board[1][1]).toBe('wall')
     expect(parsed.record.game.board[1][2]).toBe('wall')
@@ -142,6 +152,7 @@ describe('一整个 session 的往返', () => {
       dailyDate: null,
       styleId: 'classic',
       historyLength: 0,
+      startedAt: RUN_START,
     })
     const parsed = roundTrip(record)
     if (parsed.kind !== 'ok') throw new Error('应当读得出来')
@@ -167,6 +178,7 @@ describe('一整个 session 的往返', () => {
       dailyDate: null,
       styleId: 'classic',
       historyLength: 0,
+      startedAt: RUN_START,
     })
     expect(roundTrip(record).kind).toBe('ok')
 
@@ -278,6 +290,10 @@ describe('形状对不上：拒绝', () => {
     ['styleId 是未知风格', () => ({ ...distinctiveRecord(), styleId: 'aero' })],
     ['dailyDate 形状不对', () => ({ ...distinctiveRecord(), dailyDate: '2026-9-26' })],
     ['dailyDate 是数字', () => ({ ...distinctiveRecord(), dailyDate: 20260926 })],
+    ['startedAt 是 0', () => ({ ...distinctiveRecord(), startedAt: 0 })],
+    ['startedAt 是负数', () => ({ ...distinctiveRecord(), startedAt: -1 })],
+    ['startedAt 是小数', () => ({ ...distinctiveRecord(), startedAt: 1.5 })],
+    ['startedAt 是字符串', () => ({ ...distinctiveRecord(), startedAt: '2026-09-26' })],
   ]
 
   test.each(broken)('%s：整局按不可恢复处理', (_name, make) => {
@@ -327,6 +343,37 @@ describe('dailyDate：与种子各存各的', () => {
     const parsed = roundTrip({ ...distinctiveRecord(), dailyDate: '2026-01-01' })
     if (parsed.kind !== 'ok') throw new Error('应当读得出来')
     expect(parsed.record.dailyDate).toBe('2026-01-01')
+  })
+})
+
+describe('本局起始时刻：T17 的时长公式要从它推导', () => {
+  test('给了一个就只能原样回来，一个毫秒都不差', () => {
+    const parsed = roundTrip({ ...distinctiveRecord(), startedAt: RUN_START })
+    if (parsed.kind !== 'ok') throw new Error('应当读得出来')
+    expect(parsed.record.startedAt).toBe(RUN_START)
+  })
+
+  test('没有这个字段（T17 之前开的局）照样能恢复，起始时刻记 null', () => {
+    // 不因为一个统计字段毁掉一局还能下的棋：那局的时长无从可知，结算时记 0，
+    // 而分数与最高方块照记。整局拒掉是另一种处理，这里明确不选它
+    const { startedAt: _absent, ...withoutStartedAt } = distinctiveRecord()
+    const parsed = decodeSession(withoutStartedAt)
+    expect(parsed.kind).toBe('ok')
+    if (parsed.kind !== 'ok') return
+    expect(parsed.record.startedAt).toBeNull()
+    // 其余字段一个都没少：拒绝的判据只针对给了却不对的值
+    expect(parsed.record.game).toEqual(distinctiveGame())
+  })
+
+  test('assembleSession 把起始时刻一并交出来，撤销历史一条都不少', () => {
+    const record = distinctiveRecord()
+    const restored = assembleSession(record, [
+      distinctiveGame(),
+      distinctiveGame(),
+      distinctiveGame(),
+    ])
+    expect(restored?.startedAt).toBe(RUN_START)
+    expect(restored?.history).toHaveLength(3)
   })
 })
 

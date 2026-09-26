@@ -23,8 +23,8 @@ import {
   encodeSession,
   encodeSettings,
   hasExplicitStart,
-  storageUnavailableNotice,
   restoreNotice,
+  storageUnavailableNotice,
   writeFailureMessage,
   type HistoryDelta,
   type RestoredSession,
@@ -32,11 +32,22 @@ import {
   type StorageNotice,
 } from './session'
 import {
+  decodeRecords,
+  decodeStats,
+  settlementOf,
+  settlementWriteFailureMessage,
+  type RecordEntry,
+  type StatsRecord,
+} from './records'
+import {
   clearRun,
   readHistoryRaw,
+  readRecordsEntries,
   readSessionRaw,
   readSettingsRaw,
+  readStatsRaw,
   saveRun,
+  writeSettlement,
   writeSettings,
 } from './sessionStore'
 
@@ -112,6 +123,24 @@ export interface GameStore {
    * 钉的正是这一整张字段表。
    */
   styleId: StyleId
+  /**
+   * 本局起始时刻（epoch ms）；null = 还没开局
+   *
+   * T17 的「本局时长」要从它推导，所以它必须跟着这一局跨过刷新：startRun / newGame
+   * 在同一行 set 里落下，hydrate 与 game 一起从 session 桶恢复（SessionRecord.startedAt）。
+   * 不进 GameState——那是墙上时钟读数，不是规则数据（ADR-0001 的分工），与 dailyDate
+   * 同一条路。
+   */
+  runStartedAt: number | null
+  /**
+   * 已结算的记录（SPEC §3.3 的 records 桶），按模式 × 风格
+   *
+   * 为什么它住在 store 而不是每次打开面板现读：打开面板是一次同步渲染，而读盘是异步的
+   * ——现读就得先渲染一个空面板再跳成有数据的那个，玩家看见的就是一次「我的记录没了」。
+   */
+  records: readonly RecordEntry[]
+  /** 基础统计（stats 桶）；null = 一次都还没结算过 */
+  stats: StatsRecord | null
   /** 换开局界面上选中的模式（T16：写 settings 桶）。不改动已经开的那一局 */
   selectMode(id: ModeId): void
   /** 换风格。只改呈现；同一 id 重复调用连 state 都不换 */
@@ -131,7 +160,7 @@ export interface GameStore {
   undo(): void
   /** 从胜利面板继续玩：分数与棋盘保留，phase 由引擎判回 playing 还是 stuck */
   continueRun(): void
-  /** 结束并记录：死局与胜利面板都进得去；幂等（结算只执行一次） */
+  /** 结束并记录：死局与胜利面板都进得去；幂等（结算只执行一次），并写一次记录（T17） */
   settle(): void
   /** 时间推进到当前时刻：到期由引擎强制结算。未到期与非限时模式都是空操作 */
   tick(): void
@@ -195,6 +224,18 @@ function reportWriteFailure(error: unknown): void {
   })
 }
 
+/**
+ * 战绩写盘失败：说的是另一句话（T17）。
+ *
+ * 与 session 那一句分开：那一句的主语是**撤销还在**（mode-contract §4 的原话口径），
+ * 而这一局已经打完了，没有什么可撤销——能说的是「这一局的战绩没有记进去」。
+ */
+function reportSettlementFailure(error: unknown): void {
+  useGameStore.setState({
+    storageNotice: { kind: 'write-failed', message: settlementWriteFailureMessage(error) },
+  })
+}
+
 /** 写 settings 桶（SPEC §3.3 第一个桶）。一条小记录，每步 O(1) */
 function persistSettings(modeId: ModeId, styleId: StyleId): void {
   void writeSettings(encodeSettings(modeId, styleId)).catch(reportWriteFailure)
@@ -220,6 +261,65 @@ function clearPersistedRun(): void {
   void clearRun().catch(reportWriteFailure)
 }
 
+/**
+ * 结算的写入半边（T17）。
+ *
+ * **它在 session 存档被作废之前被调用**，终态与起始时刻都是当场从 store 取的：
+ * T16 把「已结算的一局」定义为没有可恢复的东西，于是结算之后 session 就没了，
+ * 能读到这局是什么的时刻只有作废之前。所以记录不是从内存里「补」出来的——
+ * 它是这一局终止那一刻的快照，与刷新后会看到的终局是同一个东西。
+ *
+ * 「结算只执行一次」有两层，缺一不可：
+ *   1. 引擎的早退（`settle` 对已结算的局原样返回同一个对象）挡住同一个对象被结算两次；
+ *   2. `applyRunToStats` 的幂等键挡住**同一次结算被递进来两次**——写盘的那一方
+ *      也要自己说了算，否则计数会变成 2（records.ts 的 StatsRecord.lastRunStartedAt）。
+ */
+function persistSettlement(game: GameState, styleId: StyleId, startedAt: number | null): void {
+  const settlement = settlementOf(game, styleId, startedAt, Date.now())
+  void writeSettlement(settlement)
+    .then((result) => {
+      if (result.kind === 'rejected') {
+        // 桶里的旧数据读不出来，于是什么都没写。这句话必须露出来：不说的话
+        // 玩家会以为这一局计入过了（SPEC §3.3「不许假装持久化成功」）
+        useGameStore.setState({ storageNotice: result.notice })
+        return
+      }
+      // 写完从**落盘的那一份**读回来：面板显示的就是刷新之后会看到的东西。
+      // 拿写入方自认为写进去的值直接塞进 state，会造出「界面有一套、盘上一套」
+      // 的两份真相——那正是 T16 那批测试要抓的形态
+      void loadSettled()
+        .then((loaded) => {
+          useGameStore.setState({ records: loaded.records, stats: loaded.stats })
+        })
+        .catch(reportWriteFailure)
+    })
+    .catch(reportSettlementFailure)
+}
+
+/**
+ * 读一次两个新桶。**不猜也不重置**：读不出来时 records / stats 回到空，
+ * notice 由界面上那一句说清楚（磁盘上那份原样留着，见 writeSettlement 的拒绝分支）。
+ */
+async function loadSettled(): Promise<{
+  records: readonly RecordEntry[]
+  stats: StatsRecord | null
+  notice: StorageNotice | null
+}> {
+  const [entries, rawStats] = await Promise.all([readRecordsEntries(), readStatsRaw()])
+  const records = decodeRecords(entries)
+  const stats = decodeStats(rawStats)
+  return {
+    records: records.kind === 'ok' ? records.entries : [],
+    stats: stats.kind === 'ok' ? stats.record : null,
+    notice:
+      records.kind === 'rejected'
+        ? restoreNotice(records.reason, 'records')
+        : stats.kind === 'rejected'
+          ? restoreNotice(stats.reason, 'stats')
+          : null,
+  }
+}
+
 /** 正在进行的读存档。StrictMode 会把挂载 effect 跑两遍，两遍读同一份 */
 let hydration: Promise<void> | null = null
 
@@ -239,6 +339,8 @@ async function doHydrate(): Promise<void> {
   let settingsNotice: StorageNotice | null = null
   let sessionNotice: StorageNotice | null = null
   let restored: RestoredSession | null = null
+  let settled: { records: readonly RecordEntry[]; stats: StatsRecord | null } | null = null
+  let settledNotice: StorageNotice | null = null
 
   // 显式开局指令优先于存档（?seed= / ?board=，理由见 hasExplicitStart）。
   // typeof 那一句是给 node 单测留的门：store 的其余动作在 node 里没人调，
@@ -277,14 +379,22 @@ async function doHydrate(): Promise<void> {
     } else if (!explicitStart && parsedSession.kind === 'rejected') {
       sessionNotice = restoreNotice(parsedSession.reason, 'session')
     }
+
+    // 两个新桶与「带不带 ?seed=」无关：记录是历史，不是这一局，
+    // 显式开局指令只该挡住「续上上一局」，不该把已经打出来的成绩也一起挡掉
+    const loaded = await loadSettled()
+    settled = { records: loaded.records, stats: loaded.stats }
+    settledNotice = loaded.notice
   } catch {
     // 连存储都打不开（隐私模式 / 存储被禁用）：这一局无从恢复。
     // 这同样是「不假装」——界面要说的是恢复没发生，而不是安静开一局新的
     sessionNotice = storageUnavailableNotice()
   }
 
-  // 一局的恢复结果比设置更值得说：设置坏了还能默认着玩，一局坏了玩家要知道
-  const notice = sessionNotice ?? settingsNotice
+  // 一局的恢复结果比设置更值得说：设置坏了还能默认着玩，一局坏了玩家要知道。
+  // 已结算数据排第二：它读不出来时说的是「本地记录不会被重置成 0」，
+  // 那也比一句设置坏了更值得玩家先看见
+  const notice = sessionNotice ?? settledNotice ?? settingsNotice
 
   useGameStore.setState((state) => {
     // 读存档是异步的，这几步里玩家可能已经点了「开始游戏」。那一刻之后不许再把
@@ -297,6 +407,10 @@ async function doHydrate(): Promise<void> {
       selectedModeId: settings?.modeId ?? state.selectedModeId,
       // 这一局自己的风格优先于设置里的那个：session 桶存的是「这一局的观感」
       styleId: restored?.styleId ?? settings?.styleId ?? state.styleId,
+      records: settled?.records ?? state.records,
+      stats: settled?.stats ?? state.stats,
+      // 起始时刻与 game 一起恢复：否则这一局结算时算不出本局时长
+      runStartedAt: restored?.startedAt ?? null,
     }
     if (restored !== null) {
       patch.game = restored.game
@@ -320,6 +434,11 @@ export const useGameStore = create<GameStore>()((set) => ({
   history: [],
   // 默认经典风格。它不随开局清空——玩家选好的观感应跟着他，不该每开一局被重置回 classic
   styleId: DEFAULT_THEME_ID,
+  // 还没开局，也就没有起始时刻可言（T17 的本局时长从它算）
+  runStartedAt: null,
+  // 开局时两个新桶已经在 hydrate 里读过；这里是「还没读过」的诚实初值
+  records: [],
+  stats: null,
   // 开局界面上的选中项与风格同一性质：刷新之后该还选着玩家上次选的那个（T16 的
   // settings 桶）。它不随开局清空，也不受新游戏影响——选过什么模式是「设置」，
   // 不是「这一局在打哪个模式」
@@ -349,6 +468,7 @@ export const useGameStore = create<GameStore>()((set) => ({
             dailyDate: state.dailyDate,
             styleId: id,
             historyLength: state.history.length,
+            startedAt: state.runStartedAt,
           },
           { kind: 'none' }
         )
@@ -394,6 +514,7 @@ export const useGameStore = create<GameStore>()((set) => ({
           dailyDate: state.dailyDate,
           styleId: state.styleId,
           historyLength: history.length,
+          startedAt: state.runStartedAt,
         },
         { kind: 'push', index: history.length - 1, game }
       )
@@ -442,10 +563,13 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 「本局此刻的界面状态」，与历史同一个边界
       swapArmed: false,
       swapSelection: null,
+      // 本局的起始时刻：T17 的「本局时长」从它算到结算那一刻，所以必须跟着
+      // 这一局跨过刷新（SessionRecord.startedAt）。与 createGame 用的是同一个 now
+      runStartedAt: now,
     })
     // reset：上一局的撤销历史整条作废。这是「新游戏不擦除已结算数据」的另一半——
     // 被擦的只有 session 与 history 两个桶，records / stats（T17）一个字节都不碰
-    persistSession({ game, dailyDate, styleId, historyLength: 0 }, { kind: 'reset' })
+    persistSession({ game, dailyDate, styleId, historyLength: 0, startedAt: now }, { kind: 'reset' })
   },
   move: (direction) => {
     set((state) => {
@@ -476,6 +600,7 @@ export const useGameStore = create<GameStore>()((set) => ({
           dailyDate: state.dailyDate,
           styleId: state.styleId,
           historyLength: history.length,
+          startedAt: state.runStartedAt,
         },
         { kind: 'push', index: history.length - 1, game: state.game }
       )
@@ -511,6 +636,7 @@ export const useGameStore = create<GameStore>()((set) => ({
           dailyDate: state.dailyDate,
           styleId: state.styleId,
           historyLength: history.length,
+          startedAt: state.runStartedAt,
         },
         { kind: 'pop', index: history.length }
       )
@@ -535,6 +661,7 @@ export const useGameStore = create<GameStore>()((set) => ({
             dailyDate: state.dailyDate,
             styleId: state.styleId,
             historyLength: state.history.length,
+            startedAt: state.runStartedAt,
           },
           { kind: 'none' }
         )
@@ -550,9 +677,16 @@ export const useGameStore = create<GameStore>()((set) => ({
       if (next === state.game) return state
       // 结算之后这一局没有可恢复的东西（ended 之后撤销与交换一律不可用，
       // mode-contract §3 关键不变量 4），所以存档一起作废：下一次加载回到开局
-      // 界面，而不是还原一块死棋盘。被擦的只有 session 与 history 两个桶——
-      // 「已结算数据」在 records 桶（T17），本 Ticket 从不碰它
+      // 界面，而不是还原一块死棋盘。被擦的只有 session 与 history 两个桶——而
+      // records / stats 上面那一次写入刚刚落盘，擦的动作碰不到它们（T16 的
+      // 验收标准 3 后半句由这个分工兑现）
       if (next.phase === 'ended') {
+        // 记录先写、存档后擦（T16 的交接项）：终态与起始时刻都在擦之前取得到。
+        // abandoned 不写记录（mode-contract §3），而 settle 只从 stuck / won 进来，
+        // 所以这道判断不是防御，是把「只有 ended 且不是放弃」这句话钉在写入点上
+        if (next.endReason !== 'abandoned') {
+          persistSettlement(next, state.styleId, state.runStartedAt)
+        }
         clearPersistedRun()
       } else {
         persistSession(
@@ -561,6 +695,7 @@ export const useGameStore = create<GameStore>()((set) => ({
             dailyDate: state.dailyDate,
             styleId: state.styleId,
             historyLength: state.history.length,
+            startedAt: state.runStartedAt,
           },
           { kind: 'none' }
         )
@@ -584,6 +719,10 @@ export const useGameStore = create<GameStore>()((set) => ({
       // ended 守卫外），但这是一份没有任何入口解释得清的残留状态。
       // 超时结算与 settle 同一条边界：这一局打完了，存档随之作废（见 settle）
       if (next.phase === 'ended') {
+        // 超时结算同样写记录（T17），理由见上：它是一条结算路径，不是放弃
+        if (next.endReason !== 'abandoned') {
+          persistSettlement(next, state.styleId, state.runStartedAt)
+        }
         clearPersistedRun()
       } else {
         persistSession(
@@ -592,6 +731,7 @@ export const useGameStore = create<GameStore>()((set) => ({
             dailyDate: state.dailyDate,
             styleId: state.styleId,
             historyLength: state.history.length,
+            startedAt: state.runStartedAt,
           },
           { kind: 'none' }
         )
@@ -606,9 +746,9 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 所以这一步必须走 abandon（不写记录）。被放弃的那个状态只活在这一次 set 里，
       // 界面看不到它——紧接着就是一张干净的开局棋盘，不沿用任何旧格子与旧分数。
       //
-      // 现在只读 abandoned.modeId，而 abandon 并不改 modeId，所以这一行目前**不可观测**。
-      // 别删：它是 T17「写记录」要接的那道缝——届时被放弃的那个终态就是 abandoned 记录的
-      // 依据，在此之前它刻意保持惰性，不写任何东西。
+      // T17 落实了这句话：被放弃的终态**不写任何记录**，于是这里没有任何写入
+      // 记录的接线，abandoned 也因此在 records 里无迹可寻。刻意如此——加一条
+      // 「放弃过几局」的统计就是在为一个不存在的需求定型。
       const abandoned = abandon(state.game)
       const modeId = abandoned.modeId
       // 「新游戏」重新抽题：Daily 按**当前** UTC 日期抽——跨过零点再开新局就是新题
@@ -616,17 +756,22 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 那条缝只在开局那一刻读（T03 起的行为，T04/T06/T07 的 e2e 依赖它不变）。
       const daily = modeId === 'daily' ? drawDailySeed() : null
       const seed = daily?.seed ?? drawSeed()
-      const game = createGame(modeId, seed, Date.now())
+      // 同一个 now 既给 createGame 的 deadline 用，也作本局的起始时刻（T17 的时长
+      // 公式从它算到结算那一刻）——两次读钟会让两者之间凭空多出一段时间
+      const now = Date.now()
+      const game = createGame(modeId, seed, now)
       const dailyDate = daily?.date ?? null
       // 验收标准 3：「新游戏放弃未结算 session，不擦除已结算数据」。
       // 前半句由这个 reset 兑现——上一局的撤销历史整条作废；后半句由**不碰**
-      // records / stats 兑现（T17 的桶本 Ticket 连建都不建，见 session.ts 文件头）
+      // records / stats 兑现：那两个桶只有结算那一条写入路径碰得到，而放弃本局
+      // 走的是 abandon 那条路（mode-contract §3「不写任何记录」）
       persistSession(
         {
           game,
           dailyDate,
           styleId: state.styleId,
           historyLength: 0,
+          startedAt: now,
         },
         { kind: 'reset' }
       )
@@ -639,6 +784,7 @@ export const useGameStore = create<GameStore>()((set) => ({
         history: [],
         swapArmed: false,
         swapSelection: null,
+        runStartedAt: now,
       }
     })
   },

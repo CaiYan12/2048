@@ -18,10 +18,14 @@ import type {
  * 判定可以在 node 环境里被单测直接驱动——T16 的验收标准 2 全押在这上面，而
  * T14 的闸门已经证明过：没人在真实环境里跑过的那一层，恰恰是缺陷最爱住的地方。
  *
- * 三个桶（SPEC §3.3）：settings / session / records+stats。**本票只写前两个。**
+ * 三个桶（SPEC §3.3）：settings / session / records+stats。本票（T16）只写前两个。
  * records 与 stats 归 T17 / T18，这里连对象存储都不为它们建——提前建一个空桶
  * 等于替一票未写的需求定型。版本号是全局的：三个桶从此共用 STORAGE_VERSION，
  * T17 加桶时不需要重新设计版本这件事。
+ *
+ * **T17 的改动**：records / stats 两个桶由 T17 的 records.ts + sessionStore.ts 建起来，
+ * 本文件只扩了 SessionRecord.startedAt（T17 的「本局时长」要从它推导，见那边）。
+ * 顺序是有意的：纯逻辑的两个半边各自可被 node 单测驱动，I/O 仍然只有一处。
  */
 
 /**
@@ -57,8 +61,13 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
  */
 export type RejectReason = 'unreadable' | 'version' | 'shape'
 
-/** 被拒绝的存档属于哪个桶。同一句话要说出是哪一个读不出来，否则玩家不知道该修什么 */
-export type StorageBucket = 'settings' | 'session'
+/**
+ * 被拒绝的存档属于哪个桶。同一句话要说出是哪一个读不出来，否则玩家不知道该修什么
+ *
+ * T17 加了 records / stats 两个：它们读不出来时说的是另一件事（不是「这一局没了」，
+ * 而是「本地记录没法读，也不会被重置成 0」），所以主语要能指到它们身上。
+ */
+export type StorageBucket = 'settings' | 'session' | 'records' | 'stats'
 
 /** settings 桶（SPEC §3.3：选中的模式、选中的风格、静音开关） */
 export interface SettingsRecord {
@@ -95,17 +104,32 @@ export interface SessionRecord {
    * 之后翻篇）。它与 game.initialSeed 各存各的，谁也不是谁的副本。
    */
   dailyDate: string | null
+  /**
+   * 本局起始时刻（epoch ms）；null = 没有记下来
+   *
+   * T17 的「本局时长」要从它推导，所以它必须**跟着这一局跨过刷新**——不进这个记录的
+   * 话，刷新再结算就只能从头算起，而「刷新丢掉一半时长」正是 SPEC §3.3 要防的那件事。
+   * 它不住进 GameState：那是墙上时钟读数，不是规则数据（ADR-0001 的分工），
+   * 于是与 dailyDate 同一条路——住 store、进这个桶。
+   *
+   * **null 是合法的**（T17 之前开的局没有这个字段）：那时的本局时长无从得知，
+   * 结算时记 0，而分数与最高方块照记。为它把整局拒掉，等于因为一个统计字段
+   * 毁掉一局还能下的棋。给了却不是 ≥1 的整数则按形状拒绝——0 是 1970 年，
+   * 不是一次真实的开局。
+   */
+  startedAt: number | null
   game: GameState
   /** 撤销历史的长度：history 桶里 [0, historyLength) 这一段属于这一局 */
   historyLength: number
 }
 
-/** 恢复出来的那一局：store 要落的四个字段（拾取态刻意不在内，见 useGameStore） */
+/** 恢复出来的那一局：store 要落的五个字段（拾取态刻意不在内，见 useGameStore） */
 export interface RestoredSession {
   game: GameState
   history: readonly GameState[]
   dailyDate: string | null
   styleId: StyleId
+  startedAt: number | null
 }
 
 /** 读一份存档的结论。三态缺一不可：没存过不是错，存了读不得才是 */
@@ -139,12 +163,14 @@ export type HistoryDelta =
   /** 新一局：整条撤销历史作废（开局棋盘就是 game 自己，往前没有更早的状态） */
   | { kind: 'reset' }
 
-/** 存档里要的四个字段 + 那一个 GameState。调用点就地拼，绝不先克隆一份 store 状态 */
+/** 存档里要的五个字段 + 那一个 GameState。调用点就地拼，绝不先克隆一份 store 状态 */
 export interface SessionSnapshot {
   game: GameState
   dailyDate: string | null
   styleId: StyleId
   historyLength: number
+  /** 本局起始时刻（T17 的时长公式用）。见 SessionRecord.startedAt */
+  startedAt: number | null
 }
 
 // ─── 形状判据 ────────────────────────────────────────────────────────────────
@@ -274,6 +300,22 @@ function decodeDailyDate(
   return { ok: true, value: raw }
 }
 
+/**
+ * 本局起始时刻：`null` / 缺这个字段都按「没有记下来」收（T17 之前开的局），
+ * 否则必须是 ≥1 的整数。
+ *
+ * 缺字段与显式 null 同等对待，理由与 decodeSession 的 absent 一脉相承：没给不是错，
+ * 给错了才是。而 0 被单列出来拒掉——它是 1970 年，任何真实的开局都不会落在那里，
+ * 放它过去会让 T17 的时长算出一个两千多万毫秒的数。
+ */
+function decodeStartedAt(
+  raw: unknown
+): { ok: true; value: number | null } | { ok: false } {
+  if (raw === null || raw === undefined) return { ok: true, value: null }
+  if (!isInteger(raw, 1)) return { ok: false }
+  return { ok: true, value: raw }
+}
+
 // ─── 编码（store → 存档） ─────────────────────────────────────────────────────
 
 export function encodeSession(snapshot: SessionSnapshot): SessionRecord {
@@ -281,6 +323,7 @@ export function encodeSession(snapshot: SessionSnapshot): SessionRecord {
     version: STORAGE_VERSION,
     styleId: snapshot.styleId,
     dailyDate: snapshot.dailyDate,
+    startedAt: snapshot.startedAt,
     game: snapshot.game,
     historyLength: snapshot.historyLength,
   }
@@ -313,6 +356,8 @@ export function decodeSession(raw: unknown): SessionParse {
   if (!isKnownStyle(raw.styleId)) return { kind: 'rejected', reason: 'shape' }
   const dailyDate = decodeDailyDate(raw.dailyDate)
   if (!dailyDate.ok) return { kind: 'rejected', reason: 'shape' }
+  const startedAt = decodeStartedAt(raw.startedAt)
+  if (!startedAt.ok) return { kind: 'rejected', reason: 'shape' }
   if (!isInteger(raw.historyLength, 0)) return { kind: 'rejected', reason: 'shape' }
   const game = decodeGame(raw.game)
   if (game === null) return { kind: 'rejected', reason: 'shape' }
@@ -322,6 +367,7 @@ export function decodeSession(raw: unknown): SessionParse {
       version: STORAGE_VERSION,
       styleId: raw.styleId,
       dailyDate: dailyDate.value,
+      startedAt: startedAt.value,
       game,
       historyLength: raw.historyLength,
     },
@@ -389,10 +435,25 @@ export function assembleSession(
     history,
     dailyDate: record.dailyDate,
     styleId: record.styleId,
+    startedAt: record.startedAt,
   }
 }
 
 // ─── 界面上那一句话 ───────────────────────────────────────────────────────────
+
+/** 每个桶在界面那句话里的主语。四个桶四句话，混成一个主语玩家就不知道该修什么 */
+function bucketSubject(bucket: StorageBucket): string {
+  switch (bucket) {
+    case 'settings':
+      return '设置'
+    case 'session':
+      return '这一局'
+    case 'records':
+      return '记录'
+    case 'stats':
+      return '统计'
+  }
+}
 
 /**
  * 存档读不出来时界面上说的那句。
@@ -402,7 +463,7 @@ export function assembleSession(
  * 开新游戏就行，页面里已经走掉的撤销还在」。
  */
 export function restoreFailureMessage(reason: RejectReason, bucket: StorageBucket): string {
-  const subject = bucket === 'settings' ? '设置' : '这一局'
+  const subject = bucketSubject(bucket)
   switch (reason) {
     case 'unreadable':
       return `${subject}读不出来：存档数据已损坏。`
@@ -419,7 +480,9 @@ export function restoreNotice(reason: RejectReason, bucket: StorageBucket): Stor
   const tail =
     bucket === 'settings'
       ? '已回到默认设置，本局不受影响。'
-      : '开始新游戏即可，页面内已有的撤销不受影响。'
+      : bucket === 'session'
+        ? '开始新游戏即可，页面内已有的撤销不受影响。'
+        : '已保留原有数据，本次结算的战绩不会写入。'
   return {
     kind: 'restore-rejected',
     message: `${restoreFailureMessage(reason, bucket)}${tail}`,
@@ -451,8 +514,8 @@ export function writeFailureMessage(error: unknown): string {
   return `${reason}页面内的撤销仍然可用，但刷新后可能无法继续这一局。`
 }
 
-/** 失败的技术原因，翻成一句玩家能懂的话 */
-function describeStorageFailure(error: unknown): string {
+/** 失败的技术原因，翻成一句玩家能懂的话。T17 的战绩写入失败复用同一个原因映射 */
+export function describeStorageFailure(error: unknown): string {
   if (isDomException(error)) {
     if (error.name === 'QuotaExceededError') return '保存失败：本地存储已满。'
     if (error.name === 'InvalidStateError' || error.name === 'UnknownError') {
