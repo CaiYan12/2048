@@ -14,6 +14,8 @@ import {
   tick,
 } from '../../game/engine'
 import { seedFromUtcDate } from '../../shared/rng'
+import { synth } from '../audio/synth'
+import { mergedValueOf } from '../audio/tone'
 import { fixtureFromQuery } from './fixture'
 import { seedFromSearch } from './seed'
 import {
@@ -125,6 +127,20 @@ export interface GameStore {
    */
   styleId: StyleId
   /**
+   * 静音（T20 · SPEC 用户故事 23）。**是设置，不是这一局的状态**
+   *
+   * 为什么它住在 store 而不是 GameState：静音不改变任何规则量，而 GameState 的字段
+   * 由引擎认领（src/shared/types.ts）——把一个「我要安静」塞进去，等于让 T16 把它
+   * 当成规则状态持久化、让 T17 的重放把它当成一次状态迁移。所以它与 selectedModeId /
+   * styleId 同一条路：进 settings 桶，跟着玩家跨刷新，不跟着一局生灭。
+   *
+   * 它也不被撤销恢复：撤销搬回的是棋盘位置，而「这一局开始前我就静音了」不是位置。
+   *
+   * 读它的顺序是**发声之前**：synth.play 的第一个判断就是 `muted`，静音时连
+   * AudioContext 都不构造（src/renderer/audio/synth.ts 文件头第 2 条）。
+   */
+  mute: boolean
+  /**
    * 本局**真实发生**的风格切换次数（T19 的风格旅行者读它）；还没开局为 0
    *
    * 为什么它住在 store 而不是 GameState：它是**发生过的事件**的计数，不是规则数据。
@@ -183,6 +199,8 @@ export interface GameStore {
    * 也不算一次切换（重复选当前风格不是切换——ticket 验收标准 1）
    */
   setStyle(id: StyleId): void
+  /** 开 / 关静音：写 settings 桶（T20）。同一个 id 重复调用连 state 都不换 */
+  setMute(muted: boolean): void
   /** 开 / 关交换拾取。StatusBar 与死局面板的那两个按钮调的是同一个动作 */
   toggleSwap(): void
   /**
@@ -275,8 +293,49 @@ function reportSettlementFailure(error: unknown): void {
 }
 
 /** 写 settings 桶（SPEC §3.3 第一个桶）。一条小记录，每步 O(1) */
-function persistSettings(modeId: ModeId, styleId: StyleId): void {
-  void writeSettings(encodeSettings(modeId, styleId)).catch(reportWriteFailure)
+function persistSettings(modeId: ModeId, styleId: StyleId, mute: boolean): void {
+  void writeSettings(encodeSettings(modeId, styleId, mute)).catch(reportWriteFailure)
+}
+
+/**
+ * 一次有效移动的声音（T20）
+ *
+ * **只观察，不参与**：输入是引擎已经给出的两个状态，输出只有声音——不写 store、
+ * 不推 GameState、不碰 rngState。判据也全是现成的：`mergedValueOf` 靠 Tile.id 认
+ * 合并，无效移动由调用方的 `changed` 早退挡住（引擎对无效移动原样返回同一个引用，
+ * 所以「什么都没发生」这个信号本来就有，不必再比一次棋盘）。
+ *
+ * 胜利与合并**不叠加**：合出目标块的那一步既是合并也是胜利，两个音一起响只会糊成
+ * 一声。胜利优先——那是这一步里最值得说的一件事。
+ */
+function soundOfMove(before: GameState, after: GameState, muted: boolean): void {
+  // 引擎的 move 只在 playing 上接受移动（其余三个阶段一律早退），所以
+  // `after.phase === 'won'` 就是「本局第一次达标」那一步，不需要再比一次 before
+  if (after.phase === 'won') {
+    synth.play('win', { muted, value: 0 })
+    return
+  }
+  const merged = mergedValueOf(before, after)
+  synth.play(merged === null ? 'move' : 'merge', { muted, value: merged ?? 0 })
+}
+
+/**
+ * 一次结算的声音（T20 的第四个事件）
+ *
+ * deadlock 与 timeout 都响：两者都是「这一局没赢着结束」，只是死法不同，而音效
+ * 回答的是「赢了没有」，不是「怎么死的」——怎么死的那件事由 GameOverPanel 从
+ * endReason 读出来说给玩家听（SPEC 用户故事 7）。
+ *
+ * abandoned **不响**：那是玩家自己点的「新游戏」，是一次主动的开局，不是失败。
+ * 给它配一段下行音阶，等于在玩家想开新局的时候数落他。
+ *
+ * won 也不在这里响：胜利那一刻（合出目标块、phase 转 won）已经响过（见
+ * soundOfMove），收工只是把这句话说完，不需要再说一遍。
+ */
+function soundOfSettlement(endReason: GameState['endReason'], muted: boolean): void {
+  if (endReason === 'deadlock' || endReason === 'timeout') {
+    synth.play('loss', { muted, value: 0 })
+  }
 }
 
 /**
@@ -402,7 +461,7 @@ let hydration: Promise<void> | null = null
  * （T17），那才是「已结算数据」，本 Ticket 从不碰它。
  */
 async function doHydrate(): Promise<void> {
-  let settings: { modeId: ModeId; styleId: StyleId } | null = null
+  let settings: { modeId: ModeId; styleId: StyleId; mute: boolean } | null = null
   let settingsNotice: StorageNotice | null = null
   let sessionNotice: StorageNotice | null = null
   let restored: RestoredSession | null = null
@@ -423,6 +482,9 @@ async function doHydrate(): Promise<void> {
       settings = {
         modeId: parsedSettings.record.modeId,
         styleId: parsedSettings.record.styleId,
+        // 静音照旧从 settings 桶读（T20）：刷新之后还得是静音的。字段在 T16 就占了位，
+        // 那时恒写 false，所以 T20 之前的存档读出来就是不响——那正是当时的真相
+        mute: parsedSettings.record.mute,
       }
     } else if (parsedSettings.kind === 'rejected') {
       settingsNotice = restoreNotice(parsedSettings.reason, 'settings')
@@ -472,6 +534,10 @@ async function doHydrate(): Promise<void> {
       restoring: false,
       storageNotice: notice,
       selectedModeId: settings?.modeId ?? state.selectedModeId,
+      // 静音只在**设置读得出来**时才覆盖（T20）：读不出来时那句话已经说了「已回到
+      // 默认设置」，于是回到的就是默认不静音。半份设置（只有 modeId 读得出来）不
+      // 该把静音按成真——那是猜，而默认值比猜出来的值诚实
+      mute: settings?.mute ?? state.mute,
       // 这一局自己的风格优先于设置里的那个：session 桶存的是「这一局的观感」
       styleId: restored?.styleId ?? settings?.styleId ?? state.styleId,
       records: settled?.records ?? state.records,
@@ -500,7 +566,10 @@ async function doHydrate(): Promise<void> {
 export const useGameStore = create<GameStore>()((set) => ({
   game: null,
   dailyDate: null,
-  // 还没开局，也就没有历史可言：空栈让开局后的第一次撤销必然空操作
+  // 默认不静音：交付范围就是「可静音的程序化音效」，默认响才是这个功能的本来面目。
+  // hydrate 会用 settings 桶里那一份覆盖它（刷新之后还是静音的）
+  mute: false,
+  // 还没有开局，也就没有历史可言：空栈让开局后的第一次撤销必然空操作
   history: [],
   // 默认经典风格。它不随开局清空——玩家选好的观感应跟着他，不该每开一局被重置回 classic
   styleId: DEFAULT_THEME_ID,
@@ -522,8 +591,9 @@ export const useGameStore = create<GameStore>()((set) => ({
       if (state.selectedModeId === id) return state
       // 开局界面选中的模式只进 settings 桶，不动 session：后者存的是这一局
       // （SPEC §3.3 两个桶各存各的）。写在同一处，于是「选了哪个模式」与
-      // 「选了哪套风格」走的是同一条路径，不存在第二套只写一半的逻辑
-      persistSettings(id, state.styleId)
+      // 「选了哪套风格」走的是同一条路径，不存在第二套只写一半的逻辑。
+      // 静音也跟着同一条路一起写——三个设置一个记录，各自的内容各自给
+      persistSettings(id, state.styleId, state.mute)
       return { selectedModeId: id }
     })
   },
@@ -538,8 +608,9 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 风格同时是「设置」与「这一局的观感」：SPEC §3.3 的 settings 与 session
       // 两个桶都列了 selected style，所以两边都写。session 那一份只在本局存在时
       // 写——开局界面上的选择没有一局可挂，而「还没开局」与「这一局是空的」
-      // 在存档里是同一件事
-      persistSettings(state.selectedModeId, id)
+      // 在存档里是同一件事。
+      // 静音一路跟着 settings 走：换风格不该把静音状态换掉
+      persistSettings(state.selectedModeId, id, state.mute)
       if (state.game !== null) {
         persistSession(
           {
@@ -554,6 +625,14 @@ export const useGameStore = create<GameStore>()((set) => ({
         )
       }
       return { styleId: id, styleSwitches }
+    })
+  },
+  setMute: (muted) => {
+    set((state) => {
+      // 同一个值重复调用连 state 都不换，于是也不值得为它再写一次盘
+      if (state.mute === muted) return state
+      persistSettings(state.selectedModeId, state.styleId, muted)
+      return { mute: muted }
     })
   },
   // 还没开局：没有拾取、也没有选择
@@ -666,6 +745,10 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 无效移动连 state 都不换：React 看到同一个对象就直接跳过重渲染。
       // 面板挡着（won / stuck / ended）时 move 也返回同一个对象，同理。
       if (!outcome.changed) return state
+      // 音效（T20）写在 changed 判定**之后**：无效移动一个音都没有。引擎对无效移动
+      // 原样返回同一个对象，所以「什么都没发生」这个信号现成就有，声音这一侧只要
+      // 搭个便车，不必自己再比一次棋盘
+      soundOfMove(state.game, outcome.state, state.mute)
       // 只有真的走通了一步，才把**移动前**那个状态收进历史。判据就是 changed：
       // 无效移动时引擎原样返回同一个引用（engine.move 的两条早退），所以「棋盘
       // 根本没变」已经包含在 changed 里，再补一道引用比较是多余的。这条性质由
@@ -772,6 +855,9 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 幂等：再点一次返回同一个对象，store 收着同一引用，界面什么都不发生
       const next = settle(state.game)
       if (next === state.game) return state
+      // 失败音（T20）。abandoned 不在这里出现——settle 只从 stuck / won 进来
+      // （见 soundOfSettlement 的理由），放弃本局走的是 newGame 那条路
+      soundOfSettlement(next.endReason, state.mute)
       // 结算之后这一局没有可恢复的东西（ended 之后撤销与交换一律不可用，
       // mode-contract §3 关键不变量 4），所以存档一起作废：下一次加载回到开局
       // 界面，而不是还原一块死棋盘。被擦的只有 session 与 history 两个桶——而
@@ -816,6 +902,9 @@ export const useGameStore = create<GameStore>()((set) => ({
       // state 都不造。与 move 的无效移动同一条路子——引用相等即「什么都没发生」，
       // zustand 的选择器因此不会触发重渲染，倒计时的读表也就不打扰棋盘那一层。
       if (next === state.game) return state
+      // 到点强制结算（T20）：超时是「这一局没赢着结束」的另一条路，与死局同一声。
+      // abandoned 不可能从 tick 出来（它只从 playing 进来，而 endReason 恒为 timeout）
+      soundOfSettlement(next.endReason, state.mute)
       // 到点强制结算是「离开本局」的一条路，于是与 move / undo / startRun /
       // newGame 同一条边界：拾取态与选择一并收摊。少了这一行，Time Attack 到点
       // 之后会留下 swapArmed: true 配 phase: 'ended'——方块还挂着 data-selectable /

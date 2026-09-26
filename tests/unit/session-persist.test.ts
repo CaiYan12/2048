@@ -671,7 +671,7 @@ describe('开局界面上的选择也进 settings', () => {
   })
 
   test('读回来的设置落成开局界面上的选中项', async () => {
-    fake.store.settings.set('current', encodeSettings('time-attack', 'claude'))
+    fake.store.settings.set('current', encodeSettings('time-attack', 'claude', false))
     useGameStore.getState().hydrate()
     await settleHydration()
 
@@ -684,7 +684,7 @@ describe('开局界面上的选择也进 settings', () => {
     // 浏览器里 reflect 的是「同一个 seed 跑第二遍」——夹具用例的对照组
     // （tests/e2e/claude.spec.ts 等）正是这么写的
     vi.stubGlobal('window', { location: { search: '?seed=20260926' } })
-    fake.store.settings.set('current', encodeSettings('walls', 'claude'))
+    fake.store.settings.set('current', encodeSettings('walls', 'claude', false))
     fake.store.session.set(
       'current',
       encodeSession({

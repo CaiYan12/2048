@@ -222,7 +222,7 @@ describe('版本不符：拒绝，不当成可续玩', () => {
   })
 
   test('settings 桶同一条版本判据', () => {
-    const record = encodeSettings('fibonacci', 'claude')
+    const record = encodeSettings('fibonacci', 'claude', false)
     expect(decodeSettings(record)).toEqual({
       kind: 'ok',
       record: { version: STORAGE_VERSION, modeId: 'fibonacci', styleId: 'claude', mute: false },
@@ -239,6 +239,56 @@ describe('版本不符：拒绝，不当成可续玩', () => {
     expect(decodeSession(undefined)).toEqual({ kind: 'absent' })
     expect(decodeSettings(null)).toEqual({ kind: 'absent' })
     expect(decodeSessionText('null')).toEqual({ kind: 'absent' })
+  })
+})
+
+describe('settings 的静音开关：T20 开始写真值', () => {
+  test('false 与 true 都原样往返', () => {
+    // 占位期 encodeSettings 恒写 false；本票开始写玩家真正选的那个值，
+    // 于是往返必须在两个方向上都成立
+    for (const mute of [false, true]) {
+      expect(decodeSettings(encodeSettings('classic', 'material', mute))).toEqual({
+        kind: 'ok',
+        record: {
+          version: STORAGE_VERSION,
+          modeId: 'classic',
+          styleId: 'material',
+          mute,
+        },
+      })
+    }
+  })
+
+  test('mute 不是布尔值按形状拒', () => {
+    // 一个字符串 / 数字形式的「静音」没有解释得通的来历：默认值比猜出来的值诚实。
+    // 拒绝之后界面说的是「已回到默认设置」，而默认是不静音
+    for (const mute of ['true', 1, 0, null, {}, []]) {
+      const parsed = decodeSettings({ ...encodeSettings('classic', 'material', false), mute })
+      expect(parsed.kind, JSON.stringify(mute)).toBe('rejected')
+      if (parsed.kind !== 'rejected') continue
+      expect(parsed.reason).toBe('shape')
+    }
+  })
+
+  test('缺 mute 字段同样按形状拒：T16 起的每一份都带着它', () => {
+    // 为什么「缺字段」在这里不算宽容项（与 startedAt / styleSwitches 不同）：
+    // 那两个字段是后来加的，旧存档里真的没有；mute 从 T16 第一次写 settings 就在，
+    // 缺了它只能说明这份记录来自另一种形状
+    const { mute: _dropped, ...withoutMute } = encodeSettings('classic', 'material', true)
+    const parsed = decodeSettings(withoutMute)
+    expect(parsed.kind).toBe('rejected')
+    if (parsed.kind !== 'rejected') return
+    expect(parsed.reason).toBe('shape')
+  })
+
+  test('刷新续得上一局，也续得上静音', () => {
+    // 一份 T20 之后写下的设置：mute: true。读回来的三个字段一个都不能少
+    const record = encodeSettings('walls', 'claude', true)
+    const parsed = decodeSettings(JSON.parse(JSON.stringify(record)))
+    expect(parsed).toEqual({
+      kind: 'ok',
+      record: { version: STORAGE_VERSION, modeId: 'walls', styleId: 'claude', mute: true },
+    })
   })
 })
 

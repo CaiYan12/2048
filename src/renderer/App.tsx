@@ -6,6 +6,7 @@ import { Countdown } from './components/Countdown'
 import { DailyDateLabel } from './components/DailyDateLabel'
 import { DirectionPad } from './components/DirectionPad'
 import { GameOverPanel } from './components/GameOverPanel'
+import { MuteToggle } from './components/MuteToggle'
 import { StatsPanel } from './components/StatsPanel'
 import { StatusBar } from './components/StatusBar'
 import { StorageNotice } from './components/StorageNotice'
@@ -49,6 +50,8 @@ export default function App(): JSX.Element {
   const styleId = useGameStore((state) => state.styleId)
   const selectedModeId = useGameStore((state) => state.selectedModeId)
   const setStyle = useGameStore((state) => state.setStyle)
+  const mute = useGameStore((state) => state.mute)
+  const setMute = useGameStore((state) => state.setMute)
   const selectMode = useGameStore((state) => state.selectMode)
   const storageNotice = useGameStore((state) => state.storageNotice)
   const restoring = useGameStore((state) => state.restoring)
@@ -217,6 +220,10 @@ export default function App(): JSX.Element {
           Tab 顺序，不带 autofocus——一把焦点从棋盘上拽走，玩家会以为这局被打断了。 */}
       {!restoring && (
         <div className="mt-4 flex flex-col items-center gap-4">
+          {/* 静音开关（T20）。与战绩面板同一个位置、同一套理由：它是设置不是
+              「这一局的状态」，所以开局前与局中都摆在同一个地方、只有一个入口。
+              写盘走 settings 桶，刷新之后照旧静音（SPEC §3.3 的 mute）。 */}
+          <MuteToggle muted={mute} onToggle={setMute} />
           <button
             type="button"
             className="control"

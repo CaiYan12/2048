@@ -77,10 +77,11 @@ export interface SettingsRecord {
   modeId: ModeId
   styleId: StyleId
   /**
-   * 静音开关。**T20 才会有人读它**，此刻 store 里没有这个字段，所以
-   * encodeSettings 恒写 false。为什么现在就把它放进形状：T20 若在自己那一票里
-   * 往这里加字段，SPEC §3.3 的「存档需要一个版本」就得为它单独涨一次版本，
-   * 而涨版本号是 owner 决策。字段先占位，T20 只填值，不动形状。
+   * 静音开关（SPEC §3.3「selected mode, selected style, and mute」）
+   *
+   * T16 占位、T20 填值：字段不参与版本号（decodeSettings 对非布尔值按形状拒，
+   * 而 T16 时代的存档里它恒为 false，读出来就是不响——那正是当时的真相），
+   * 所以 T20 不需要为它涨一次 `STORAGE_VERSION`。
    */
   mute: boolean
 }
@@ -368,13 +369,23 @@ export function encodeSession(snapshot: SessionSnapshot): SessionRecord {
   }
 }
 
-export function encodeSettings(modeId: ModeId, styleId: StyleId): SettingsRecord {
+/**
+ * settings 桶的编码（T20 起 mute 写真值）
+ *
+ * `mute` 必填、不设默认值：`createGame` 的 `now` 同一条理由——注入要在每个调用点
+ * 看得见。T16 占位时这里恒写 false，本票开始写玩家真正选的那个值；**形状没动**，
+ * 所以存档版本不需要涨（fields absent/null 一律宽容收，见 decodeSettings）。
+ */
+export function encodeSettings(
+  modeId: ModeId,
+  styleId: StyleId,
+  mute: boolean
+): SettingsRecord {
   return {
     version: STORAGE_VERSION,
     modeId,
     styleId,
-    // mute 恒 false：T20 才有第一个读它的人（见 SettingsRecord.mute 的理由）
-    mute: false,
+    mute,
   }
 }
 
