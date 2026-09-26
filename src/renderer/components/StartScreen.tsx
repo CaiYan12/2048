@@ -8,12 +8,12 @@ interface Props {
 }
 
 /**
- * 目前只开放 classic 与 fibonacci：T03 交付前者，T05 交付后者。
+ * 已交付的模式：T03 的 classic、T05 的 fibonacci、T06 的 big-board。
  *
  * 不从 MODES 里过滤——未实现的模式不该以「不可点」的样子出现在界面上。
- * 要放宽的是这张清单本身：T06–T09 各把自己的 id 加进来，界面自然多一个选项。
+ * 要放宽的是这张清单本身：T07–T09 各把自己的 id 加进来，界面自然多一个选项。
  */
-const AVAILABLE_MODE_IDS: readonly ModeId[] = [DEFAULT_MODE_ID, 'fibonacci']
+const AVAILABLE_MODE_IDS: readonly ModeId[] = [DEFAULT_MODE_ID, 'fibonacci', 'big-board']
 
 /** 模式与风格选择（用户故事 1）。缩略预览是 T13/T14 的故事 */
 export function StartScreen({ onStart }: Props): JSX.Element {
