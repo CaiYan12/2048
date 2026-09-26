@@ -1,0 +1,216 @@
+/**
+ * 字体基础设施
+ *
+ * 三条规则，改动前先读懂：
+ *
+ * 1. 字体文件全部自托管在 `public/fonts/`，仓库内本地资源，不依赖任何第三方 CDN。
+ *    只有 latin 子集（含基本标点与常用符号），不是全字符集。
+ *
+ * 2. 每个 @font-face 都写 `font-display: swap`。浏览器绝不因为等字体而阻塞渲染——
+ *    先用回退字体画出来，字体到位再换。这是「读取失败或超时就走系统字体」的第一道机制。
+ *
+ * 3. 回退不是事故，是设计态。见 REFERENCE: 每套风格的字体栈必须由
+ *    「本地字体名 + 同类的回退栈」组成，缺字时在**同一字形类别内**降级，
+ *    而不是掉到系统随便挑的默认字体上去——那会让 Terminal 变成无衬线、
+ *    Newspaper 变成等宽。第二道机制见 fontState.ts 的 data-font-state。
+ */
+
+/* ---------------------------------------------------------------- 可变字体 */
+
+@font-face {
+  font-family: 'Inter'
+  font-style: normal
+  font-weight: 100 900
+  font-display: swap
+  src: url('/fonts/inter/inter-latin-wght-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+@font-face {
+  font-family: 'Roboto Flex'
+  font-style: normal
+  font-weight: 100 900
+  font-display: swap
+  src: url('/fonts/roboto-flex/roboto-flex-latin-wght-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+@font-face {
+  font-family: 'Fraunces'
+  font-style: normal
+  font-weight: 100 900
+  font-display: swap
+  src: url('/fonts/fraunces/fraunces-latin-wght-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+@font-face {
+  font-family: 'Source Sans 3'
+  font-style: normal
+  font-weight: 200 900
+  font-display: swap
+  src: url('/fonts/source-sans-3/source-sans-3-latin-wght-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+@font-face {
+  font-family: 'JetBrains Mono'
+  font-style: normal
+  font-weight: 100 800
+  font-display: swap
+  src: url('/fonts/jetbrains-mono/jetbrains-mono-latin-wght-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+@font-face {
+  font-family: 'Jost'
+  font-style: normal
+  font-weight: 100 900
+  font-display: swap
+  src: url('/fonts/jost/jost-latin-wght-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+@font-face {
+  font-family: 'Playfair Display'
+  font-style: normal
+  font-weight: 400 900
+  font-display: swap
+  src: url('/fonts/playfair-display/playfair-display-latin-wght-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+@font-face {
+  font-family: 'Pixelify Sans'
+  font-style: normal
+  font-weight: 400 700
+  font-display: swap
+  src: url('/fonts/pixelify-sans/pixelify-sans-latin-wght-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+/* ---------------------------------------------------------------- 静态字体 */
+
+@font-face {
+  font-family: 'Comic Neue'
+  font-style: normal
+  font-weight: 400
+  font-display: swap
+  src: url('/fonts/comic-neue/comic-neue-latin-400-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+@font-face {
+  font-family: 'Comic Neue'
+  font-style: normal
+  font-weight: 700
+  font-display: swap
+  src: url('/fonts/comic-neue/comic-neue-latin-700-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+@font-face {
+  font-family: 'Anton'
+  font-style: normal
+  font-weight: 400
+  font-display: swap
+  src: url('/fonts/anton/anton-latin-400-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+@font-face {
+  font-family: 'Chakra Petch'
+  font-style: normal
+  font-weight: 400
+  font-display: swap
+  src: url('/fonts/chakra-petch/chakra-petch-latin-400-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+@font-face {
+  font-family: 'Chakra Petch'
+  font-style: normal
+  font-weight: 700
+  font-display: swap
+  src: url('/fonts/chakra-petch/chakra-petch-latin-700-normal.woff2') format('woff2')
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD
+}
+
+/* ---------------------------------------------------------------- 回退栈 */
+
+/**
+ * 按字形类别组织的系统回退栈。主题把自己的字体栈写成
+ *   font-family: '<本地字体>', var(--fallback-<类别>)
+ * 这样缺字时在**同一类别内**降级，风格仍然成立。
+ * 新增类别时在这里加一行，不要在各主题里散着写死。
+ */
+:root {
+  /* 中性无衬线：Inter / Roboto Flex 的选择 */
+  --fallback-grotesk: system-ui, -apple-system, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif
+
+  /* 几何无衬线：Jost 的选择（Futura 一脉） */
+  --fallback-geometric: 'Futura', 'Century Gothic', 'Avenir Next', system-ui,
+    sans-serif
+
+  /* 人文无衬线：Source Sans 3 的选择（Frutiger 一脉） */
+  --fallback-humanist: 'Frutiger', 'Segoe UI', 'Myriad Pro', system-ui, sans-serif
+
+  /* 无衬线，办公/系统味：Win98 的选择 */
+  --fallback-ui-sans: 'MS Sans Serif', 'Microsoft Sans Serif', Tahoma,
+    'Pixelify Sans', sans-serif
+
+  /* 手写/随意：Comic Neue 的选择 */
+  --fallback-novel: 'Comic Sans MS', 'Chalkboard SE', 'Segoe Print', cursive
+
+  /* 压缩大标题：Anton 的选择 */
+  --fallback-poster: 'Haettenschweiler', 'Arial Narrow Bold', Impact, sans-serif
+
+  /* 科技感方角：Chakra Petch 的选择 */
+  --fallback-techno: 'Bahnschrift', 'DIN Alternate', 'Eurostile', system-ui,
+    sans-serif
+
+  /* 文本衬线：Fraunces 的选择 */
+  --fallback-serif: Georgia, 'Times New Roman', 'Nimbus Roman', serif
+
+  /* 展示衬线：Playfair Display 的选择 */
+  --fallback-display-serif: Georgia, 'Times New Roman', serif
+
+  /* 等宽：JetBrains Mono 的选择 */
+  --fallback-mono: ui-monospace, 'Cascadia Mono', Menlo, Consolas,
+    'Courier New', monospace
+
+  /* 点阵：Pixelify Sans 的选择 */
+  --fallback-pixel: 'MS Sans Serif', Tahoma, sans-serif
+
+  /* 默认三角色，等主题覆盖 */
+  --font-display: 'Inter', var(--fallback-grotesk)
+  --font-body: 'Inter', var(--fallback-grotesk)
+  --font-mono: 'JetBrains Mono', var(--fallback-mono)
+}

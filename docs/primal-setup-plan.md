@@ -31,7 +31,7 @@ Bauhaus / Newspaper / Classic）套在同一套规则内核上。2048 只是承�
 | 音效 | WebAudio 程序化合成，零音频文件，音高随块值升高 |
 | 复古动效 | 默认全开，闪烁频率压 1.5Hz（ADR-0004） |
 | 对比度 | 每套风格在 `contrast.json` 里声明自己的 `minRatio`，脚本校验，不靠眼睛 |
-| 字体 | 自托管（Google Fonts 的字体家族，从自己 origin 提供） |
+| 字体 | **自托管本地资源**，13 个文件 / 340 KB，`font-display: swap` + 同字形类别回退（ADR-0005） |
 | 无障碍 | `prefers-reduced-motion` 全量降级 + 完整键盘 + `aria-live` 播报 |
 | 交付 | 纯静态 + GitHub Pages（Actions）；PWA 留后 |
 | 栈 | React 19 + TS + Vite 7 + Tailwind 3 + Zustand（单 store 无中间件） |
@@ -152,15 +152,19 @@ scripts/
 
 ### P5 风格系统 + 十二套
 
+- [x] `src/renderer/styles/fonts.css`：13 个 `@font-face`（`font-display: swap`、latin 子集）+ 按字形类别集中的系统回退栈
+- [x] `src/renderer/styles/fontState.ts`：`data-font-state` 三态，把「字体没到位」变成 CSS 可见的设计态
+- [x] 字体文件落到 `public/fonts/<family>/`（见下方「字体资产」）
+- [ ] `public/fonts/LICENSE-OFL.md`：附 SIL OFL 许可文本（13 个家族全部 OFL，再分发需随附许可）
 - [ ] `styles/themes/index.ts`：注册表 + `applyStyle(id)` 在根元素设 `data-style`
 - [ ] 棋盘插槽由 `config.ts` 声明要填什么（Aero→gloss、Terminal→扫描线、Web2000→斜面高光）
 - [ ] `scripts/check-contrast.mjs` + 每套风格 `contrast.json`
-- [ ] 自托管字体（OFL / Apache 许可的家族），`license/` 放许可文件
 - [ ] 十二套逐个实现，顺序：`classic`(P2 已有) → `material` → `claude` → `terminal` → `frutiger-aero` → `web2000` → `win10-metro` → `win98` → `aqua` → `cyberpunk` → `bauhaus` → `newspaper`
+- [ ] 每套风格在自己的 `tokens.css` 里设 `--font-display` / `--font-body` / `--font-mono`，写法固定为 `'<本地字体>', var(--fallback-<类别>)`
 - [ ] 复古风格动效：跑马灯 / 闪烁 / 欢迎动画全实现，**闪烁 1.5Hz**（ADR-0004）
 - [ ] `StartScreen` + `StylePicker`：开局前选风格，带缩略预览
 - [ ] 游戏中切换：顶栏风格指示器，点开即切，即时生效，不动棋盘
-- [ ] **验证**：`npm run check:contrast` 全过；12 × 6 = 72 组合抽查无破版；游戏中切风格分数与棋盘不变；开 `prefers-reduced-motion` 后复古风格不再闪
+- [ ] **验证**：`npm run check:contrast` 全过；12 × 6 = 72 组合抽查无破版；游戏中切风格分数与棋盘不变；开 `prefers-reduced-motion` 后复古风格不再闪；**断网/字体 404 时各风格仍在同类内降级**
 
 ### P6 持久化四类
 
@@ -215,6 +219,48 @@ scripts/
 7. `npm run test:e2e` 针对 UI 变更
 
 不满足就不许声称完成。
+
+## 附录：字体资产
+
+13 个 woff2，全部自托管于 `public/fonts/<family>/`，共 **342,420 字节（0.33 MB）**。
+只取 **latin 子集**（含基本标点与常用符号）——中文文本不会触发这些文件，由系统字体接管，
+这是有意的：不把西文字形硬套到汉字上。
+
+| 家族 | 文件 | 字节 | 字重轴 | 许可 | 供谁用 |
+| --- | --- | --- | --- | --- | --- |
+| Inter | `inter-latin-wght-normal.woff2` | 48,256 | 100–900 | OFL | classic、win10-metro、claude(body)、全局 UI |
+| Roboto Flex | `roboto-flex-latin-wght-normal.woff2` | 34,320 | 100–900 | OFL | material |
+| Fraunces | `fraunces-latin-wght-normal.woff2` | 36,620 | 100–900 | OFL | claude(headings) |
+| Source Sans 3 | `source-sans-3-latin-wght-normal.woff2` | 28,740 | 200–900 | OFL | frutiger-aero、aqua |
+| JetBrains Mono | `jetbrains-mono-latin-wght-normal.woff2` | 40,404 | 100–800 | OFL | terminal、等宽读数 |
+| Jost | `jost-latin-wght-normal.woff2` | 26,576 | 100–900 | OFL | bauhaus |
+| Playfair Display | `playfair-display-latin-wght-normal.woff2` | 38,404 | 400–900 | OFL | newspaper |
+| Pixelify Sans | `pixelify-sans-latin-wght-normal.woff2` | 12,016 | 400–700 | OFL | win98 |
+| Comic Neue | `comic-neue-latin-400-normal.woff2` | 19,572 | 静态 400 | OFL | web2000(body) |
+| Comic Neue | `comic-neue-latin-700-normal.woff2` | 19,244 | 静态 700 | OFL | web2000(body 粗) |
+| Anton | `anton-latin-400-normal.woff2` | 18,612 | 静态 400 | OFL | web2000(大标题) |
+| Chakra Petch | `chakra-petch-latin-400-normal.woff2` | 9,756 | 静态 400 | OFL | cyberpunk |
+| Chakra Petch | `chakra-petch-latin-700-normal.woff2` | 9,900 | 静态 700 | OFL | cyberpunk |
+
+来源：[Fontsource](https://fontsource.org/)（经 jsDelivr CDN 取得文件，许可全部为
+SIL Open Font License）。许可文本随各家族发布，剔除授权姓氏需另行处理——本项目为练手用途，
+且许可本身允许嵌入与再分发。
+
+### 回退策略（ADR-0005）
+
+每套风格的字体栈**必须**写成 `'<本地字体>', var(--fallback-<类别>)`，回退类别在
+`src/renderer/styles/fonts.css` 的 `:root` 里集中声明：`grotesk` / `geometric` /
+`humanist` / `ui-sans` / `novel` / `poster` / `techno` / `serif` / `display-serif` /
+`mono` / `pixel`。缺字时在**同一字形类别内**降级，风格仍然成立。
+
+两道机制：
+
+1. `font-display: swap` —— 浏览器绝不为等字体阻塞渲染，先用回退画出来再换。
+2. `data-font-state`（`loading` / `ready` / `fallback`）—— `fontState.ts` 用
+   `document.fonts.ready` 与 2500ms 超时赛跑，把「字体到底来没来」暴露给 CSS，
+   主题可据此补偿形态（缺字时加重字重、拉宽字距）。
+
+`unicode-range` 限定 latin，所以中文内容天然走系统字体，不下载这些文件。
 
 ## 附录：成就清单（12 个）
 
