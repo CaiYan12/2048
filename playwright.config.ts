@@ -6,6 +6,10 @@ import { defineConfig, devices } from '@playwright/test'
  * 里是旧 build，让它接住请求就等于拿陈旧产物冒充本次结果。宁可失败也不复用：
  * 4173 已被占用时 --strictPort 直接报错（reuseExistingServer 恒为 false），
  * 把端口冲突摊到明面上，而不是安静地测一份错的东西。
+ *
+ * 一律 headless：项目所有者在自己的机器上同时做别的工作，弹出的浏览器窗口会抢走
+ * 键盘焦点。需要看渲染结果时读回 DOM（computed style / data-* / 文本），不开可见
+ * 窗口；也不要 --headed、--debug、--ui、codegen 或打开 trace viewer。
  */
 const PREVIEW_ORIGIN = 'http://localhost:4173'
 const BASE_URL = `${PREVIEW_ORIGIN}/2048/`
@@ -23,6 +27,9 @@ export default defineConfig({
   reporter: 'line',
   use: {
     baseURL: BASE_URL,
+    // 永不弹可见窗口（理由见文件头注释）。默认值也是 true，写出来是为了让
+    // 「headless」成为一个有据可查的约定，而不是恰好赶上的默认值。
+    headless: true,
     trace: 'on-first-retry',
   },
   projects: [

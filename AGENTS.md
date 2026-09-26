@@ -280,6 +280,15 @@ SDD ledger 的「依赖版本走当前」裁决。Node 需 `>=22.12.0`（`engine
 当前实现范围与验收见 `docs/SPEC.md`，纵向任务见 `docs/tickets/`；原阶段蓝图见
 `docs/primal-setup-plan.md`，术语见 `CONTEXT.md`。
 
+**Playwright 只准在后台跑，且一律 headless。** 项目所有者会在自己的机器上同时做别的事，
+弹出的浏览器窗口会抢走键盘焦点，前台任务会被打断。具体要求：
+
+- `npx playwright test` 用后台方式执行（`run_in_background: true`），不要前台阻塞并刷屏；
+  轮询结果时用有界等待，不要长时间静默占用前台。
+- 永不使用 `--headed`、`--debug`、`--ui`，不打开 trace viewer、HTML report 或 `codegen`。
+- 需要看渲染结果时读回 DOM（computed style、`data-*`、文本内容），不开可见窗口。
+- `playwright.config.ts` 里 `headless: true` 是显式约定，不是默认值巧合。
+
 
 
 ## Agent skills
