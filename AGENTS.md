@@ -251,13 +251,24 @@ React 19 + TypeScript + Vite 8 + Tailwind 4 + Zustand（单 store，无 slice / 
    加一套风格不动引擎。棋盘 / 方块层**不用** Tailwind utility，独立 `board.css`；
    Tailwind 只用于外壳。
 
-版本沿用 `opia-rss-reader` 已验证组合并钉死在下方「版本钉死表」，升级前先查理由。
+依赖版本在 T02 按当前主线钉死并记录在下方「版本钉死表」（未沿用 `opia-rss-reader` 的旧基线，
+理由见表下），升级前先查理由。
 
 ### 版本钉死表
 
 | 依赖 | 版本 | 钉死理由 |
 | --- | --- | --- |
-| （待 P0 填写） | — | `docs/primal-setup-plan.md` P0 阶段写入 |
+| vite | 8.3.1 | 当前主版本；T02 核过 plugin-react 6、vitest 5 的 peer 均指向 Vite 8 |
+| @vitejs/plugin-react | 6.1.1 | peer 要求 `vite ^8.0.0`，与上表同时定 |
+| vitest | 5.0.2 | peer 接受 `vite ^6 \|\| ^7 \|\| ^8`；与 Vite 8 验证过可共装 |
+| tailwindcss + @tailwindcss/vite | 4.3.3 | CSS-first 无 `tailwind.config.js`，`@theme` 原生自定义属性，与各风格 `tokens.css` 直接组合 |
+| react / react-dom | 19.3.0 | 当前 minor；`@types/react` 对齐 |
+| typescript | 7.0.2 | `tsc --noEmit` 已通过；strict 全开 |
+| @playwright/test | 1.63.0 | e2e 用构建预览跑，版本跟随当前 |
+| @types/node | 26.6.3 | 配置文件与 Node API 类型 |
+
+回退基线：`tailwindcss@3.4.19`（npm `v3-lts`）+ Vite 7 + Vitest 4 + plugin-react 5，理由见
+SDD ledger 的「依赖版本走当前」裁决。Node 需 `>=22.12.0`（`engines`）。
 
 六模式的规则声明在 `src/shared/modes.ts`；本次只实现 `classic`、`material`、`claude`
 三套基准风格，放在 `src/renderer/styles/themes/`。其余特色风格见 `README.md` 的 TODO。
