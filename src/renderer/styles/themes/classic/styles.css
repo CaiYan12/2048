@@ -1,23 +1,17 @@
 /**
  * Classic 的呈现规则
  *
- * 只管两件事：外壳（纸面、标注、按钮、提示）与棋盘层的装饰参数（圆角、动效时长）。
- * 棋盘与方块的**结构**在 board.css，颜色在 tokens.css——这里不重复它们，
- * 也不出现 Tailwind utility：这一层与棋盘层一样，都要能整块换掉。
+ * 只管两件事：外壳（纸面、标注、按钮、提示）与棋盘层的装饰参数。棋盘与方块的**结构**
+ * 在 board.css，颜色在 tokens.css——这里不重复它们，也不出现 Tailwind utility：
+ * 这一层与棋盘层一样，都要能整块换掉。
  *
- * 圆角与动效用「带默认值的变量」声明：board.css 里写的是 var(--cell-radius, 6px)，
- * 风格想换观感只改这一处，不必动棋盘层。
+ * 每一条规则都挂在 [data-style='classic'] 之下：T13 起两套风格的 styles.css 同时打进
+ * 同一个产物，不按 data-style 隔开就会互相覆盖（而覆盖顺序该由设计决定，不由打包决定）。
+ * 圆角与动效时长原本在 :root 上声明，现已移进 tokens.css——「值」集中在一处。
  */
 
-:root {
-  --board-radius: 6px;
-  --cell-radius: 6px;
-  --tile-move-duration: 140ms;
-  --tile-spawn-duration: 120ms;
-}
-
 /* 外壳：纸面 + 无衬线正文 */
-.shell {
+.shell[data-style='classic'] {
   min-height: 100dvh;
   background: var(--page);
   color: var(--ink);
@@ -25,14 +19,14 @@
 }
 
 /* 标题。字体走 @theme inline 映射出来的 font-display（见 index.css） */
-.shell__title {
+.shell[data-style='classic'] .shell__title {
   font-family: var(--font-display);
   font-weight: 700;
   letter-spacing: -0.02em;
 }
 
 /* 卡片式标注：分数 / 目标 / 最高方块 */
-.panel {
+[data-style='classic'] .panel {
   background: var(--control-bg);
   color: var(--ink-bright);
   border-radius: var(--cell-radius);
@@ -40,7 +34,7 @@
   text-align: center;
 }
 
-.panel__label {
+[data-style='classic'] .panel__label {
   font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -48,7 +42,7 @@
   opacity: 0.85;
 }
 
-.panel__value {
+[data-style='classic'] .panel__value {
   font-family: var(--font-display);
   font-size: 1.25rem;
   font-weight: 700;
@@ -57,7 +51,7 @@
 }
 
 /* 控件：按钮。焦点用「页面色垫圈 + 深色描边」双环，深色环永远只与页面色相邻 */
-.control {
+[data-style='classic'] .control {
   background: var(--control-bg);
   color: var(--ink-bright);
   border: 0;
@@ -69,11 +63,11 @@
   cursor: pointer;
 }
 
-.control:hover {
+[data-style='classic'] .control:hover {
   background: var(--control-bg-hover);
 }
 
-.control:focus-visible {
+[data-style='classic'] .control:focus-visible {
   outline: 0;
   box-shadow:
     0 0 0 2px var(--page),
@@ -81,12 +75,12 @@
 }
 
 /* 已选项：同一族里用更深的底表示「选中」，不引入新颜色 */
-.control[aria-pressed='true'] {
-  background: var(--focus);
+[data-style='classic'] .control[aria-pressed='true'] {
+  background: var(--control-bg-selected);
 }
 
 /* 操作提示：纸面上最弱的一层字 */
-.hint {
+[data-style='classic'] .hint {
   color: var(--ink);
   font-size: 0.8125rem;
   text-align: center;
@@ -99,14 +93,14 @@
    display:none 的盒子留缝，「非触摸设备不占用布局」由这一行直接兑现。
    单排四个而不是九宫格：九宫格高 160px，会把「新游戏」推到手机视口外；单排只占
    48px，棋盘加方向按钮在 393×727 的 Pixel 5 上一屏放得下。 */
-.dpad {
+[data-style='classic'] .dpad {
   display: none;
   grid-template-columns: repeat(4, 3rem);
   gap: 0.5rem;
 }
 
 /* 键面复用 .control 的配色与焦点环，只把形状改成 48px 的方块（触控目标下限） */
-.dpad__key {
+[data-style='classic'] .dpad__key {
   display: grid;
   place-items: center;
   width: 3rem;
@@ -117,22 +111,22 @@
 }
 
 /* 触摸版的移动键提示：默认不占位 */
-.hint__touch {
+[data-style='classic'] .hint__touch {
   display: none;
 }
 
 /* 触摸设备：方向按钮进场，键盘那一版提示让位。
    判据与上面同一条——描述输入设备，不描述视口宽度。 */
 @media (pointer: coarse) {
-  .dpad {
+  [data-style='classic'] .dpad {
     display: grid;
   }
 
-  .hint__pointer {
+  [data-style='classic'] .hint__pointer {
     display: none;
   }
 
-  .hint__touch {
+  [data-style='classic'] .hint__touch {
     display: inline;
   }
 }
@@ -141,7 +135,7 @@
    它是外壳元素（ADR-0002 的棋盘 DOM 固定结构不动），所以颜色仍走主题 token，
    换风格时跟着 tokens.css 整块变。用不透明底色而不是半透明：半透明会把棋盘上的
    方块透出来，和已经结束的局面摆在一起只会让人以为还能动它。 */
-.overlay {
+[data-style='classic'] .overlay {
   position: absolute;
   inset: 0;
   display: grid;
@@ -153,25 +147,26 @@
   background: var(--page);
 }
 
-.overlay__title {
+[data-style='classic'] .overlay__title {
   font-family: var(--font-display);
   font-size: 1.5rem;
   font-weight: 700;
   color: var(--ink);
 }
 
-.overlay__text {
+[data-style='classic'] .overlay__text {
   max-width: 16rem;
   color: var(--ink);
   font-size: 0.875rem;
 }
 
-/* 棋盘区域是交互目标：可见焦点 + 不把光标当文本框 */
-.board {
+/* 棋盘区域是交互目标：可见焦点 + 不把光标当文本框。
+   Classic 全扁平，所以这里只有光标与焦点环，没有投影（投影是 Material 的层级语言）。 */
+[data-style='classic'] .board {
   cursor: default;
 }
 
-.board:focus-visible {
+[data-style='classic'] .board:focus-visible {
   outline: 0;
   box-shadow:
     0 0 0 2px var(--page),
@@ -180,7 +175,7 @@
 
 /* reduced-motion：动效全部退化为静态（SPEC §3.2） */
 @media (prefers-reduced-motion: reduce) {
-  :root {
+  [data-style='classic'] {
     --tile-move-duration: 0ms;
     --tile-spawn-duration: 0ms;
   }

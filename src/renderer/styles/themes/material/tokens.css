@@ -1,0 +1,84 @@
+/**
+ * Material 风格的设计令牌（只放「值」，不放规则）
+ *
+ * 作用域是 [data-style='material']，不是 :root：两套风格的令牌要同时活在同一个文档里，
+ * 只有落在各自的 data-style 上才不会互相覆盖（T13 换肤机制的根）。自定义属性向下继承，
+ * 所以 .board 与方块层拿到的是当前选中的那一套。
+ *
+ * 表面色取 Material 3 基线浅色主题的实际角色名（见 DESIGN.md §2），便于逐项对照原型。
+ * 回退必须落在同一字形类别内（ADR-0005）：本风格是无衬线，挂 --fallback-grotesk
+ * （fonts.css 把 Roboto Flex 归在这一类）。
+ *
+ * 方块阶梯按**档位**命名（--tile-1 … --tile-11），不按数值：档位是「在本模式目标前的
+ * 相对进度」，classic 的 2048 与 fibonacci 的 2584 都落在第 11 档。每档连字色一起声明
+ * （--tile-N-ink），因为「深底亮字 / 亮底深字」的分界在哪一档是这套风格自己的决定，
+ * 不由 board.css 替它猜。board.css 只写 11 条 [data-bucket] 规则 + beyond 兜底。
+ */
+
+[data-style='material'] {
+  /* 表面 */
+  --page: #fef7ff;
+  --board: #ffffff;
+  --cell-bg: #e6e0e9;
+  /* 障碍底（T07）：on-surface-variant，一块中性灰，刻意不在紫色阶梯里。判据同 Classic：
+     障碍必须同时与可玩空格和数值方块分得开，且方块永远带数字、障碍永远不带。 */
+  --wall-bg: #49454f;
+
+  /* 文字 */
+  --ink: #1d1b20;
+  --ink-variant: #49454f;
+  --ink-bright: #ffffff;
+
+  /* 控件（tonal 按钮 / 面板），选中态翻成 filled primary */
+  --control-ink: #1d192b;
+  --control-bg: #e8def8;
+  --control-bg-hover: #d8cee8;
+  --control-bg-selected: #6750a4;
+  --focus: #625b71;
+
+  /* 方块阶梯：一条主色相的明度阶梯（OKLCH hue 293.7，即主色 #6750a4 的色相）。
+     浅 6 档深字、深 5 档白字——中间有一道两种字色都过不了 4.5:1 的死区（L≈0.55–0.66），
+     只能断开一次，代价记在 DESIGN.md §2。每一档的对比度见 contrast.json。 */
+  --tile-1: #c2adff;
+  --tile-1-ink: var(--ink);
+  --tile-2: #b9a4ff;
+  --tile-2-ink: var(--ink);
+  --tile-3: #b09bf7;
+  --tile-3-ink: var(--ink);
+  --tile-4: #a892ee;
+  --tile-4-ink: var(--ink);
+  --tile-5: #9f89e4;
+  --tile-5-ink: var(--ink);
+  --tile-6: #9781db;
+  --tile-6-ink: var(--ink);
+  --tile-7: #7861b8;
+  --tile-7-ink: var(--ink-bright);
+  --tile-8: #6851a6;
+  --tile-8-ink: var(--ink-bright);
+  --tile-9: #594195;
+  --tile-9-ink: var(--ink-bright);
+  --tile-10: #4b3183;
+  --tile-10-ink: var(--ink-bright);
+  --tile-11: #3c1f71;
+  --tile-11-ink: var(--ink-bright);
+  /* 超出本模式目标值的方块。Material 3 主色最深的一档色调 */
+  --tile-beyond: #300f62;
+  --tile-beyond-ink: var(--ink-bright);
+
+  /* 形状（Material shape scale：large / medium）与层级 */
+  --board-radius: 16px;
+  --cell-radius: 12px;
+  /* elevation。board.css 的 [data-selected] 会把它和焦点环合成，不互相顶掉 */
+  --tile-elevation: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
+
+  /* 动效：emphasized 减速曲线。board.css 里这两个变量都有「Classic 现值」的默认值，
+     不声明就是 Classic 的样子，声明了才轮到本风格说话。 */
+  --tile-move-duration: 220ms;
+  --tile-move-easing: cubic-bezier(0.2, 0, 0, 1);
+  --tile-spawn-duration: 160ms;
+  /* 方块数值的字重：Roboto Medium，与 Classic 的 Bold 分开 */
+  --tile-font-weight: 500;
+
+  --font-display: 'Roboto Flex', var(--fallback-grotesk);
+  --font-body: 'Roboto Flex', var(--fallback-grotesk);
+}

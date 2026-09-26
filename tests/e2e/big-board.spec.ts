@@ -325,8 +325,9 @@ test('4096：四位数字号档，字不挤出格子', async ({ page }) => {
   expect(Math.abs(metrics.fontSize - cellSize * 0.27)).toBeLessThan(0.5)
   // 四位数不许挤出格子：TileView 就是一个格子见方的盒子，字宽超过它就会横向溢出
   expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth)
-  // 4096 落在阶梯声明的末档之外，按裁决归 --tile-beyond（T13–T15 才重新按秩分档），
-  // 这里只验它「有着落且读得出」，不替它挑一个别的颜色
+  // 4096 是大棋盘自己的目标值，按 T13 的按秩分档落在**第 11 档**（顶档）而不是
+  // --tile-beyond——beyond 的新语义是「超出本模式目标值」。这里只验它「有着落且
+  // 读得出」，不替它挑一个别的颜色；分档算式在 ValueLadder.ts，单测钉着整张表
   expect(metrics.background).not.toBe('rgba(0, 0, 0, 0)')
 
   expect(problems).toEqual([])

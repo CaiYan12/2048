@@ -1,17 +1,21 @@
 /**
  * Classic 风格的设计令牌（只放「值」，不放规则）
  *
+ * 作用域是 [data-style='classic']，不是 :root：T13 起两套以上风格的令牌同时活在同一个
+ * 文档里，只有各自挂在 data-style 上才不会互相覆盖。自定义属性向下继承，所以 .board
+ * 与方块层拿到的是当前选中的那一套。
+ *
  * 三个三角色的字体栈与回退在 fonts.css 的 :root 上声明，这里按 Classic 的口径覆盖。
  * 回退必须落在同一字形类别内（ADR-0005）：Classic 是无衬线，所以挂 --fallback-grotesk。
  */
 
-:root {
+[data-style='classic'] {
   --page: #faf8ef;
   --board: #bbada0;
   --cell-bg: #cdc1b4;
   /* 障碍底（T07）。冷灰，刻意落在方块阶梯的暖色之外：障碍必须同时与「可玩空格」和
      「数值方块」分得开，而全盘最暗的一档（--tile-beyond #4a443f）本身**就是**一档方块，
-     直接复用会让 4096 及以上的方块与障碍同色。实测对比度见 contrast.json。 */
+     直接复用会让超出目标的方块与障碍同色。实测对比度见 contrast.json。 */
   --wall-bg: #3f4a52;
 
   /* 正文 / 小字 / 亮底方块上的字 */
@@ -21,22 +25,50 @@
 
   --control-bg: #6f6055;
   --control-bg-hover: #5f564e;
+  /* 选中态（.control[aria-pressed='true']）：Classic 没有第二套控件色，就用焦点那个深棕 */
+  --control-bg-selected: #4a443f;
   --focus: #4a443f;
 
-  /* 方块阶梯：2/4 亮底深字，8 起深底亮字。
-     每一档的对比度见 contrast.json——除 8 号（一位数、按大字 3:1）外都 ≥ 4.56:1 */
-  --tile-2: #eee4da;
-  --tile-4: #ede0c8;
-  --tile-8: #c2622c;
-  --tile-16: #b5561f;
-  --tile-32: #a54a1c;
-  --tile-64: #953f18;
-  --tile-128: #916a0e;
-  --tile-256: #8a680d;
-  --tile-512: #85640b;
-  --tile-1024: #7c5d0a;
-  --tile-2048: #6c5109;
+  /* 方块阶梯按**档位**命名（T13 起），不按数值：档位是「在本模式目标前的相对进度」，
+     经典模式里档位与数值一一对应（第 11 档 = 2048），但斐波那契模式的第 11 档是 2584、
+     大棋盘是 4096——继续叫 --tile-2048 就是一句假话。分档算式在 ValueLadder.ts。
+     2/4 亮底深字，8 起深底亮字。每一档的对比度见 contrast.json——
+     除 8 号（一位数、按大字 3:1）外都 ≥ 4.56:1 */
+  --tile-1: #eee4da;
+  --tile-1-ink: var(--ink);
+  --tile-2: #ede0c8;
+  --tile-2-ink: var(--ink);
+  --tile-3: #c2622c;
+  --tile-3-ink: var(--ink-bright);
+  --tile-4: #b5561f;
+  --tile-4-ink: var(--ink-bright);
+  --tile-5: #a54a1c;
+  --tile-5-ink: var(--ink-bright);
+  --tile-6: #953f18;
+  --tile-6-ink: var(--ink-bright);
+  --tile-7: #916a0e;
+  --tile-7-ink: var(--ink-bright);
+  --tile-8: #8a680d;
+  --tile-8-ink: var(--ink-bright);
+  --tile-9: #85640b;
+  --tile-9-ink: var(--ink-bright);
+  --tile-10: #7c5d0a;
+  --tile-10-ink: var(--ink-bright);
+  --tile-11: #6c5109;
+  --tile-11-ink: var(--ink-bright);
+  /* 超出**本模式**目标值的方块。不是「4096 起」：大棋盘的 4096 是它自己的目标值，
+     落第 11 档；只有超过自己目标的值才来这里（经典模式 4096 起、大棋盘 8192 起）。 */
   --tile-beyond: #4a443f;
+  --tile-beyond-ink: var(--ink-bright);
+
+  /* 棋盘层的装饰参数：board.css 里都是带默认值的变量（var(--cell-radius, 6px)），
+     风格想换观感只改这一处，不必动棋盘层。 */
+  --board-radius: 6px;
+  --cell-radius: 6px;
+  --tile-move-duration: 140ms;
+  --tile-spawn-duration: 120ms;
+  /* --tile-move-easing / --tile-elevation / --tile-font-weight 刻意不声明：
+     board.css 的默认值（ease-out / 无投影 / 700）就是 Classic 本来的样子 */
 
   --font-display: 'Inter', var(--fallback-grotesk);
   --font-body: 'Inter', var(--fallback-grotesk);

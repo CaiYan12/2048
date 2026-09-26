@@ -1,7 +1,8 @@
 import { create } from 'zustand'
-import type { Direction, GameState } from '../../shared/types'
+import type { Direction, GameState, StyleId } from '../../shared/types'
 import type { ModeId } from '../../shared/modes'
 import type { Coordinate } from '../../game/board'
+import { DEFAULT_THEME_ID } from '../styles/themes'
 import {
   abandon,
   continueRun,
@@ -64,6 +65,22 @@ export interface GameStore {
    * 不是一个还没做完的编辑）。
    */
   swapArmed: boolean
+  /**
+   * 当前风格（T13）。开局前与局中都能改，改完只换呈现。
+   *
+   * 为什么它住在 store 而不是 GameState：它是**界面状态**，不是这一局的规则数据。
+   * GameState 的字段（src/shared/types.ts）由引擎认领，塞一个 styleId 进去等于让
+   * T16 持久化一次外观选择、让 T17 的重放把它当成一次状态迁移。SPEC §3.2 也把话说死了：
+   * 风格不能改变规则、分数、计时器，以及控件的无障碍含义。
+   *
+   * 切换的代价因此只有**一个字段**：setStyle 只写 styleId，game / history / dailyDate /
+   * swapArmed / swapSelection 一个都不碰、连对象都不新建——所以 zustand 那边 board 收到
+   * 的还是同一个 game 引用，React 会把棋盘那一层整个跳过去。tests/unit/style-switch.test.ts
+   * 钉的正是这一整张字段表。
+   */
+  styleId: StyleId
+  /** 换风格。只改呈现；同一 id 重复调用连 state 都不换 */
+  setStyle(id: StyleId): void
   /** 开 / 关交换拾取。StatusBar 与死局面板的那两个按钮调的是同一个动作 */
   toggleSwap(): void
   /**
@@ -118,6 +135,11 @@ export const useGameStore = create<GameStore>()((set) => ({
   dailyDate: null,
   // 还没开局，也就没有历史可言：空栈让开局后的第一次撤销必然空操作
   history: [],
+  // 默认经典风格。它不随开局清空——玩家选好的观感应跟着他，不该每开一局被重置回 classic
+  styleId: DEFAULT_THEME_ID,
+  setStyle: (id) => {
+    set((state) => (state.styleId === id ? state : { styleId: id }))
+  },
   // 还没开局：没有拾取、也没有选择
   swapArmed: false,
   swapSelection: null,

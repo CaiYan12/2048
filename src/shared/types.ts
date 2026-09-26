@@ -87,10 +87,12 @@ export interface MoveOutcome {
 }
 
 /**
- * 风格 id。每套风格是一个字面量，T13/T15 各添一个（加法，不动引擎与棋盘 DOM）。
+ * 风格 id。每套风格是一个字面量，T13 / T15 各添一个（加法，不动引擎与棋盘 DOM）。
+ * T13 起它同时是 data-style 的属性值：每套风格的 tokens.css / styles.css 都把自己的规则
+ * 挂在 `[data-style='<id>']` 之下，所以多套风格的 CSS 可以同时活在同一个文档里而不互相覆盖。
  * `Run` 故意不在此声明：它是 T16 的持久化形状，提前声明等于替一票未写的需求定型。
  */
-export type StyleId = 'classic'
+export type StyleId = 'classic' | 'material'
 
 /**
  * 装饰插槽的组件形状：纯呈现、不吃 props、可返回 null 表示该风格没有这项装饰。

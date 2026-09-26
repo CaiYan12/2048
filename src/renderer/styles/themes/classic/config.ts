@@ -1,5 +1,9 @@
 import type { JSX } from 'react'
 import type { OverlaySlot, StyleId } from '../../../../shared/types'
+// 自己的 CSS 由 config 引进来：注册表 index.ts 引 config，于是入口 main.tsx 不逐个 import
+// 主题 CSS——加第三套风格时只加一个文件夹和注册表一行（SPEC 用户故事 28）。
+import './tokens.css'
+import './styles.css'
 
 /**
  * Classic 风格配置

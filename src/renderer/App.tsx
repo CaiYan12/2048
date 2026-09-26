@@ -7,6 +7,7 @@ import { DirectionPad } from './components/DirectionPad'
 import { GameOverPanel } from './components/GameOverPanel'
 import { StatusBar } from './components/StatusBar'
 import { StartScreen } from './components/StartScreen'
+import { StylePicker } from './components/StylePicker'
 import { WinPanel } from './components/WinPanel'
 import { useGameStore } from './stores/useGameStore'
 
@@ -21,10 +22,16 @@ import { useGameStore } from './stores/useGameStore'
  * mode-contract §3 只禁 ended 之后的撤销。
  * T12 起把作弊交换接到 StatusBar 与死局面板：拾取中先收起死局面板，否则它那层
  * 不透明满盖会把方块挡住，指针那条路点不到东西（理由见下面板那一段）。
+ * T13 起把风格切换接到外壳上：`data-style` 是整套换肤机制的根——每套风格的
+ * tokens.css / styles.css 都把自己的规则挂在 `[data-style='<id>']` 之下，所以多套风格的
+ * CSS 同时活在同一个产物里也不互相覆盖。它挂在外壳而不是 .board 上：ADR-0002 规定棋盘
+ * DOM 固定，而外壳正是「可以换实现」的那一层（设计卡 §5）。
  */
 export default function App(): JSX.Element {
   const game = useGameStore((state) => state.game)
   const dailyDate = useGameStore((state) => state.dailyDate)
+  const styleId = useGameStore((state) => state.styleId)
+  const setStyle = useGameStore((state) => state.setStyle)
   const startRun = useGameStore((state) => state.startRun)
   const move = useGameStore((state) => state.move)
   const undo = useGameStore((state) => state.undo)
@@ -42,9 +49,13 @@ export default function App(): JSX.Element {
   }
 
   return (
-    <main className="shell grid min-h-dvh place-items-center px-4 py-8">
+    <main
+      className="shell grid min-h-dvh place-items-center px-4 py-8"
+      // 换肤机制唯一的钩子：每套风格的令牌与呈现规则都按这个属性选择
+      data-style={styleId}
+    >
       {game === null ? (
-        <StartScreen onStart={handleStart} />
+        <StartScreen onStart={handleStart} styleId={styleId} onStyleChange={setStyle} />
       ) : (
         <div className="flex flex-col items-center gap-4">
           <h1 className="shell__title text-5xl">2048</h1>
@@ -64,12 +75,18 @@ export default function App(): JSX.Element {
           {/* Daily 的日期说明（T08）：写的是这一局抽题那天的 UTC 日期，跨零点也不翻篇。
               摆在外壳里，与 Board 平级——ADR-0002 的棋盘固定结构不许塞进来说明文字。 */}
           {game.modeId === 'daily' && dailyDate !== null && <DailyDateLabel date={dailyDate} />}
+          {/* 局中也能换风格（T13 验收标准 2）：只写 store 的 styleId 一个字段，
+              棋盘 / 分数 / 随机进度 / 计时一个都不碰。摆在这里而不是塞进 StatusBar：
+              它是「这一局的观感」，不是「这一局的状态」。与开局界面共用同一个
+              StylePicker，列表来自 THEMES 注册表。 */}
+          <StylePicker value={styleId} onChange={setStyle} />
           {/* 棋盘与面板共用一个相对定位的壳。面板是外壳元素（Tailwind 也只在外壳这侧），
               不能塞进 .board：那层是 ADR-0002 的固定 DOM 结构。w-fit 让这个壳正好
               裹住棋盘，面板 inset:0 才只盖住棋盘，不会横铺整个页面。 */}
           <div className="relative w-fit">
             <Board
               game={game}
+              styleId={styleId}
               onMove={move}
               onUndo={undo}
               swapArmed={swapArmed}

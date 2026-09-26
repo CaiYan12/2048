@@ -9,6 +9,10 @@ interface Props {
   col: number
   /** transform 定位，来自 BoardLayout.cellOffset——宽高由 board.css 用同一个变量算 */
   offset: { x: number; y: number }
+  /** 数值在本模式价值阶梯里的 1-based 位置（ValueLadder.tileRank）。阶梯外 = 超过目标 */
+  rank: number
+  /** 按相对进度折进主题 11 个色档里的第几档（ValueLadder.tileSlot）。board.css 的配色键 */
+  slot: number
   /** 交换拾取中（T12）：这枚方块可以被选中 */
   selectable: boolean
   /** 它正是等第二枚的那一枚（T12） */
@@ -21,6 +25,10 @@ interface Props {
  * T21 靠 data-tile-id 认出「同一个方块」来做位移动画，e2e 靠它断言
  * 「Tile 身份不随位置变化」。
  *
+ * T13 起多加两个属性：`data-rank`（阶梯位置）与 `data-bucket`（色档）。为什么 bucket
+ * 也要上 DOM：board.css 的配色键是它，而它由 ValueLadder 的纯函数算出来——算式放进
+ * .ts 是为了能单测，CSS 里写不出「ceil 之后再按算出的数索引一个静态 token 名」。
+ *
  * 拾取态（T12）只加属性、不加节点：ADR-0002 的棋盘固定 DOM 结构不许因为一个
  * 交互多出一层。tabIndex 也只在拾取中给出——否则 4×4 / 5×5 的每一枚方块都变成
  * 一个常驻的 Tab 停靠点。
@@ -30,6 +38,8 @@ export function TileView({
   row,
   col,
   offset,
+  rank,
+  slot,
   selectable,
   selected,
   onSelect,
@@ -47,6 +57,8 @@ export function TileView({
       className="board__tile"
       data-tile-id={tile.id}
       data-value={tile.value}
+      data-rank={rank}
+      data-bucket={slot}
       data-digits={tileDigits(tile.value)}
       // 两个呈现钩子，规则在 board.css：没进拾取态时这两个属性都不出现，
       // DOM 与 T12 之前逐字节一致（换风格与 T21 都不受影响）

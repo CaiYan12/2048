@@ -8,9 +8,10 @@ import { initFontState } from './renderer/styles/fontState'
 // 构建产物里 13 条 @font-face 就出现两次（实测 26 条）。从 JS 引一次即干净。
 import './renderer/styles/fonts.css'
 // board.css 与主题 CSS 同样从 JS 引、不进 index.css 的 @import（同上的双份内联坑）。
-// T03 只有 classic 一套，入口直接引它；多风格同时加载的策略归 T13 的换肤机制。
-import './renderer/styles/themes/classic/tokens.css'
-import './renderer/styles/themes/classic/styles.css'
+// 主题 CSS 不在这里逐个引：每套风格的 config.ts 引自己的 tokens.css / styles.css，
+// 注册表 themes/index.ts 引 config——于是「加一套风格 = 加一个文件夹 + 注册表一行」，
+// 入口一个字都不用改（SPEC 用户故事 28）。多套风格同时加载也是有意为之：切换要在
+// 一帧内完成，不能等一次网络往返。
 import './renderer/styles/board.css'
 import './renderer/styles/index.css'
 

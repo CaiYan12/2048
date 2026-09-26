@@ -1,10 +1,13 @@
 import { useState, type JSX } from 'react'
 import { DEFAULT_MODE_ID, getMode, type ModeId } from '../../shared/modes'
 import type { StyleId } from '../../shared/types'
-import { DEFAULT_THEME_ID, getTheme } from '../styles/themes'
+import { StylePicker } from './StylePicker'
 
 interface Props {
   onStart(modeId: ModeId): void
+  /** 当前风格（T13）：住在 store 里，开局前选的就是开局后用的那一套 */
+  styleId: StyleId
+  onStyleChange(id: StyleId): void
 }
 
 /**
@@ -24,15 +27,15 @@ const AVAILABLE_MODE_IDS: readonly ModeId[] = [
   'time-attack',
 ]
 
-/** 模式与风格选择（用户故事 1）。缩略预览是 T13/T14 的故事 */
-export function StartScreen({ onStart }: Props): JSX.Element {
+/** 模式与风格选择（用户故事 1）。缩略预览是 T14 的故事 */
+export function StartScreen({
+  onStart,
+  styleId,
+  onStyleChange,
+}: Props): JSX.Element {
   const [modeId, setModeId] = useState<ModeId>(DEFAULT_MODE_ID)
-  // 目前只有一套风格：选择只是把「已选」显示出来。T13 的换肤机制落地前，
-  // 选哪套都渲染同一套——所以这里不做多余的持久化。
-  const [styleId, setStyleId] = useState<StyleId>(DEFAULT_THEME_ID)
 
   const mode = getMode(modeId)
-  const style = getTheme(styleId)
 
   return (
     <section className="flex w-full max-w-md flex-col items-center gap-6 py-8">
@@ -63,19 +66,12 @@ export function StartScreen({ onStart }: Props): JSX.Element {
         </div>
       </div>
 
-      <div className="flex w-full flex-col gap-3" role="group" aria-label="风格">
-        <span className="panel__label">风格</span>
-        {/* 只有一套风格：直接列它。T13/T15 各加一个文件夹并进 THEMES 注册表后，
-            这里改成遍历 THEMES 即可，界面的其他部分不动 */}
-        <button
-          type="button"
-          className="control"
-          aria-pressed={styleId === style.id}
-          onClick={() => setStyleId(style.id)}
-        >
-          {style.label}
-        </button>
-      </div>
+      {/* 风格选择（T13）。为什么不在这里存本地 state：选中的风格要**带进这一局**
+          ——它住在 store 里，开局界面与局中共用同一个选择器、同一个值。
+          T03 那版在这里放了一份 useState，于是「开局选了 material」对局一点影响都没有
+          （Board 读的是 DEFAULT_THEME_ID）。列表由 THEMES 注册表驱动，界面上只会出现
+          真实存在的风格。 */}
+      <StylePicker value={styleId} onChange={onStyleChange} />
 
       <button
         type="button"

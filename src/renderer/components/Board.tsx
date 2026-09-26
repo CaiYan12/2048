@@ -7,11 +7,12 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from 'react'
-import type { Direction, GameState } from '../../shared/types'
+import type { Direction, GameState, StyleId } from '../../shared/types'
 import type { Coordinate } from '../../game/board'
 import { getMode } from '../../shared/modes'
-import { DEFAULT_THEME_ID, getTheme } from '../styles/themes'
+import { getTheme } from '../styles/themes'
 import { TileView } from './TileView'
+import { tileRank, tileSlot, valueLadder } from './ValueLadder'
 import {
   BOARD_GAP,
   BOARD_PADDING,
@@ -24,6 +25,8 @@ import { withinPickRadius } from './TilePick'
 
 interface Props {
   game: GameState
+  /** 当前风格（T13）：只决定两个装饰插槽取哪一套的配置。data-style 挂在外壳上 */
+  styleId: StyleId
   onMove(direction: Direction): void
   onUndo(): void
   /** 交换拾取中（T12）：true 时方块才进 Tab 序列、才认轻点 */
@@ -123,12 +126,15 @@ function useCellSize(size: number): number {
  * 棋盘（ADR-0002 的固定 DOM 结构 + 两个装饰插槽）
  *
  * 这里渲染的是**结构**：一层底板格子、一层方块、两个插槽。
- * 颜色来自当前风格 tokens.css，尺寸来自 BoardLayout，呈现可整体替换而结构不动。
+ * 颜色来自当前风格 tokens.css（经外壳上的 data-style 选中），尺寸来自 BoardLayout，
+ * 呈现可整体替换而结构不动。风格 id 只用来取插槽配置——board.css 的配色键是 data-bucket，
+ * 主题的色值由 data-style 那边的 CSS 变量给出，所以这个组件不接触任何色值。
  * 插槽永远从风格配置解构出来渲染，不写死成 null——否则 T13/T15 想加装饰时
  * 又得回来改这个组件。
  */
 export function Board({
   game,
+  styleId,
   onMove,
   onUndo,
   swapArmed,
@@ -137,10 +143,14 @@ export function Board({
   onExitSwap,
 }: Props): JSX.Element {
   const mode = getMode(game.modeId)
-  const theme = getTheme(DEFAULT_THEME_ID)
+  const theme = getTheme(styleId)
   // 插槽的数据名叫 boardOverlay / tileOverlay（interface sheet 定的形状），
   // 组件名按房子风格用 PascalCase，所以解构时改个名
   const { boardOverlay: BoardOverlay, tileOverlay: TileOverlay } = theme
+  // 本模式的价值阶梯（T13）。方块按「在本模式目标前的相对进度」取色，所以阶梯必须
+  // 跟着模式走：经典 11 级、斐波那契 17 级、大棋盘 12 级。纯函数、每次渲染重算的
+  // 代价是十几个元素的数组，不值得为它加 memo
+  const ladder = valueLadder(mode)
 
   const cellSize = useCellSize(mode.size)
   const layout: BoardLayout = createBoardLayout(mode.size, cellSize)
@@ -316,6 +326,7 @@ export function Board({
           row.map((cell, colIndex) => {
             if (cell === null || cell === 'wall') return null
             // key 用 Tile.id：React 才会复用同一个 DOM 节点，T21 的位移动画才成立
+            const rank = tileRank(ladder, cell.value)
             return (
               <TileView
                 key={cell.id}
@@ -323,6 +334,8 @@ export function Board({
                 row={rowIndex}
                 col={colIndex}
                 offset={layout.cellOffset(rowIndex, colIndex)}
+                rank={rank}
+                slot={tileSlot(rank, ladder.length)}
                 selectable={swapArmed}
                 selected={
                   swapSelection !== null &&
