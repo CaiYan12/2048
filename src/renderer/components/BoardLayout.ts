@@ -12,10 +12,12 @@ export const BOARD_PADDING = 12
 /**
  * 棋盘两侧留给页面的留白（px）：窄屏按它反算格子能有多大。
  *
- * 24 = 外壳每侧 px-4 的 16，再加一份竖向滚动条宽度：Board.tsx 按 window.innerWidth
+ * 24 = 外壳每侧 px-4 的 16，再加 8px 的滚动条补贴：Board.tsx 按 window.innerWidth
  * 读数（含滚动条），而 px-4 落在 documentElement.clientWidth 上（不含），桌面端多出
  * 的这一份不是缓冲而是滚动条——320px 视口带 ~15px 滚动条时算式预算 272、真实内容区
- * 273，只剩 1px，正是这 8px 买回来的。移动端是浮层滚动条，那时它才真的是余量。
+ * 273，只剩 1px，正是这 8px 买回来的。注意 8px 只是**部分**补贴，不是完整滚动条宽度
+ * （桌面典型 ~15px），剩下的靠「宁可略挤也不溢出」的取值方向兜。移动端是浮层滚动条，
+ * 那时它才真的是余量。
  */
 export const BOARD_SIDE_MARGIN = 24
 
