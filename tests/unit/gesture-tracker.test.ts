@@ -52,6 +52,59 @@ describe('多指：第二根手指松手不消费第一根的起点', () => {
   })
 })
 
+describe('down 报告接收与否：捕获判在守卫之后', () => {
+  test('第一根接收（true），第二根被忽略（false）', () => {
+    const gesture = createGestureTracker()
+    // false 就是 Board 不调 setPointerCapture 的依据。反过来的顺序（先捕再问）会让
+    // 这根手指也捕获到位，它的 pointerup / lostpointercapture 于是重定向到 .board 上
+    expect(gesture.down(1, { x: 0, y: 0 })).toBe(true)
+    expect(gesture.down(2, { x: 500, y: 500 })).toBe(false)
+  })
+
+  test('上一场收场之后又能接收：解楔、收尾、空手势都一样', () => {
+    const gesture = createGestureTracker()
+    gesture.down(1, { x: 0, y: 0 })
+    expect(gesture.up(1, { x: FAR, y: 0 })).toBe('right')
+    // 上一场已经收尾，起点该空了，下一根收得进来
+    expect(gesture.down(2, { x: 0, y: 0 })).toBe(true)
+    expect(gesture.up(2, { x: 0, y: FAR })).toBe('down')
+
+    // 没送到的 pointerup 之后同理：起点被 lost 收走，下一根照样进得来
+    gesture.down(1, { x: 0, y: 0 })
+    gesture.lost(1)
+    expect(gesture.down(2, { x: 0, y: 0 })).toBe(true)
+    expect(gesture.up(2, { x: FAR, y: 0 })).toBe('right')
+  })
+})
+
+describe('被忽略的第二根手指也会丢捕获：lost 按 pointerId 比对', () => {
+  test('down(A) → down(B) 被忽略 → lost(B) → up(A)：仍然恰好一次 Move', () => {
+    const gesture = createGestureTracker()
+    const moves: Direction[] = []
+    gesture.down(1, { x: 0, y: 0 })
+    gesture.down(2, { x: 500, y: 500 })
+    // 这一串在重排之前是隐形的：组件为 B 捕过（就算没有，触摸指针在按下目标上也有
+    // 隐式捕获），B 松手时 lostpointercapture 照样重定向到 .board。旧的无条件 lost()
+    // 在这里把 A 的起点擦掉，下面那次 up 什么都对不上——一次有意的划动产出零次 Move
+    gesture.lost(2)
+    record(moves, gesture.up(1, { x: 0, y: FAR }))
+    expect(moves).toEqual(['down'])
+  })
+
+  test('漂出棋盘再松手的 B 也一样：起点还在，方向还算得出来', () => {
+    const gesture = createGestureTracker()
+    const moves: Direction[] = []
+    gesture.down(1, { x: 0, y: 0 })
+    gesture.down(2, { x: 500, y: 500 })
+    // 捕获重定向的不只是棋盘内的释放：B 划到棋盘外再抬手，pointerup 与
+    // lostpointercapture 都被送回 .board，擦起点的那一面比重排之前更大
+    gesture.lost(2)
+    gesture.cancel(2)
+    record(moves, gesture.up(1, { x: FAR, y: 0 }))
+    expect(moves).toEqual(['right'])
+  })
+})
+
 describe('一次手势之后，下一根手指照样进得来', () => {
   test('down(A) → up(A) → down(A2) → up(A2)：第二次手势仍然有效', () => {
     const gesture = createGestureTracker()
@@ -67,8 +120,10 @@ describe('一次手势之后，下一根手指照样进得来', () => {
     gesture.down(1, { x: 0, y: 0 })
     // 浏览器把这次 pointerup 吃掉了（指针被收走之类）。组件此刻唯一的补救就是
     // onLostPointerCapture；没有它，起点会永远留在里面，而 down 的「已有一根在手势里
-    // 就忽略第二根」从此再也不放行任何新手势——整块棋盘永久失灵
-    gesture.lost()
+    // 就忽略第二根」从此再也不放行任何新手势——整块棋盘永久失灵。
+    // 递下去的是**这一根**的 pointerId：解楔靠的正是它自己的捕获释放，lost 的守卫
+    // 因此照样放行。把守卫拆掉这条会红，楔子防护才算真的还在
+    gesture.lost(1)
     gesture.down(2, { x: 0, y: 0 })
     expect(gesture.up(2, { x: FAR, y: 0 })).toBe('right')
   })
@@ -106,7 +161,7 @@ describe('没有任何手势时，四个入口都是空操作', () => {
     const gesture = createGestureTracker()
     expect(gesture.up(1, { x: FAR, y: 0 })).toBeNull()
     gesture.cancel(1)
-    gesture.lost()
+    gesture.lost(1)
     gesture.down(1, { x: 0, y: 0 })
     expect(gesture.up(1, { x: 0, y: FAR })).toBe('down')
   })

@@ -15,14 +15,25 @@ interface ActiveGesture {
  * 上，而顺序只有浏览器能给。
  */
 export interface GestureTracker {
-  /** 按下。已有一根手指在手势里就整体忽略：第二根起点不该覆写第一根的 */
-  down(pointerId: number, point: Point): void
+  /**
+   * 按下。已有一根手指在手势里就整体忽略：第二根起点不该覆写第一根的。
+   *
+   * 返回值报告「接收了没有」，因为**捕获必须判在守卫之后**：`setPointerCapture`
+   * 是被忽略的手指也吃得下的副作用（触摸指针在按下目标上有隐式捕获），现在由
+   * Board 拿这个布尔值决定捕不捕。顺序反了就是 T10 第二轮修的缺陷。
+   */
+  down(pointerId: number, point: Point): boolean
   /** 松手。起点属于这个指针才判一次方向；否则什么都不做，也不清掉别人的起点 */
   up(pointerId: number, point: Point): Direction | null
   /** 取消。同样只认自己的那一次 */
   cancel(pointerId: number): void
-  /** 丢捕获：手势作废。它不在 `up` 的守卫里，所以必须单独一个入口 */
-  lost(): void
+  /**
+   * 丢捕获。只作废自己的那一次，守卫形状与 `cancel` 相同。
+   *
+   * 它是防楔子的唯一入口：一次没送到的 pointerup 会把起点永远留在里面，而 down 的
+   * 「已有一根在手势里就忽略第二根」从此再也不放行任何新手势
+   */
+  lost(pointerId: number): void
 }
 
 /**
@@ -45,8 +56,11 @@ export function createGestureTracker(): GestureTracker {
     down(pointerId, point) {
       // 已经有一根手指在手势里就忽略第二根：两个起点互相覆写，最后算出来的是
       // 第三根手指的轨迹
-      if (active) return
+      if (active) return false
       active = { pointerId, point }
+      // 只有「接收了」才让 Board 去 setPointerCapture。这里返回布尔值而不是让
+      // 调用方自己再问一遍，是因为守卫只有一份：写成两处，早晚有一处被改漏
+      return true
     },
     up(pointerId, point) {
       const current = active
@@ -62,12 +76,18 @@ export function createGestureTracker(): GestureTracker {
       if (!active || active.pointerId !== pointerId) return
       active = null
     },
-    lost() {
-      // 无条件作废。捕获只在**一根**手指上做过，所以 lostpointercapture 只会为它触发，
-      // 被忽略的第二根手指从未捕获过，不会走到这里。少了这个入口会楔住：一次没送到
-      // 的 pointerup 会把起点永远留在里面，而 down 的「已有一根在手势里就忽略第二根」
-      // 从此再也不放行任何新手势
+    lost(pointerId) {
+      // 与 cancel 同一个守卫形状：不是这次手势的丢捕获不清别人的场。
+      //
+      // 这里原先是无条件的，注释写着「被忽略的第二根手指从未捕获过，不会走到这里」。
+      // 那句被上一轮的重排证伪了：触摸指针在按下目标上自带**隐式**捕获，第二根
+      // 手指的捕获释放照样把 lostpointercapture 重定向到 .board——组件为不为它调
+      // setPointerCapture 都拦不住；它一旦漂出棋盘，事件也一样被重定向回来。所以
+      // 「只有 swiping 那一根会走到这里」从来就不成立，只靠组件那半边是不够的。
+      if (!active || active.pointerId !== pointerId) return
       active = null
+      // 加这个守卫不会把楔子放回来：楔住的那场手势，解楔靠的正是它**自己**的捕获释放
+      // （组件为它捕过），pointerId 相等，守卫放行——见 tests/unit 的楔子用例
     },
   }
 }

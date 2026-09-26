@@ -105,11 +105,20 @@ export function Board({ game, onMove }: Props): JSX.Element {
     // 指针捕获会把后续的 pointerup 连同兼容鼠标事件（含 click）一起重定向到棋盘，
     // 在控件上捕获等于把那个控件的点击吃掉。T03 的 e2e 已经钉了这条守卫的键盘半边
     if (isInteractiveTarget(event.target)) return
+    // 先问状态机收不收这根手指，再决定捕不捕。顺序反了会漏第二根手指进来：捕获是
+    // **被忽略的手指也吃得下的副作用**——触摸指针在按下目标上有隐式捕获，组件不为
+    // 它调 setPointerCapture，它的 pointerup / lostpointercapture 照样被重定向到 .board。
+    // 于是第二根手指一松手就抽走第一根的起点，一次有意的划动产出零次 Move。
+    // 守卫判断留在 GestureTracker.down 里（只此一份），这里只按它的答复行动——
+    // 内联回来等于把抽成纯模块换来的可测性还回去
+    const accepted = gesture.down(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    })
+    if (!accepted) return
     // 捕获指针：划出棋盘边界再松手也算一次完整手势。不捕获的话 pointerup 落在棋盘
     // 外，这次划动整段丢掉（触摸设备上手指划过棋盘边缘是常事）
     event.currentTarget.setPointerCapture(event.pointerId)
-    // 「已有一根手指在手势里就忽略第二根」这句在 GestureTracker.down 里
-    gesture.down(event.pointerId, { x: event.clientX, y: event.clientY })
   }
 
   const handlePointerUp = (event: PointerEvent<HTMLDivElement>): void => {
@@ -131,12 +140,14 @@ export function Board({ game, onMove }: Props): JSX.Element {
     gesture.cancel(event.pointerId)
   }
 
-  // 捕获被释放也作废。它不是可选的：只给 up 加指针比对会楔住——一次没送到的
-  // pointerup 会把起点永远留在里面，而 down 的「已有一根在手势里就忽略第二根」从此
-  // 再也不放行任何新手势。捕获在 pointerup **之后**才释放，所以正常路径上这里是空
-  // 动作；被忽略的第二根手指从未捕获过，也不会走到这里
-  const handleLostPointerCapture = (): void => {
-    gesture.lost()
+  // 捕获被释放也作废，但只作废自己的那一次：擦掉别人的起点不是补救，是破坏。
+  // 「只有 swiping 那一根会走到这里」是不成立的——隐式捕获让被忽略的第二根手指的
+  // 释放也被重定向到 .board，所以必须把 pointerId 递下去，由 GestureTracker.lost 用
+  // 与 cancel 同一形状的守卫比对。它同时是防楔子的唯一入口：一次没送到的 pointerup
+  // 会把起点永远留在里面，而 down 的「已有一根在手势里就忽略第二根」从此再也不放行
+  // 任何新手势
+  const handleLostPointerCapture = (event: PointerEvent<HTMLDivElement>): void => {
+    gesture.lost(event.pointerId)
   }
 
   const style = {
