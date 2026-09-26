@@ -13,7 +13,7 @@ export interface ContrastPair {
   basis: string;
   foreground: string;
   background: string;
-  /** 前景不是完整色值、要压在背景上才成形时（.panel__label 的 opacity .85） */
+  /** 前景不是完整色值、要压在背景上才成形时（Classic 的 .panel__label 当年用 opacity .85；T15 已换成显式声明的色值，三套风格的表里现在一对都没有，这一条留给将来真需要半透明文字的实现） */
   from?: { base: string; opacity: number };
   minimum: number;
   ratio: number;
@@ -47,7 +47,7 @@ export declare function relativeLuminance(hex: string): number;
 /** WCAG 2.x 对比度：(亮的 + 0.05) / (暗的 + 0.05) */
 export declare function contrastRatio(foreground: string, background: string): number;
 
-/** 半透明压在底色上的合成结果（.panel__label 的 opacity .85 就是这么成形的） */
+/** 半透明压在底色上的合成结果（半透明前景就是这么成形的） */
 export declare function compositeHex(foreground: string, background: string, alpha: number): string;
 
 /** 一对的「有效前景」：整色就是它自己，半透明就合成一份 */

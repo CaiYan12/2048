@@ -37,9 +37,9 @@
 }
 
 /* 小标签：Material 2 的 label 口径——字重 500、0.12em 字距。
-   刻意不用 opacity：半透明会让对比度按比例打折（Classic 的 .panel__label 用 opacity .85，
-   那一对此前没人量过；T14 已经量了并写进 Classic 的 contrast.json——面板底上 4.59:1、
-   纸面上 4.71:1，都过 4.5，但已经贴线）。
+   刻意不用 opacity：半透明会让对比度按比例打折，而 getComputedStyle().color 读不到合成结果
+   （Classic 的 .panel__label 当年正是用 opacity .85 才成形的，T14 量过、T15 换成显式声明的
+   --ink-variant / --ink-bright-variant：面板底上 4.59:1、纸面上 4.71:1，都过 4.5，但已贴线）。
    这里改成次要正文色，是因为同一个类既在 tonal 面板里（分数 / 目标 / 最高方块）又在页面上
    （开局界面的分组标签）——一个色值要同时压住两种底，实测 7.22:1 与 8.88:1，都过 4.5。 */
 [data-style='material'] .panel__label {

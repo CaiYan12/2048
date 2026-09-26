@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
 import { THEMES } from '../../src/renderer/styles/themes'
 import classicContrast from '../../src/renderer/styles/themes/classic/contrast.json'
+import claudeContrast from '../../src/renderer/styles/themes/claude/contrast.json'
 import materialContrast from '../../src/renderer/styles/themes/material/contrast.json'
 
 /**
@@ -32,7 +33,8 @@ import materialContrast from '../../src/renderer/styles/themes/material/contrast
  * —— 加一套新风格要交的东西（checklist）——
  *
  *   1. `DESIGN.md`：参考特征、色彩角色、字体角色、布局与密度、棋盘 vs 外壳、独有装饰
- *      与动效、禁用清单、窄屏策略、对比度与无障碍共九节（两套基准风格各有一份范本）。
+ *      与动效、禁用清单、窄屏策略、对比度与无障碍共九节（三套基准风格各有一份范本，
+ *      T15 的 `claude` 是第三份，且它证明了三套可以各有各的设计语言而不是同一套换色）。
  *   2. `tokens.css`：`[data-style='<id>']` 作用域下交齐下面推出的那一套令牌，
  *      **含 11 个色档连字色 + beyond**，以及 `--wall-bg`（漏了墙会透明）。
  *   3. `styles.css`：每条规则都按 `[data-style='<id>']` 隔开。
@@ -175,11 +177,18 @@ describe('board.css 的配色键是 data-bucket', () => {
     expect(css).not.toMatch(/data-value='\d+'/)
   })
 
-  test('方块层的三个可覆盖钩子都有默认值，默认值就是 Classic 现值', () => {
+  test('方块层的四个可覆盖钩子都有默认值，默认值就是 Classic 现值', () => {
     const css = boardCss()
     expect(css).toContain('var(--tile-elevation, 0 0 #0000)')
     expect(css).toContain('var(--tile-font-weight, 700)')
     expect(css).toContain('var(--tile-move-easing, ease-out)')
+    // 第四个由 T15 补：方块字族。默认值写成 var(--font-body) 而不是一个具体字体名，
+    // 于是不声明它的 Classic / Material 渲染与改动前逐字节相同，而 Claude 可以把自己
+    // 的展示衬线贴上方块数字（见 material 声明 --tile-font-weight 的同一条路子）
+    expect(css).toContain('var(--tile-font-family, var(--font-body))')
+    // 时长钩子同样有默认值：140ms / 120ms 就是 Classic 现值
+    expect(css).toContain('var(--tile-move-duration, 140ms)')
+    expect(css).toContain('var(--tile-spawn-duration, 120ms)')
   })
 })
 
@@ -206,6 +215,21 @@ describe('每套主题都交齐那一套色值', () => {
         expect(required).toContain('--control-ink')
         expect(required).toContain('--ink-variant')
       }
+      if (theme.id === 'claude') {
+        // Claude 的控件不填色，所以它自己 styles.css 读到的令牌与另两套不是同一组：
+        // 描边、焦点、板面外那一圈线都是它的私事，漏一个都不会静默出错（浏览器一个字不报）
+        expect(required).toContain('--control-border')
+        expect(required).toContain('--rule')
+        expect(required).toContain('--ink-variant')
+        expect(required).toContain('--control-bg-selected')
+      }
+      if (theme.id === 'classic') {
+        // T15：Classic 的 .panel__label 不再用 opacity 调明度，改成显式声明的两个次要色。
+        // 纸面上那个就在 styles.css 里读，所以它现在也在这张从 CSS 反推的清单里——
+        // 原来它只靠 .panel__label 没有 color 声明（继承）活着，反推不出任何东西
+        expect(required).toContain('--ink-variant')
+        expect(required).toContain('--ink-bright-variant')
+      }
     })
 
     test(`${theme.id}：styles.css 的每条规则都按 data-style 隔开`, () => {
@@ -231,11 +255,36 @@ describe('每套主题都交齐那一套色值', () => {
       ].map((match) => match[1])
       expect(declared).toHaveLength(12)
 
-      const contrast = theme.id === 'classic' ? classicContrast : materialContrast
+      const contrast =
+        theme.id === 'classic'
+          ? classicContrast
+          : theme.id === 'material'
+            ? materialContrast
+            : claudeContrast
       const measured = contrast.pairs.map((pair) => pair.background)
       for (const colour of declared) {
         expect(measured, `${theme.id} 的 ${colour} 没进对比度表`).toContain(colour)
       }
     })
   }
+})
+
+describe('T15：方块字族这个钩子真的被 Claude 用上了', () => {
+  test('Claude 把方块数字换成展示衬线，另两套不声明（于是渲染就是 Classic 现值）', () => {
+    // board.css 的默认值是 var(--font-body)，所以「不声明」= Classic 的 Inter、
+    // Material 的 Roboto Flex。Claude 是三套里唯一一套让方块数字用衬线的——
+    // 这是它「排版优先」最硬的一条证据，也是加这个钩子的全部理由
+    const claudeTokens = themeCss('claude', 'tokens.css')
+    expect(claudeTokens).toContain('--tile-font-family: var(--font-display)')
+    expect(themeCss('classic', 'tokens.css')).not.toContain('--tile-font-family')
+    expect(themeCss('material', 'tokens.css')).not.toContain('--tile-font-family')
+    // 方块字重显式写 700：默认值也是 700，声明它是为了把「长数值要撑住 didone 的细笔画」
+    // 这个决定落在文件里，而不是靠「没人改过默认值」
+    expect(claudeTokens).toContain('--tile-font-weight: 700')
+    // 而 Claude 的展示字是 Playfair Display、正文是 Source Sans 3，两族都不同他人
+    expect(themeCss('claude', 'tokens.css')).toContain(
+      "--font-display: 'Playfair Display'"
+    )
+    expect(themeCss('claude', 'tokens.css')).toContain("--font-body: 'Source Sans 3'")
+  })
 })

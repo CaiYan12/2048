@@ -1,5 +1,5 @@
 {
-  "$comment": "逐家族字体授权与版权表（T14 · SPEC §3.2：每种分发的字体都要保留自己的授权与版权声明）。**为什么要逐家族、不能一份通用声明了事**：这 11 个家族虽同属 OFL-1.1，但版权行各不相同（持有者、年份、Reserved Font Name 都不一样），OFL 1.1 的 Copyright Condition 也要求保留那份声明；而 T15 之后每加一套风格都可能引入新家族，这张表就是它要先查的地方。授权正文只有一份——OFL 1.1 的文本对每个家族逐字相同，抄 11 遍只会便宜了漂移；版权行逐家族不同，必须逐家族记。tests/unit/font-licences.test.ts 拿本表对着 fonts.css 与 public/fonts/ 双向核：fonts.css 里出现的每个家族都必须在这里有一条，公共目录下每个 woff2 也必须被某一条登记，引用了某家族的主题必须在这里登记它。另注：Inter 与 JetBrains Mono 还是 fonts.css 的 :root 默认字体栈（--font-display / --font-body / --font-mono），那是「没有任何风格覆盖时的兜底」，不记在 usedBy 里。",
+  "$comment": "逐家族字体授权与版权表（T14 · SPEC §3.2：每种分发的字体都要保留自己的授权与版权声明）。**为什么要逐家族、不能一份通用声明了事**：这 11 个家族虽同属 OFL-1.1，但版权行各不相同（持有者、年份、Reserved Font Name 都不一样），OFL 1.1 的 Copyright Condition 也要求保留那份声明；而 T15 之后每加一套风格都可能引入新家族，这张表就是它要先查的地方（T15 的 Claude 引入了 Playfair Display 与 Source Sans 3，两行 usedBy 因此各添一个 claude）。授权正文只有一份——OFL 1.1 的文本对每个家族逐字相同，抄 11 遍只会便宜了漂移；版权行逐家族不同，必须逐家族记。tests/unit/font-licences.test.ts 拿本表对着 fonts.css 与 public/fonts/ 双向核：fonts.css 里出现的每个家族都必须在这里有一条，公共目录下每个 woff2 也必须被某一条登记，引用了某家族的主题必须在这里登记它。另注：Inter 与 JetBrains Mono 还是 fonts.css 的 :root 默认字体栈（--font-display / --font-body / --font-mono），那是「没有任何风格覆盖时的兜底」，不记在 usedBy 里。",
   "licenceText": "public/fonts/OFL.txt",
   "licenceUrl": "https://openfontlicense.org",
   "families": [
@@ -33,7 +33,7 @@
       "copyright": "Copyright 2010-2024 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'. All Rights Reserved. Source is a trademark of Adobe in the United States and/or other countries.",
       "source": "https://github.com/google/fonts",
       "files": ["source-sans-3-latin-wght-normal.woff2"],
-      "usedBy": []
+      "usedBy": ["claude"]
     },
     {
       "family": "JetBrains Mono",
@@ -57,7 +57,7 @@
       "copyright": "Copyright 2017 The Playfair Display Project Authors (https://github.com/clauseggers/Playfair-Display), with Reserved Font Name \"Playfair Display\".",
       "source": "https://github.com/google/fonts",
       "files": ["playfair-display-latin-wght-normal.woff2"],
-      "usedBy": []
+      "usedBy": ["claude"]
     },
     {
       "family": "Pixelify Sans",

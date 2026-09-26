@@ -11,6 +11,12 @@ import {
   materialStyleId,
   tileOverlay as materialTileOverlay,
 } from './material/config'
+import {
+  boardOverlay as claudeBoardOverlay,
+  claudeLabel,
+  claudeStyleId,
+  tileOverlay as claudeTileOverlay,
+} from './claude/config'
 
 /**
  * 风格注册表（SPEC §3.2：注册表改动只发生在这里）
@@ -34,6 +40,12 @@ export const THEMES: readonly StyleDefinition[] = [
     label: materialLabel,
     boardOverlay: materialBoardOverlay,
     tileOverlay: materialTileOverlay,
+  },
+  {
+    id: claudeStyleId,
+    label: claudeLabel,
+    boardOverlay: claudeBoardOverlay,
+    tileOverlay: claudeTileOverlay,
   },
 ]
 

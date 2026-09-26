@@ -92,7 +92,7 @@ export interface MoveOutcome {
  * 挂在 `[data-style='<id>']` 之下，所以多套风格的 CSS 可以同时活在同一个文档里而不互相覆盖。
  * `Run` 故意不在此声明：它是 T16 的持久化形状，提前声明等于替一票未写的需求定型。
  */
-export type StyleId = 'classic' | 'material'
+export type StyleId = 'classic' | 'material' | 'claude'
 
 /**
  * 装饰插槽的组件形状：纯呈现、不吃 props、可返回 null 表示该风格没有这项装饰。

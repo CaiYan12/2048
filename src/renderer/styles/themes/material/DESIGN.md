@@ -158,9 +158,9 @@
 - 禁渐变背景、禁 `filter`、禁 emoji 当装饰。
 - 禁把方块做成 `<button>`：方块是状态不是控件，交互归棋盘根元素。
 - 禁在 `src/game/` 里出现任何本风格的引用（ADR-0001）。
-- 禁用 `opacity` 调文字明度（Classic 的 `.panel__label` 用 `opacity: .85`，
-  那会让对比度按比例打折）。本风格的次要文字另外声明一个够对比度的色值
-  （`--ink-variant`），不靠半透明。
+- 禁用 `opacity` 调文字明度（Classic 的 `.panel__label` 当年用 `opacity: .85`，
+  那会让对比度按比例打折；T15 已换成显式声明的 `--ink-variant` / `--ink-bright-variant`）。
+  本风格的次要文字另外声明一个够对比度的色值（`--ink-variant`），不靠半透明。
 
 ## 8. 手机窄屏策略
 

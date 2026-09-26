@@ -89,10 +89,13 @@
   background: var(--tile-bg);
   color: var(--tile-ink);
   border-radius: var(--cell-radius, 6px);
-  font-family: var(--font-body);
-  /* 字重与投影都是「带默认值的变量」：不声明就是 Classic 的样子（700 / 无投影），
-     声明了才轮到该风格说话。Material 因此能让方块有 elevation，而 Classic 的渲染
-     与改动前逐字节相同——那个全透明的兜底投影画不出任何像素。 */
+  font-family: var(--tile-font-family, var(--font-body));
+  /* 字重与投影都是「带默认值的变量」：不声明就是 Classic 的样子
+     （--font-body / 700 / 无投影），声明了才轮到该风格说话。Material 因此能让方块有
+     elevation，而 Classic 的渲染与改动前逐字节相同——那个全透明的兜底投影画不出任何像素。
+     --tile-font-family 由 T15 引入：Claude 的方块数值用展示衬线（Playfair Display），
+     而字族这一行原先只读 --font-body，那是为「方块与正文同族」的 Classic / Material 定的口径。
+     默认值写成 var(--font-body) 而不是一个具体字体名，于是不声明它的两套风格渲染不变。 */
   font-weight: var(--tile-font-weight, 700);
   box-shadow: var(--tile-elevation, 0 0 #0000);
   /* 等宽数字：合并前后位数变化时数字不横向抖动 */

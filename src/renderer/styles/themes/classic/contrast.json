@@ -1,5 +1,5 @@
 {
-  "$comment": "Classic 风格实际使用的文字 / 控件 / 焦点前景背景组合。ratio 是按 WCAG 2.x 相对亮度公式算出来的实测值（不是拍出来的目标值）；`npm run check:contrast` 从 tokens.css 重新取色再算一遍，两边不一致、低于 minimum、或引用了 tokens.css 没声明的色值即报错。**T14（本文件）新增三个字段**：`basis`（口径：regular 4.5 / large 3 / non-text 3，SPEC §3.2）、`scene`（这一对在哪个页面状态下量到：start 开局界面 / run 局中 / walls 墙模式）、`probe`（浏览器那一层 tests/e2e/contrast-computed.spec.ts 按它读**计算样式**的地址——两套风格同时打进同一个产物，任何一条选择器失效都要在 e2e 炸，而不是安静地少验一对）。空格（--cell-bg）与棋盘框（--board）不在表内：那是装饰性的明度层级，在经典模式里每个可玩格长得一模一样，那一对不承载信息（1.24:1，理由见 DESIGN.md 第 9 节）。**例外是障碍（T07）**：障碍与可玩空格在 Walls 模式里承载「哪些格能放方块」，所以另列一对；障碍与数值方块之间没有第二道比值要满足，判据是方块永远带数字、障碍永远不带，以及障碍色值落在方块阶梯的暖色之外（同样见 DESIGN.md 第 9 节）。",
+  "$comment": "Classic 风格实际使用的文字 / 控件 / 焦点前景背景组合。ratio 是按 WCAG 2.x 相对亮度公式算出来的实测值（不是拍出来的目标值）；`npm run check:contrast` 从 tokens.css 重新取色再算一遍，两边不一致、低于 minimum、或引用了 tokens.css 没声明的色值即报错。**T14（本文件）新增三个字段**：`basis`（口径：regular 4.5 / large 3 / non-text 3，SPEC §3.2）、`scene`（这一对在哪个页面状态下量到：start 开局界面 / run 局中 / walls 墙模式）、`probe`（浏览器那一层 tests/e2e/contrast-computed.spec.ts 按它读**计算样式**的地址——两套风格同时打进同一个产物，任何一条选择器失效都要在 e2e 炸，而不是安静地少验一对）。**T15：两处 .panel__label 不再走 `from` 合成**——那两对当年靠 opacity .85 才能成形，换成显式声明的 --ink-variant / --ink-bright-variant 之后每对都是计算样式直接读得到的颜色（渲染逐字节不变，比值不变）。于是本表不再有任何一对依赖半透明合成；`from` 字段仍由闸门支持（tests/unit/contrast.test.ts 用合成对验它会咬人），留给将来真需要半透明文字的风格。空格（--cell-bg）与棋盘框（--board）不在表内：那是装饰性的明度层级，在经典模式里每个可玩格长得一模一样，那一对不承载信息（1.24:1，理由见 DESIGN.md 第 9 节）。**例外是障碍（T07）**：障碍与可玩空格在 Walls 模式里承载「哪些格能放方块」，所以另列一对；障碍与数值方块之间没有第二道比值要满足，判据是方块永远带数字、障碍永远不带，以及障碍色值落在方块阶梯的暖色之外（同样见 DESIGN.md 第 9 节）。",
   "styleId": "classic",
   "pairs": [
     {
@@ -13,10 +13,9 @@
       "probe": { "selector": ".hint", "background": ".shell" }
     },
     {
-      "usage": "开局界面的分组小标签（模式 / 风格那两行）。.panel__label 用 opacity .85 把正文色压在纸面上，合成后才是真正看到的颜色——T14 交接条目 2",
+      "usage": "开局界面的分组小标签（模式 / 风格那两行）。--ink-variant 是**显式声明**的次要色——T15 把 T14 留下的 opacity .85 换掉之后，这一对可以直接从 getComputedStyle().color 读到，不再需要从 style.opacity 补算合成色。它正是当年合成出来的 #766e66，所以 Classic 的渲染逐字节不变，复测仍是 4.71",
       "basis": "regular",
       "foreground": "#766e66",
-      "from": { "base": "#5f564e", "opacity": 0.85 },
       "background": "#faf8ef",
       "minimum": 4.5,
       "ratio": 4.71,
@@ -24,10 +23,9 @@
       "probe": { "selector": ".panel__label", "background": ".shell" }
     },
     {
-      "usage": "分数 / 目标 / 最高方块面板上的小标签。.panel__label 用 opacity .85 把亮字压在面板底色上——T14 交接条目 2，同一处在面板里、在开局界面上是两对不同的值（见上一条）。**这是全表贴线最紧的一对**（4.59:1，regular 口径只剩 0.09 余量），想把面板底色调亮一档的人先看这里",
+      "usage": "分数 / 目标 / 最高方块面板上的小标签。同一处在面板里、在开局界面上是两对不同的值（见上一条）。**这是全表贴线最紧的一对**（4.59:1，regular 口径只剩 0.09 余量），想把面板底色调亮一档的人先看这里。T15 复测：换成显式声明的 --ink-bright-variant（#e4e0da，正是当年 #f9f6f2 @ .85 压在 #6f6055 上的合成结果）之后仍是 4.59——注意方向：这一对里小标签是**更亮**的那一边，所以「把次要色调暗」会让它掉下去，不是变安全",
       "basis": "regular",
       "foreground": "#e4e0da",
-      "from": { "base": "#f9f6f2", "opacity": 0.85 },
       "background": "#6f6055",
       "minimum": 4.5,
       "ratio": 4.59,

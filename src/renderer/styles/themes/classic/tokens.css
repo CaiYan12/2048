@@ -22,6 +22,16 @@
   --ink: #5f564e;
   /* 深底方块上的字、控件上的字 */
   --ink-bright: #f9f6f2;
+  /* T15：次要正文的两个方向。
+     同一个 .panel__label 既在纸面上（深字浅底）又在深棕面板里（浅字深底），所以「淡一档」
+     在两个方向上是两个色值，不是一个。
+     T14 之前这两处靠 `opacity: .85` 把上面的本色压出来。那不是「打了折的同一个颜色」，
+     是另一个颜色值，而 getComputedStyle().color 读到的是**合成前**的本色——闸门只能从
+     style.opacity 回头补算（T14 的交接条目 2）。换成显式声明之后，表上每一对都是计算样式
+     能直接读出来的东西。这两个值就是当年合成出来的颜色，所以 Classic 的渲染逐字节不变，
+     contrast.json 复测仍是 4.59 与 4.71（见 §9）。 */
+  --ink-variant: #766e66;
+  --ink-bright-variant: #e4e0da;
 
   --control-bg: #6f6055;
   --control-bg-hover: #5f564e;

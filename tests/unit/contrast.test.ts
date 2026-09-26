@@ -10,6 +10,7 @@ import {
   type ContrastPair,
 } from '../../scripts/check-contrast.mjs'
 import classic from '../../src/renderer/styles/themes/classic/contrast.json'
+import claude from '../../src/renderer/styles/themes/claude/contrast.json'
 import material from '../../src/renderer/styles/themes/material/contrast.json'
 
 /**
@@ -44,6 +45,7 @@ const tokensCss = (styleId: string): string =>
 const STYLES: readonly StylePairs[] = [
   { id: classic.styleId, pairs: classic.pairs },
   { id: material.styleId, pairs: material.pairs },
+  { id: claude.styleId, pairs: claude.pairs },
 ]
 
 /** 所有对，带上它属于哪一套风格（问题信息里要能说出是哪一套） */
@@ -58,6 +60,16 @@ function findPair(styleId: string, keyword: string): ContrastPair {
   const pair = style.pairs.find((item) => item.usage.includes(keyword))
   if (pair === undefined) throw new Error(`${styleId} 的表里没有「${keyword}」这一对`)
   return pair
+}
+
+/** '#rrggbb' → [r, g, b]。用来看一个色值有多「彩」——通道差越大越饱和 */
+function channels(hex: string): [number, number, number] {
+  const digits = hex.replace('#', '')
+  return [
+    parseInt(digits.slice(0, 2), 16),
+    parseInt(digits.slice(2, 4), 16),
+    parseInt(digits.slice(4, 6), 16),
+  ]
 }
 
 describe('contrast.json：声明与实测一致', () => {
@@ -124,7 +136,7 @@ describe('T14 新增的两个字段：口径与场景是可审计的，不是注
     expect(large[0].pair.background).toBe('#c2622c')
   })
 
-  test('Material 没有一档依赖大字口径：阶梯度量与字号分档完全解耦', () => {
+  test('Classic 与 Claude 没有一档依赖大字口径：阶梯度量与字号分档完全解耦', () => {
     const materialLarge = material.pairs.filter((pair) => pair.basis === 'large')
     expect(materialLarge).toHaveLength(0)
     // 12 个色档全部按普通文字量（设计卡 §9：连一位数的第一档也是 8.71:1）
@@ -135,6 +147,56 @@ describe('T14 新增的两个字段：口径与场景是可审计的，不是注
     for (const pair of buckets) {
       expect(pair.minimum, pair.usage).toBe(4.5)
     }
+  })
+
+  test('Claude 也没有一档依赖大字口径，且深浅字断在第 6 / 7 档之间', () => {
+    // 设计卡 §9 的承诺：字号随位数变化，但本套没有任何一对需要 3:1 豁免
+    const claudeBuckets = claude.pairs.filter((pair) =>
+      pair.probe?.selector.includes("data-bucket='")
+    )
+    expect(claudeBuckets).toHaveLength(12)
+    for (const pair of claudeBuckets) {
+      expect(pair.basis, pair.usage).toBe('regular')
+      expect(pair.minimum, pair.usage).toBe(4.5)
+    }
+    // 前 6 档深字、后 6 档亮字（含 beyond）。死区在相对亮度 0.174～0.254 之间，
+    // 断在第 6 / 7 档，所以这一行是「两个方向真的各占一半」的证据
+    const inks = claudeBuckets.map((pair) => pair.foreground)
+    expect(inks.slice(0, 6).every((ink) => ink === '#26241f')).toBe(true)
+    expect(inks.slice(6).every((ink) => ink === '#fbf9f4')).toBe(true)
+  })
+
+  test('Claude 的暖色只出现在三个用法上，其余方块底色是低彩度的暖灰', () => {
+    // 设计卡 §2：单一暖色强调色 = 选中控件、焦点环、目标档方块。出现第四处暖色填充，
+    // 「稀缺」就没了，而这是这套风格最大的可辨识特征
+    const WARM = '#a8482b'
+    const warm = claude.pairs.filter(
+      (pair) => pair.background === WARM || pair.foreground === WARM
+    )
+    // 选中控件（底）、焦点环 vs 纸面、选中环 vs 空格、第 11 档方块（底）= 四处，
+    // 其中两个环是同一块色值的两种用法，正好对上「三个用法」
+    expect(warm).toHaveLength(4)
+
+    // 11 个色档 + beyond：除第 11 档外全部是低彩度暖灰——r ≥ g ≥ b 且通道差 ≤ 50。
+    // 「暖色层级不靠饱和色」由此变成机器可验的一句话（暖色本体的通道差是 125）
+    const buckets = claude.pairs.filter((pair) =>
+      pair.probe?.selector.includes("data-bucket='")
+    )
+    expect(buckets).toHaveLength(12)
+    for (const pair of buckets) {
+      if (pair.background === WARM) continue
+      const [r, g, b] = channels(pair.background)
+      expect(r, pair.usage).toBeGreaterThanOrEqual(g)
+      expect(g, pair.usage).toBeGreaterThanOrEqual(b)
+      expect(r - b, `${pair.usage} 通道差`).toBeLessThanOrEqual(50)
+    }
+
+    // 墙是唯一的冷色表面（b > r）：刻意落在暖色阶梯之外（同 Classic / Material 的判据）。
+    // 这一对里墙是**前景**、可玩空格是背景（board.css 读的是 [data-cell='wall'] 的底色）
+    const wall = claude.pairs.find((pair) => pair.foreground === '#3b4750')
+    expect(wall, '障碍那一对得在表里').toBeDefined()
+    const [wr, , wb] = channels(wall?.foreground ?? '#000000')
+    expect(wb).toBeGreaterThan(wr)
   })
 })
 
@@ -152,18 +214,43 @@ describe('T14 交接的三笔账，两套风格都齐了', () => {
   })
 
   test('Classic 的两处 .panel__label 都量过：面板底与纸面是两对不同的值', () => {
-    // 交接条目 2：opacity .85 会把前景按比例压向背景，压在哪就是哪一对
+    // 交接条目 2：同一个类在两种底色上。**T15 起两对都是显式声明的色值**——opacity 会让
+    // getComputedStyle().color 读到合成前的本色，闸门只能从 style.opacity 回头补算，
+    // 那是绕开而不是修好。两个新色值正是当年合成出来的那两个颜色，所以比值一个都没漂
     const onPanel = findPair('classic', '面板上的小标签')
-    expect(onPanel.from).toEqual({ base: '#f9f6f2', opacity: 0.85 })
+    expect(onPanel.from, 'T15 之后这一对不再走半透明合成').toBeUndefined()
+    expect(onPanel.foreground).toBe('#e4e0da')
     expect(onPanel.background).toBe('#6f6055')
-    expect(onPanel.foreground).toBe(effectiveForeground(onPanel))
     expect(onPanel.ratio).toBeCloseTo(4.59, 2)
+    expect(onPanel.probe?.selector).toBe('.panel__label')
+    expect(onPanel.probe?.background).toBe('.panel')
 
     const onPage = findPair('classic', '开局界面的分组小标签')
-    expect(onPage.from).toEqual({ base: '#5f564e', opacity: 0.85 })
+    expect(onPage.from).toBeUndefined()
+    expect(onPage.foreground).toBe('#766e66')
     expect(onPage.background).toBe('#faf8ef')
-    expect(onPage.foreground).toBe(effectiveForeground(onPage))
     expect(onPage.ratio).toBeCloseTo(4.71, 2)
+    expect(onPage.probe?.background).toBe('.shell')
+
+    // 两个色值在 tokens.css 里都真的声明了：漏一个，.panel__label 会安静地退回继承色
+    const tokens = tokensCss('classic')
+    expect(tokens).toContain('--ink-variant: #766e66')
+    expect(tokens).toContain('--ink-bright-variant: #e4e0da')
+    // 而 styles.css 里那个 .panel__label 不再带 opacity 声明（注释里提到这个词不算）
+    const styles = readFileSync(
+      new URL('../../src/renderer/styles/themes/classic/styles.css', import.meta.url),
+      'utf8'
+    )
+    expect(styles).not.toMatch(/^\s*opacity\s*:/m)
+  })
+
+  test('T15 之后三套风格的表里一对都不走半透明合成', () => {
+    // 这正是派发令要的收口：opacity 那套绕开计算样式的做法不该比第三套风格活得更久
+    for (const style of STYLES) {
+      for (const pair of style.pairs) {
+        expect(pair.from, `${style.id} · ${pair.usage}`).toBeUndefined()
+      }
+    }
   })
 
   test('Material 的同一对（选中环 vs 空格底）也仍在表内', () => {
@@ -210,8 +297,23 @@ describe('闸门真的会咬人（auditPair 对坏数据必须出声）', () => 
   })
 
   test('半透明合成色与 from 复算不一致就报', () => {
-    const pair = findPair('classic', '面板上的小标签')
-    const perturbed: ContrastPair = { ...pair, foreground: '#ffffff' }
+    // T15 之后三套风格的表里一对都没有 from（Classic 那两处已换成显式声明的色值），
+    // 于是这条改成拿一对**合成出来的假数据**喂闸门：验的是闸门还会咬人，
+    // 不是某套风格的数据。合成关系取自 T14 的 Classic——--ink-bright #f9f6f2 以 .85
+    // 压在 --control-bg #6f6055 上正是 #e4e0da（4.59:1），那对真实数据现在长在上面一条里
+    const honest: ContrastPair = {
+      usage: '合成对（闸门自己的测试数据，不属于任何一套风格）',
+      basis: 'regular',
+      foreground: '#e4e0da',
+      from: { base: '#f9f6f2', opacity: 0.85 },
+      background: '#6f6055',
+      minimum: 4.5,
+      ratio: 4.59,
+      scene: 'run',
+      probe: { selector: '.panel__label', background: '.panel' },
+    }
+    expect(auditPair(tokens(), honest)).toEqual([])
+    const perturbed: ContrastPair = { ...honest, foreground: '#ffffff' }
     const problems = auditPair(tokens(), perturbed)
     expect(problems.some((problem) => problem.includes('不一致'))).toBe(true)
   })

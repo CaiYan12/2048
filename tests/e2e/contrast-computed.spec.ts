@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
 import type { ContrastPair } from '../../scripts/check-contrast.mjs'
-import classicContrast from '../../src/renderer/styles/themes/classic/contrast.json'
-import materialContrast from '../../src/renderer/styles/themes/material/contrast.json'
+import classicContrast from '../../src/renderer/styles/themes/classic/contrast.json' with { type: 'json' }
+import claudeContrast from '../../src/renderer/styles/themes/claude/contrast.json' with { type: 'json' }
+import materialContrast from '../../src/renderer/styles/themes/material/contrast.json' with { type: 'json' }
 
 /**
  * T14：对比度闸门的第二层——从**渲染结果**里读回每一对
@@ -10,7 +11,7 @@ import materialContrast from '../../src/renderer/styles/themes/material/contrast
  * checks to catch declarations that differ from rendered CSS」是两层：JSON 与 tokens.css
  * 那一层在 `npm run check:contrast`（浏览器之外），本文件是浏览器那一层。
  *
- * 存在的理由：**声明对了不等于渲染对了**。两套风格的 styles.css 同时打进同一个产物，
+ * 存在的理由：**声明对了不等于渲染对了**。三套风格的 styles.css 同时打进同一个产物，
  * 一条规则漏了 data-style、一个选择器写错、一个 @media 把作用域改了——表上仍然写着
  * 6.74:1，而页面上根本不是那个颜色。这一层专门抓这个：按每对自带的 probe 找到真实
  * 元素，读它的计算样式，与表上的 hex 逐通道对。
@@ -21,17 +22,24 @@ import materialContrast from '../../src/renderer/styles/themes/material/contrast
  * probe 的三个字段（语义见 check-contrast.mjs 的 auditPair）：
  *   selector   前景取自哪个元素
  *   read       color（默认）/ background / ring。ring 用于焦点环与选中环——环的颜色
- *              不在 color 上（Classic 是 box-shadow 双环，Material 是 outline），
+ *              不在 color 上（Classic 是 box-shadow 双环，Material 与 Claude 是 outline），
  *              所以从环的声明里取色。
  *   background 背景取自哪个元素。小标签压在面板上、环压在空格上，这类背景不在元素自己身上。
  *   hover      先悬停再读（悬停态那一对）。
  *
+ * **T15 起 ring 探针分两步读**：Claude 的控件有一圈**静止态**描边（1px 暖灰，不填色的
+ * 描边按钮），而 Tab 之后同一边会变成焦点环（3px 陶土色）。两种颜色都要量，所以
+ * 「不带 :focus-visible 的环」在键盘导航**之前**读，「带 :focus-visible 的环」在 Tab **之后**
+ * 读。写在一步里的话，静止态那一对会在焦点环已经覆盖它之后才被读取，于是一次都没量过。
+ *
  * **opacity 跟着一起读**：元素级 opacity 不进 color 的计算值（它是独立属性），所以
  * 「读到的 color」与「眼睛看到的颜色」对 `from` 那几对不是同一个东西——基色与 opacity
  * 必须各自对一遍，再把两者压在背景上对合成色，三件事都做过才叫「渲染对上了」。
+ * （T15 之后三套风格的表里一对都没有 from：Classic 那两处已换成显式声明的色值。
+ * 这条路径仍然保留并由单测用合成对覆盖，因为闸门要能咬人。）
  *
- * **本文件由 T14 编写但不运行**（跑它的是控制人的统一 sweep）：本次会话被明确要求不启动
- * Playwright、不开任何浏览器。全部断言都走真实 DOM 与计算样式。
+ * **本文件由 T14 编写、T15 扩展，但不运行**（跑它的是控制人的统一 sweep）：本次会话被明确
+ * 要求不启动 Playwright、不开任何浏览器。全部断言都走真实 DOM 与计算样式。
  */
 
 type Scene = 'start' | 'run' | 'walls'
@@ -48,6 +56,7 @@ interface StyleFixture {
 const STYLES: readonly StyleFixture[] = [
   { id: 'classic', label: 'Classic', pairs: classicContrast.pairs },
   { id: 'material', label: 'Material', pairs: materialContrast.pairs },
+  { id: 'claude', label: 'Claude', pairs: claudeContrast.pairs },
 ]
 
 /** 铺齐 11 个色档 + beyond 的开局局面：2,4,8,…,2048,4096 + 四个空格 */
@@ -282,7 +291,7 @@ async function nextFocusStopAfterBoard(page: Page): Promise<number> {
   }, FOCUSABLE)
 }
 
-/** 同一幕里探针有先后顺序：静态 → 悬停 → 键盘焦点 → 交换拾取 */
+/** 同一幕里探针有先后顺序：静态 → 悬停 → 静止态环 → 键盘焦点环 → 交换拾取 */
 async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<void> {
   const plain = pairs.filter((pair) => pair.probe?.hover !== true && pair.probe?.read !== 'ring')
   for (const pair of plain) await expectPair(page, pair)
@@ -293,11 +302,20 @@ async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<v
     for (const pair of hovered) await expectPair(page, pair)
   }
 
+  // 静止态的环（Claude 控件那一圈 1px 描边）要在键盘导航**之前**读：Tab 之后同一边的
+  // outline 会被焦点环覆盖，那时读到的就不再是表上声明的那个颜色
+  const restingRings = pairs.filter(
+    (pair) => pair.probe?.read === 'ring' && !(pair.probe?.selector ?? '').includes(':focus-visible')
+  )
+  for (const pair of restingRings) await expectPair(page, pair)
+
   // 焦点环要键盘导航才出来：从棋盘按一次 Tab，下一个停靠点（桌面是「新游戏」）拿到
   // :focus-visible。探针写成 .control:focus-visible 而不是 .control——它有焦点时才存在，
-  // 所以 Tab 没生效（没匹配上 focus-visible）时这里是「找不到元素」而不是静悄悄读到别的按钮
-  const controlRings = pairs.filter(
-    (pair) => pair.probe?.read === 'ring' && pair.probe?.selector.startsWith('.control')
+  // 所以 Tab 没生效（没匹配上 focus-visible）时这里是「找不到元素」而不是静悄悄读到别的按钮。
+  // 判据是选择器里带 :focus-visible，不是「以 .control 开头」：Claude 的静止态描边也长在
+  // .control 上（上面那一步已经量过），再把它拖到 Tab 之后只会读到同一个轮廓
+  const controlRings = pairs.filter((pair) =>
+    (pair.probe?.selector ?? '').includes(':focus-visible')
   )
   if (controlRings.length > 0) {
     await page.locator('[data-board]').focus()
@@ -324,7 +342,7 @@ async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<v
   }
 }
 
-test('两套风格的每一对都写着 e2e 认得的 scene（认不得的场景先在这里炸，不被静悄悄跳过）', () => {
+test('三套风格的每一对都写着 e2e 认得的 scene（认不得的场景先在这里炸，不被静悄悄跳过）', () => {
   const seen = new Set<Scene>()
   for (const style of STYLES) {
     for (const pair of style.pairs) {

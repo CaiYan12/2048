@@ -143,8 +143,14 @@ describe('风格与字体的对应关系真的成立', () => {
     }
   })
 
-  test('现已交付的两套风格各自用上了自己的家族，且不是同一个', () => {
+  test('三套风格各自用上了自己的家族，且互不相同', () => {
     expect(themeFamilies('classic')).toEqual(['Inter'])
     expect(themeFamilies('material')).toEqual(['Roboto Flex'])
+    // T15：Claude 是唯一一套用两个家族的——衬线做展示与方块数字，人文无衬线做正文。
+    // 两个都不与另两套撞（Inter / Roboto Flex 已被占），第三套再用同一族就把
+    // 「三套风格三种字体」这件事打穿了
+    expect(themeFamilies('claude')).toEqual(['Playfair Display', 'Source Sans 3'])
+    const all = ['classic', 'material', 'claude'].flatMap((id) => themeFamilies(id))
+    expect(new Set(all).size).toBe(all.length)
   })
 })

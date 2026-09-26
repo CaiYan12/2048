@@ -34,12 +34,23 @@
   text-align: center;
 }
 
+/* 小标签。T15 起不再用 opacity：半透明前景是另一个颜色值，不是「打了折的同一个颜色」，
+   而 getComputedStyle().color 拿到的是合成前那个本色（T14 的闸门只能从 style.opacity
+   回头补算）。所以这里显式声明次要色，纸面上用 --ink-variant。
+   这个类既有中文也有西文，大写与字距照旧（同 Material 的口径：真正的识别度落在字重与字距）。 */
 [data-style='classic'] .panel__label {
+  color: var(--ink-variant);
   font-size: 0.6875rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  opacity: 0.85;
+}
+
+/* 同一个类落在面板里时换第二个次要色：面板是深底，「淡一档」要往亮的那一边走。
+   特异性（0,2,0）高于上面那条（0,1,0），所以不依赖书写顺序——两套风格的样式表同时打进
+   同一个产物，谁在前谁在后由打包结果决定，不能拿它当设计。 */
+[data-style='classic'] .panel .panel__label {
+  color: var(--ink-bright-variant);
 }
 
 [data-style='classic'] .panel__value {
