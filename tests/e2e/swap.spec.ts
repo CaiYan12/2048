@@ -132,6 +132,22 @@ async function readTiles(page: Page): Promise<TileSnapshot[]> {
   return snapshots
 }
 
+/**
+ * 方块快照 → 「身份编号 → 数值」。
+ *
+ * 为什么非要这张表、不直接逐位比快照数组：`Board.tsx` 的 `key={cell.id}` 让 React
+ * 按 key 复用 DOM 节点，于是节点被**重排**成新 children 的顺序——交换 1、2 号之后
+ * 键序列从 [1,2,3,…] 变成 [2,1,3,…]（T21 的位移动画要的正是这个节点复用，
+ * 见 T03 的稳定身份裁决）。而 readTiles 走的是 document order（`nth(index)`），
+ * 收到的列表因此是同一批方块的另一种排列。逐位比 `toEqual` 会在一次**纯重排**上
+ * 误报失败；「身份 → 数值」这张表与顺序无关，才是这里真正要证的东西。
+ */
+function valueById(tiles: TileSnapshot[]): Record<string, number> {
+  const table: Record<string, number> = {}
+  for (const tile of tiles) table[tile.id] = tile.value
+  return table
+}
+
 async function readScore(page: Page): Promise<number> {
   return Number(await page.locator('[data-score]').textContent())
 }
@@ -294,11 +310,13 @@ test('指针完成一次交换：点两枚方块，分数不变', async ({ page 
 
   expect(await readBoard(page)).toEqual(ACTIVE_SWAPPED)
   expect(await readScore(page)).toBe(500)
-  // 身份与数值的对应关系一枚都没变：交换只动位置，不动数值、不重新编号
+  // 身份与数值的对应关系一枚都没变：交换只动位置，不动数值、不重新编号。
+  // 按身份编号索引再比，**不按 document order 逐位比**（理由见 valueById 的注释）
   const swappedTiles = await readTiles(page)
-  expect(swappedTiles.map((tile) => [tile.id, tile.value])).toEqual(
-    openingTiles.map((tile) => [tile.id, tile.value])
-  )
+  // 长度先单独断：相等就证明「一枚不多一枚不少」，也把「这次失败若只是因为顺序」
+  // 变成看得见的事实，而不是下一次读红时靠推断才知道
+  expect(swappedTiles).toHaveLength(openingTiles.length)
+  expect(valueById(swappedTiles)).toEqual(valueById(openingTiles))
   // 位置逐个钉：1 号与 2 号对调，其余一枚都没挪
   expect(swappedTiles.find((tile) => tile.id === '1')).toMatchObject({
     row: 0,

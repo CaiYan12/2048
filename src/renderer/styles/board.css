@@ -155,10 +155,14 @@
 }
 
 /* 被选中的那一枚：描一圈 --focus。复用焦点环那个色值，**不引入新颜色**——
-   它是 contrast.json 里已经记过的一对（--focus / 页面色 9.01），且环与方块本身
-   相邻也远高于 3:1，T14 的对比度闸门不必为它加新条目。换风格时跟着 tokens.css 走。
+   换风格时跟着 tokens.css 走。
    用 box-shadow 而不是 outline / border：不改盒子尺寸，T21 的 transform 与
-   格子的绝对定位都不受影响。 */
+   格子的绝对定位都不受影响。带 spread 的 box-shadow 画在 border box **外侧**，
+   而 BOARD_GAP = 12（BoardLayout.ts:9）远宽于这 3px 的环，所以环不与方块本身
+   相邻、也不与隔壁方块相邻——它落在 --cell-bg 上。这一对（--focus #4a443f /
+   --cell-bg #cdc1b4）实测 ≈5.4:1，远高于 3:1；**但它不在 contrast.json 里**，
+   表上那个 --focus 条目是与**页面色**的 9.01。风格对表归 T13–T15，本文件不越权
+   改表，这条已作为已知缺口交接给 T14。 */
 .board__tile[data-selected='true'] {
   box-shadow: 0 0 0 3px var(--focus);
 }

@@ -276,7 +276,14 @@ describe('swap：重判死局（mode-contract §3 的 stuckRecoveryMoves）', ()
     // 本票存在的理由。LATIN 是纯死局，把 (0,0) 与 (0,1) 对调后列 0 出现
     // (0,0)=4 与 (1,0)=4 这一对相等方块——于是 up / down 第一次有了合法移动
     const before = stuckBoard()
-    expect(grid(before)).toEqual(valueGrid(before.board)) // 读得通即可
+    // 开局棋盘的形状也要钉住（LATIN 逐字对上）：`grid` 的定义就是 valueGrid，
+    // 拿它跟自己比是恒真断言——把 swap 整个删了这条也绿，所以期望值必须手写
+    expect(grid(before)).toEqual([
+      [2, 4, 8, 16],
+      [4, 8, 16, 2],
+      [8, 16, 2, 4],
+      [16, 2, 4, 8],
+    ])
 
     const after = swap(before, [0, 0], [0, 1])
 
@@ -348,7 +355,7 @@ describe('store：一次有效交换进历史恰好一条', () => {
     expect(grid(current())).toEqual(valueGrid(stateWithBoard(LATIN, 7).board))
   })
 
-  test('连续两次拾取各完成一次交换：历史两条，顺序是新的在前', () => {
+  test('连续两次拾取各完成一次交换：历史两条，顺序是新的在后', () => {
     mount(stateWithBoard(LATIN_ONE_PAIR, 7))
     arm()
     pick([0, 0])
@@ -500,6 +507,29 @@ describe('store：选择态状态机', () => {
     expect(state.swapSelection).toBeNull()
     expect(state.swapArmed).toBe(false)
     expect(state.history).toEqual([])
+  })
+
+  test('Time Attack 到点结算：拾取态与选择一并收摊', () => {
+    // 离开本局的五条路（move / undo / startRun / newGame / tick）里，tick 是唯一
+    // 漏清这两个字段的——settle 与 continueRun 在拾取态下根本到不了：拾取中 phase
+    // 是 playing 或 stuck，而死局面板上的「结束并记录」被拾取收起（App.tsx 的
+    // overlay 在 armed 时不渲染），StatusBar 上那个按钮也只挂在 playing / stuck。
+    // 所以「人还在拾取态里，局却走了」只有到点这一种走法，这条用例就是钉它。
+    //
+    // deadline 置 0 = 早就到点；store 的 tick 用真实时钟读（Date.now() 必然大于 0），
+    // 与 undo.test.ts 那条超时撤销用的是同一个手法
+    mount({ ...stateWithBoard(LATIN_ONE_PAIR, 7, 'time-attack'), deadline: 0 })
+    arm()
+    pick([0, 1])
+    expect(useGameStore.getState().swapArmed).toBe(true)
+
+    useGameStore.getState().tick()
+
+    const state = useGameStore.getState()
+    expect(state.swapArmed).toBe(false)
+    expect(state.swapSelection).toBeNull()
+    expect(state.game?.phase).toBe('ended')
+    expect(state.game?.endReason).toBe('timeout')
   })
 
   test('一次完成的交换自己收摊：拾取态不留在那儿', () => {

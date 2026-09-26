@@ -262,7 +262,14 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 没到期（或非限时、或已不在 playing）时引擎原样返回同一个对象：这里连新
       // state 都不造。与 move 的无效移动同一条路子——引用相等即「什么都没发生」，
       // zustand 的选择器因此不会触发重渲染，倒计时的读表也就不打扰棋盘那一层。
-      return next === state.game ? state : { game: next }
+      if (next === state.game) return state
+      // 到点强制结算是「离开本局」的一条路，于是与 move / undo / startRun /
+      // newGame 同一条边界：拾取态与选择一并收摊。少了这一行，Time Attack 到点
+      // 之后会留下 swapArmed: true 配 phase: 'ended'——方块还挂着 data-selectable /
+      // tabIndex / role="button" / aria-pressed、被选中的那枚还描着环，而按钮与
+      // 播报已经跟着 run 一起消失了。功能上 inert（selectCell 与 undo 都拦在
+      // ended 守卫外），但这是一份没有任何入口解释得清的残留状态。
+      return { game: next, swapArmed: false, swapSelection: null }
     })
   },
   newGame: () => {
