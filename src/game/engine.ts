@@ -189,7 +189,10 @@ export function abandon(state: GameState): GameState {
  * （won → 'won'，其余 → 'deadlock'），而 tick 的入参 phase 恒为 'playing'——
  * 第一条早退已经把 won / stuck 挡在外面了。若真的改走 settle，一局 Time Attack
  * 到点会被写成 `deadlock`：把「强制超时」说成「玩家自己撞上死局」，正是
- * mode-contract §3 用两句不同文案去区分的那两件事。所以这里自己写终态字面量。
+ * mode-contract §3 用两句不同文案去区分的那两件事。
+ * （严格说，settle 的守卫只放 stuck / won 进，所以对 playing 态调用它会**原样返回**
+ * 而不是写成 deadlock——但那时 tick 就根本不会结算了。两种读法都指向同一结论：
+ * timeout 无法经由 settle 表达。）所以这里自己写终态字面量。
  *
  * 共用的不变量因此不在代码里，而在约定上，两条都一样重要，改 tick 时请一起守住：
  *
