@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { Direction, GameState, StyleId } from '../../shared/types'
 import type { ModeId } from '../../shared/modes'
+import { DEFAULT_MODE_ID } from '../../shared/modes'
 import type { Coordinate } from '../../game/board'
 import { DEFAULT_THEME_ID } from '../styles/themes'
 import {
@@ -15,6 +16,28 @@ import {
 import { seedFromUtcDate } from '../../shared/rng'
 import { fixtureFromQuery } from './fixture'
 import { seedFromSearch } from './seed'
+import {
+  assembleSession,
+  decodeSession,
+  decodeSettings,
+  encodeSession,
+  encodeSettings,
+  storageUnavailableNotice,
+  restoreNotice,
+  writeFailureMessage,
+  type HistoryDelta,
+  type RestoredSession,
+  type SessionSnapshot,
+  type StorageNotice,
+} from './session'
+import {
+  clearRun,
+  readHistoryRaw,
+  readSessionRaw,
+  readSettingsRaw,
+  saveRun,
+  writeSettings,
+} from './sessionStore'
 
 /**
  * 唯一的 Zustand store（SPEC §4：无 slice、无中间件）
@@ -45,6 +68,15 @@ export interface GameStore {
    * 现算的今天——跨过 UTC 零点之后，昨天开的那局标签不能跟着翻篇。
    */
   dailyDate: string | null
+  /**
+   * 开局界面选中的那一个模式（T16 进 settings 桶）
+   *
+   * 与 game.modeId 问的不是同一个问题：这一字段是「玩家在开局界面上选了哪个」，
+   * game.modeId 是「这一局在打哪个」。两处都要有，因为 SPEC §3.3 的 settings 桶
+   * 存 selected mode，而 session 桶存这一局——刷新之后回到开局界面时，选中的
+   * 那个模式还该是玩家上次选的那个，不该每次都被重置回经典。
+   */
+  selectedModeId: ModeId
   /**
    * 交换选择态：已经被拾取、等待第二枚的那一枚方块（零基 [row, col]）。
    * null = 此刻没有待确认的选择。
@@ -79,6 +111,8 @@ export interface GameStore {
    * 钉的正是这一整张字段表。
    */
   styleId: StyleId
+  /** 换开局界面上选中的模式（T16：写 settings 桶）。不改动已经开的那一局 */
+  selectMode(id: ModeId): void
   /** 换风格。只改呈现；同一 id 重复调用连 state 都不换 */
   setStyle(id: StyleId): void
   /** 开 / 关交换拾取。StatusBar 与死局面板的那两个按钮调的是同一个动作 */
@@ -102,6 +136,24 @@ export interface GameStore {
   tick(): void
   /** 放弃当前局并开新局。活跃局直接新游戏 = 放弃本局，不写任何记录 */
   newGame(): void
+  /**
+   * 存档与恢复的状态：界面上那一句提示（T16 验收标准 2）
+   *
+   * null = 一切正常。非空的两种情形：存档读不出来（旧版 / 损坏 / 形状不对），
+   * 以及**写不进去**。写入失败那句话必须说的是实话——页面内的撤销一条都没少，
+   * 但刷新之后这一局可能续不上（mode-contract §4 的原话口径）。
+   */
+  storageNotice: StorageNotice | null
+  /**
+   * 是否还在读存档。true 时界面显示「正在恢复」，不显示开局界面
+   *
+   * 初值就是 true：读存档要异步跑几步（打开数据库 → 读 settings → 读 session →
+   * 读撤销历史），这几步里先把开局界面画出来再撤掉，玩家看见的就是一次
+   * 「我的一局好像没了」的闪烁。宁可先亮一句「正在恢复」。
+   */
+  restoring: boolean
+  /** 读一次存档并落到 store 上。App 挂载时调一次（T16） */
+  hydrate(): void
 }
 
 /** 同一格。坐标是零基 [row, col]，逐位比即可 */
@@ -130,6 +182,126 @@ function drawDailySeed(): { seed: number; date: string } {
   return { seed: seedFromUtcDate(date), date }
 }
 
+/**
+ * 一次写盘失败：把平台错误翻成界面上那一句，并让它露出来（验收标准 2）
+ *
+ * 用的是 `useGameStore.setState` 而不是闭包里的 `set`：这些写盘发生在动作里，
+ * 而写盘失败这件事与「哪一个动作触发的」无关，界面只需要知道存不进去了。
+ */
+function reportWriteFailure(error: unknown): void {
+  useGameStore.setState({
+    storageNotice: { kind: 'write-failed', message: writeFailureMessage(error) },
+  })
+}
+
+/** 写 settings 桶（SPEC §3.3 第一个桶）。一条小记录，每步 O(1) */
+function persistSettings(modeId: ModeId, styleId: StyleId): void {
+  void writeSettings(encodeSettings(modeId, styleId)).catch(reportWriteFailure)
+}
+
+/**
+ * 写这一局：session 记录 + 撤销历史的那一步
+ *
+ * 写在动作的 set() 里面而不是 set() 之后：那样每个动作都要先把 patch 算一遍再
+ * 落一遍。这里的写是**幂等**的——记录里装的是「即将提交的那个状态」的全文，
+ * 同一段写两遍字节完全相同，所以从 updater 里发出去也安全。
+ *
+ * 每步的字节量与撤销栈的深度无关（T11 实测的是「每步把整条历史重新序列化一遍」
+ * 那一项不可接受，约 30 GB 累计；保留完整前态这件事本身是线性的，每份约 572 B）。
+ * 详见 sessionStore.ts 的 saveRun。
+ */
+function persistSession(snapshot: SessionSnapshot, delta: HistoryDelta): void {
+  void saveRun(encodeSession(snapshot), delta).catch(reportWriteFailure)
+}
+
+/** 作废这一局的存档：session 记录 + 整条撤销历史 */
+function clearPersistedRun(): void {
+  void clearRun().catch(reportWriteFailure)
+}
+
+/** 正在进行的读存档。StrictMode 会把挂载 effect 跑两遍，两遍读同一份 */
+let hydration: Promise<void> | null = null
+
+/**
+ * 读一次存档，把能用的落到 store 上（SPEC §3.3 的三个桶，本 Ticket 只读前两个）
+ *
+ * 四步：读 settings → 读 session → 读撤销历史 → 落状态。任何一步读不出来都不
+ * 假装：设置坏了回到默认值并说出来，一局坏了不开这一局并说出来。
+ *
+ * 已结算的一局（phase === 'ended'）**安静作废**，不算损坏：ended 之后撤销与
+ * 交换一律不可用（mode-contract §3 关键不变量 4），所以那一局没有可恢复的东西。
+ * 留着它，下一次加载会还原出一块死棋盘而不是开局界面。结算数据在 records 桶
+ * （T17），那才是「已结算数据」，本 Ticket 从不碰它。
+ */
+async function doHydrate(): Promise<void> {
+  let settings: { modeId: ModeId; styleId: StyleId } | null = null
+  let settingsNotice: StorageNotice | null = null
+  let sessionNotice: StorageNotice | null = null
+  let restored: RestoredSession | null = null
+
+  try {
+    const rawSettings = await readSettingsRaw()
+    const parsedSettings = decodeSettings(rawSettings)
+    if (parsedSettings.kind === 'ok') {
+      settings = {
+        modeId: parsedSettings.record.modeId,
+        styleId: parsedSettings.record.styleId,
+      }
+    } else if (parsedSettings.kind === 'rejected') {
+      settingsNotice = restoreNotice(parsedSettings.reason, 'settings')
+    }
+
+    const rawSession = await readSessionRaw()
+    const parsedSession = decodeSession(rawSession)
+    if (parsedSession.kind === 'ok') {
+      if (parsedSession.record.game.phase === 'ended') {
+        clearPersistedRun()
+      } else {
+        const rawHistory = await readHistoryRaw(parsedSession.record.historyLength)
+        restored = assembleSession(parsedSession.record, rawHistory)
+        // 组装不出来 = 撤销路径不完整（条数少了 / 某一条形状不对）。
+        // 那种存档**不算可恢复**：ADR-0003 禁的就是悄悄丢历史
+        if (restored === null) sessionNotice = restoreNotice('shape', 'session')
+      }
+    } else if (parsedSession.kind === 'rejected') {
+      sessionNotice = restoreNotice(parsedSession.reason, 'session')
+    }
+  } catch {
+    // 连存储都打不开（隐私模式 / 存储被禁用）：这一局无从恢复。
+    // 这同样是「不假装」——界面要说的是恢复没发生，而不是安静开一局新的
+    sessionNotice = storageUnavailableNotice()
+  }
+
+  // 一局的恢复结果比设置更值得说：设置坏了还能默认着玩，一局坏了玩家要知道
+  const notice = sessionNotice ?? settingsNotice
+
+  useGameStore.setState((state) => {
+    // 读存档是异步的，这几步里玩家可能已经点了「开始游戏」。那一刻之后不许再把
+    // 存档盖上去——那等于把玩家刚开的一局换成另一局（读写竞态，不是理论风险：
+    // 开局界面就在第一帧，玩家完全点得比读存档快）
+    if (state.game !== null) return { restoring: false }
+    const patch: Partial<GameStore> = {
+      restoring: false,
+      storageNotice: notice,
+      selectedModeId: settings?.modeId ?? state.selectedModeId,
+      // 这一局自己的风格优先于设置里的那个：session 桶存的是「这一局的观感」
+      styleId: restored?.styleId ?? settings?.styleId ?? state.styleId,
+    }
+    if (restored !== null) {
+      patch.game = restored.game
+      patch.history = restored.history
+      patch.dailyDate = restored.dailyDate
+      // 拾取态与选择态刻意不恢复：它们是一次做了一半的编辑，不是这一局的规则数据
+      // （swapArmed / swapSelection 的注释写的就是这件事）。恢复一个
+      // swapArmed: true 会让刷新后的每枚方块都挂着可选中样式，却没有任何
+      // 解释得清的入口把它收掉
+      patch.swapArmed = false
+      patch.swapSelection = null
+    }
+    return patch
+  })
+}
+
 export const useGameStore = create<GameStore>()((set) => ({
   game: null,
   dailyDate: null,
@@ -137,8 +309,41 @@ export const useGameStore = create<GameStore>()((set) => ({
   history: [],
   // 默认经典风格。它不随开局清空——玩家选好的观感应跟着他，不该每开一局被重置回 classic
   styleId: DEFAULT_THEME_ID,
+  // 开局界面上的选中项与风格同一性质：刷新之后该还选着玩家上次选的那个（T16 的
+  // settings 桶）。它不随开局清空，也不受新游戏影响——选过什么模式是「设置」，
+  // 不是「这一局在打哪个模式」
+  selectedModeId: DEFAULT_MODE_ID,
+  selectMode: (id) => {
+    set((state) => {
+      if (state.selectedModeId === id) return state
+      // 开局界面选中的模式只进 settings 桶，不动 session：后者存的是这一局
+      // （SPEC §3.3 两个桶各存各的）。写在同一处，于是「选了哪个模式」与
+      // 「选了哪套风格」走的是同一条路径，不存在第二套只写一半的逻辑
+      persistSettings(id, state.styleId)
+      return { selectedModeId: id }
+    })
+  },
   setStyle: (id) => {
-    set((state) => (state.styleId === id ? state : { styleId: id }))
+    set((state) => {
+      if (state.styleId === id) return state
+      // 风格同时是「设置」与「这一局的观感」：SPEC §3.3 的 settings 与 session
+      // 两个桶都列了 selected style，所以两边都写。session 那一份只在本局存在时
+      // 写——开局界面上的选择没有一局可挂，而「还没开局」与「这一局是空的」
+      // 在存档里是同一件事
+      persistSettings(state.selectedModeId, id)
+      if (state.game !== null) {
+        persistSession(
+          {
+            game: state.game,
+            dailyDate: state.dailyDate,
+            styleId: id,
+            historyLength: state.history.length,
+          },
+          { kind: 'none' }
+        )
+      }
+      return { styleId: id }
+    })
   },
   // 还没开局：没有拾取、也没有选择
   swapArmed: false,
@@ -169,9 +374,21 @@ export const useGameStore = create<GameStore>()((set) => ({
       const swapped = swap(game, state.swapSelection, coordinate)
       if (swapped === null) return state
       // 与 move 进历史同一条路子：先走通的才把**操作前**那个完整前态压栈
+      const history = [...state.history, game]
+      // 一次交换照样只写一条：它移动了两枚方块、不改任何规则量（T12），
+      // 所以存档形状与 move 完全相同——session 记录 + 新压栈的那一条前态
+      persistSession(
+        {
+          game: swapped,
+          dailyDate: state.dailyDate,
+          styleId: state.styleId,
+          historyLength: history.length,
+        },
+        { kind: 'push', index: history.length - 1, game }
+      )
       return {
         game: swapped,
-        history: [...state.history, game],
+        history,
         // 一次拾取只完成一次交换：收摊。ESC、一次移动、撤销同样收摊（见各动作）
         swapArmed: false,
         swapSelection: null,
@@ -198,11 +415,15 @@ export const useGameStore = create<GameStore>()((set) => ({
     const now = Date.now()
     // 开局局面夹具：?board= 给了合法局面就从那开局（T04 的终局 e2e 靠它复现局面，
     // 后续每一步仍走真实按键与真实内核）。只有开局读它——「新游戏」用的是 drawSeed。
+    const game =
+      fixtureFromQuery(window.location.search, modeId, seed, now) ??
+      createGame(modeId, seed, now)
+    const dailyDate = daily?.date ?? null
+    // 风格不改：开局界面选的就是这一局要用的那一个（T13），所以存档里也跟着走
+    const styleId = useGameStore.getState().styleId
     set({
-      game:
-        fixtureFromQuery(window.location.search, modeId, seed, now) ??
-        createGame(modeId, seed, now),
-      dailyDate: daily?.date ?? null,
+      game,
+      dailyDate,
       // 每一局的历史从空开始：开局棋盘就是 game 自己，往前没有更早的状态。
       // 「新游戏」同样在这里清空（见 newGame），否则新一局能撤回到上一局去。
       history: [],
@@ -211,6 +432,9 @@ export const useGameStore = create<GameStore>()((set) => ({
       swapArmed: false,
       swapSelection: null,
     })
+    // reset：上一局的撤销历史整条作废。这是「新游戏不擦除已结算数据」的另一半——
+    // 被擦的只有 session 与 history 两个桶，records / stats（T17）一个字节都不碰
+    persistSession({ game, dailyDate, styleId, historyLength: 0 }, { kind: 'reset' })
   },
   move: (direction) => {
     set((state) => {
@@ -232,9 +456,21 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 交换拾取一并收摊：棋盘变了，等第二枚的那一枚已经不在玩家以为的地方，
       // 半个选择继续摆在屏幕上就是在骗人。无效移动走的是上面那条早退，
       // 什么都不发生，于是也不该清掉任何东西
+      const history = [...state.history, state.game]
+      // 一次有效移动只写两条：session 记录 + 新压栈的那一个前态。栈多深都不多写
+      // （T11 实测出不可接受的是每步把整条历史重新序列化一遍，那件事在这里不做）
+      persistSession(
+        {
+          game: outcome.state,
+          dailyDate: state.dailyDate,
+          styleId: state.styleId,
+          historyLength: history.length,
+        },
+        { kind: 'push', index: history.length - 1, game: state.game }
+      )
       return {
         game: outcome.state,
-        history: [...state.history, state.game],
+        history,
         swapArmed: false,
         swapSelection: null,
       }
@@ -255,9 +491,21 @@ export const useGameStore = create<GameStore>()((set) => ({
       // stuck 不是终局（mode-contract §3），所以死局面板上的「撤销」走这条路。
       // 拾取态与选择一并收摊，理由同 move：棋盘回退了一格，
       // 「等第二枚的那一枚」这个意图已经不对着任何真实的东西了
+      const history = state.history.slice(0, -1)
+      // 撤销同样只写两条：session 记录 + 删掉刚刚弹出的那一条前态。
+      // 索引就是新栈的长度——被弹掉的那一条原来就在这个位置上
+      persistSession(
+        {
+          game: state.history[state.history.length - 1],
+          dailyDate: state.dailyDate,
+          styleId: state.styleId,
+          historyLength: history.length,
+        },
+        { kind: 'pop', index: history.length }
+      )
       return {
         game: state.history[state.history.length - 1],
-        history: state.history.slice(0, -1),
+        history,
         swapArmed: false,
         swapSelection: null,
       }
@@ -267,14 +515,46 @@ export const useGameStore = create<GameStore>()((set) => ({
     set((state) => {
       if (!state.game) return state
       // 引擎自己判断「续走即死局」该不该转去 stuck，store 只收结果
-      return { game: continueRun(state.game) }
+      const next = continueRun(state.game)
+      // phase 变了才写：引用相等即「什么都没发生」，与 move 的无效移动同一条路子
+      if (next !== state.game) {
+        persistSession(
+          {
+            game: next,
+            dailyDate: state.dailyDate,
+            styleId: state.styleId,
+            historyLength: state.history.length,
+          },
+          { kind: 'none' }
+        )
+      }
+      return { game: next }
     })
   },
   settle: () => {
     set((state) => {
       if (!state.game) return state
       // 幂等：再点一次返回同一个对象，store 收着同一引用，界面什么都不发生
-      return { game: settle(state.game) }
+      const next = settle(state.game)
+      if (next === state.game) return state
+      // 结算之后这一局没有可恢复的东西（ended 之后撤销与交换一律不可用，
+      // mode-contract §3 关键不变量 4），所以存档一起作废：下一次加载回到开局
+      // 界面，而不是还原一块死棋盘。被擦的只有 session 与 history 两个桶——
+      // 「已结算数据」在 records 桶（T17），本 Ticket 从不碰它
+      if (next.phase === 'ended') {
+        clearPersistedRun()
+      } else {
+        persistSession(
+          {
+            game: next,
+            dailyDate: state.dailyDate,
+            styleId: state.styleId,
+            historyLength: state.history.length,
+          },
+          { kind: 'none' }
+        )
+      }
+      return { game: next }
     })
   },
   tick: () => {
@@ -291,6 +571,20 @@ export const useGameStore = create<GameStore>()((set) => ({
       // tabIndex / role="button" / aria-pressed、被选中的那枚还描着环，而按钮与
       // 播报已经跟着 run 一起消失了。功能上 inert（selectCell 与 undo 都拦在
       // ended 守卫外），但这是一份没有任何入口解释得清的残留状态。
+      // 超时结算与 settle 同一条边界：这一局打完了，存档随之作废（见 settle）
+      if (next.phase === 'ended') {
+        clearPersistedRun()
+      } else {
+        persistSession(
+          {
+            game: next,
+            dailyDate: state.dailyDate,
+            styleId: state.styleId,
+            historyLength: state.history.length,
+          },
+          { kind: 'none' }
+        )
+      }
       return { game: next, swapArmed: false, swapSelection: null }
     })
   },
@@ -311,16 +605,40 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 那条缝只在开局那一刻读（T03 起的行为，T04/T06/T07 的 e2e 依赖它不变）。
       const daily = modeId === 'daily' ? drawDailySeed() : null
       const seed = daily?.seed ?? drawSeed()
+      const game = createGame(modeId, seed, Date.now())
+      const dailyDate = daily?.date ?? null
+      // 验收标准 3：「新游戏放弃未结算 session，不擦除已结算数据」。
+      // 前半句由这个 reset 兑现——上一局的撤销历史整条作废；后半句由**不碰**
+      // records / stats 兑现（T17 的桶本 Ticket 连建都不建，见 session.ts 文件头）
+      persistSession(
+        {
+          game,
+          dailyDate,
+          styleId: state.styleId,
+          historyLength: 0,
+        },
+        { kind: 'reset' }
+      )
       // 新一局的历史从空开始：撤销的边界是「本局的开局」，跨不过「新游戏」这道墙。
       // 不这么做的话，新一局能一路撤回到上一局的棋盘上。拾取态同一个边界：
       // 上一局没做完的交换不许跟到新棋盘上来
       return {
-        game: createGame(modeId, seed, Date.now()),
-        dailyDate: daily?.date ?? null,
+        game,
+        dailyDate,
         history: [],
         swapArmed: false,
         swapSelection: null,
       }
+    })
+  },
+  // 还没有提示，也还没有在读存档（false 由 hydrate 在读完之后落）
+  storageNotice: null,
+  restoring: true,
+  hydrate: () => {
+    // 记一次正在进行的读：React StrictMode 会把挂载 effect 跑两遍，两遍读同一份
+    // 才不会有两次 IndexedDB 读、两次 setState。读完就清空，之后还想再读可以再调
+    hydration ??= doHydrate().finally(() => {
+      hydration = null
     })
   },
 }))

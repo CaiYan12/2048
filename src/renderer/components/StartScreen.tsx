@@ -1,10 +1,19 @@
-import { useState, type JSX } from 'react'
+import type { JSX } from 'react'
 import { DEFAULT_MODE_ID, getMode, type ModeId } from '../../shared/modes'
 import type { StyleId } from '../../shared/types'
 import { StylePicker } from './StylePicker'
 
 interface Props {
   onStart(modeId: ModeId): void
+  /**
+   * 开局界面选中的模式（T16：住在 store 里，进 settings 桶）
+   *
+   * 为什么不放本地 state：选中的模式要**跟到下一回打开这个页面**——它是「设置」，
+   * 刷新之后该还选着玩家上次选的那个（SPEC §3.3 的 settings 桶）。与 styleId
+   * 同一条道理，两者共用同一个选择器的样子，只是一个在模式那一组、一个在风格那一组。
+   */
+  selectedModeId: ModeId
+  onSelectMode(id: ModeId): void
   /** 当前风格（T13）：住在 store 里，开局前选的就是开局后用的那一套 */
   styleId: StyleId
   onStyleChange(id: StyleId): void
@@ -30,12 +39,12 @@ const AVAILABLE_MODE_IDS: readonly ModeId[] = [
 /** 模式与风格选择（用户故事 1）。缩略预览是 T14 的故事 */
 export function StartScreen({
   onStart,
+  selectedModeId,
+  onSelectMode,
   styleId,
   onStyleChange,
 }: Props): JSX.Element {
-  const [modeId, setModeId] = useState<ModeId>(DEFAULT_MODE_ID)
-
-  const mode = getMode(modeId)
+  const mode = getMode(selectedModeId)
 
   return (
     <section className="flex w-full max-w-md flex-col items-center gap-6 py-8">
@@ -56,8 +65,8 @@ export function StartScreen({
                 key={id}
                 type="button"
                 className="control flex-auto"
-                aria-pressed={modeId === id}
-                onClick={() => setModeId(id)}
+                aria-pressed={selectedModeId === id}
+                onClick={() => onSelectMode(id)}
               >
                 {option.label}
               </button>
@@ -76,7 +85,7 @@ export function StartScreen({
       <button
         type="button"
         className="control w-full text-lg"
-        onClick={() => onStart(modeId)}
+        onClick={() => onStart(selectedModeId)}
       >
         开始游戏
       </button>

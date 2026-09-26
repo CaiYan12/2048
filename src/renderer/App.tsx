@@ -6,6 +6,7 @@ import { DailyDateLabel } from './components/DailyDateLabel'
 import { DirectionPad } from './components/DirectionPad'
 import { GameOverPanel } from './components/GameOverPanel'
 import { StatusBar } from './components/StatusBar'
+import { StorageNotice } from './components/StorageNotice'
 import { StartScreen } from './components/StartScreen'
 import { StylePicker } from './components/StylePicker'
 import { WinPanel } from './components/WinPanel'
@@ -29,6 +30,9 @@ import { useGameStore } from './stores/useGameStore'
  * DOM 固定，而外壳正是「可以换实现」的那一层（设计卡 §5）。
  * T14 起在 styleId 变化时重跑字体状态机：换风格可能换了一套从没下载过的字体，
  * 启动时那一次检测的结论不能永久锁住它（ADR-0005 最后一句）。
+ * T16 起在挂载时读一次存档：刷新之后这一局接着打。读存档是异步的，所以第一帧
+ * 显示的是「正在恢复」而不是开局界面——先把开局界面画出来再撤掉，玩家看见的就是
+ * 一次「我的一局好像没了」的闪烁。
  */
 export default function App(): JSX.Element {
   // 外壳元素本身。字体重探需要它：这一套风格的字体栈挂在 data-style 上，
@@ -37,7 +41,12 @@ export default function App(): JSX.Element {
   const game = useGameStore((state) => state.game)
   const dailyDate = useGameStore((state) => state.dailyDate)
   const styleId = useGameStore((state) => state.styleId)
+  const selectedModeId = useGameStore((state) => state.selectedModeId)
   const setStyle = useGameStore((state) => state.setStyle)
+  const selectMode = useGameStore((state) => state.selectMode)
+  const storageNotice = useGameStore((state) => state.storageNotice)
+  const restoring = useGameStore((state) => state.restoring)
+  const hydrate = useGameStore((state) => state.hydrate)
   const startRun = useGameStore((state) => state.startRun)
   const move = useGameStore((state) => state.move)
   const undo = useGameStore((state) => state.undo)
@@ -61,6 +70,17 @@ export default function App(): JSX.Element {
     recheckEffectiveFont(shellRef.current)
   }, [styleId])
 
+  // 读一次存档（T16）。写在挂载 effect 里而不是 store 的模块初始化里：IndexedDB
+  // 是异步的，模块求值那一刻什么都读不到。StrictMode 会把这个 effect 跑两遍，
+  // hydrate 内部记着正在进行的读，两遍读同一份、只落一次状态。
+  //
+  // 顺序无关紧要：恢复出来的 styleId 若与当前不同，上面那个 effect 会因为它
+  // 的依赖变了而重跑一次字体重探——恢复一套从没下载过字体的风格，走的正是
+  // 「切换风格」那条已经验过的路（ADR-0005 最后一句要求的就是这件事）
+  useEffect(() => {
+    hydrate()
+  }, [hydrate])
+
   return (
     <main
       ref={shellRef}
@@ -68,8 +88,23 @@ export default function App(): JSX.Element {
       // 换肤机制唯一的钩子：每套风格的令牌与呈现规则都按这个属性选择
       data-style={styleId}
     >
-      {game === null ? (
-        <StartScreen onStart={handleStart} styleId={styleId} onStyleChange={setStyle} />
+      {/* 存档读不出来 / 写不进去（T16 验收标准 2）。摆在外壳最上面、开局界面与
+          棋盘都看得到的地方——写入失败是在打一局的过程中冒出来的，只在开局界面
+          提示等于在玩家唯一还在玩的时刻闭嘴 */}
+      {storageNotice !== null && <StorageNotice notice={storageNotice} />}
+      {restoring ? (
+        <section className="flex flex-col items-center gap-2 py-8">
+          <h1 className="shell__title text-6xl">2048</h1>
+          <p className="hint">正在恢复上次的一局…</p>
+        </section>
+      ) : game === null ? (
+        <StartScreen
+          onStart={handleStart}
+          selectedModeId={selectedModeId}
+          onSelectMode={selectMode}
+          styleId={styleId}
+          onStyleChange={setStyle}
+        />
       ) : (
         <div className="flex flex-col items-center gap-4">
           <h1 className="shell__title text-5xl">2048</h1>
