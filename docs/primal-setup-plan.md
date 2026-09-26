@@ -34,7 +34,7 @@
 | 字体 | **自托管本地资源**，13 个文件 / 340 KB，`font-display: swap` + 同字形类别回退（ADR-0005） |
 | 无障碍 | `prefers-reduced-motion` 全量降级 + 完整键盘 + `aria-live` 播报 |
 | 交付 | 纯静态 + GitHub Pages（Actions）；PWA 留后 |
-| 栈 | React 19 + TS + Vite 7 + Tailwind 3 + Zustand（单 store 无中间件） |
+| 栈 | React 19 + TS + Vite 8 + Tailwind 4 + Zustand（单 store 无中间件） |
 | 测试 | Vitest 只测纯逻辑（集中 `tests/unit/`，**不用** `@testing-library/react`）+ Playwright 测 UI |
 | 核心 | 纯函数层与渲染层分离，RNG 可注入（ADR-0001） |
 
@@ -137,7 +137,7 @@ T01 有待项目所有者确认的规则取值和结算边界；T02 不依赖 T0
 - [ ] `index.html` 放仓库根目录；`vite.config.ts` 为 GitHub Pages 仓库子路径配置 `base`，并验证构建后的脚本、CSS、字体资源路径
 - [ ] `vitest.config.ts`：纯逻辑测试使用默认 `node` 环境、`include: ['tests/unit/**/*.test.ts']`；P0 可临时 `passWithNoTests: true`，P1 第一条真实测试加入后撤掉
 - [ ] `playwright.config.ts`：为本地服务明确相同的 `webServer.url` 与 `use.baseURL`，配置桌面与手机视口；CI 不复用残留服务
-- [ ] `tailwind.config.js`：语义类 → CSS 变量映射
+- [ ] Tailwind 接入：**Tailwind 4**（CSS-first，`@theme` 里定义语义类 → CSS 变量映射，不再有 `tailwind.config.js`）
 - [ ] GitHub Actions：先建立 `npm ci` → typecheck → unit test → build 的检查链；Pages 选择 GitHub Actions 作为来源，使用 `dist`、所需部署权限与构建产物上传，发布闸门留到 P10
 - [ ] **验证**：`npm run dev` 显示空壳页；typecheck、build 成功；P0 的零测试绿色只代表工具链可运行，不代表规则通过；以预定 Pages `base` 预览构建产物并检查资源路径，线上验证留到 P10
 

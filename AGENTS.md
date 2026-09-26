@@ -236,7 +236,7 @@ A tiny 2048 game built in web.
 
 ## Techstack Info:
 
-React 19 + TypeScript + Vite 7 + Tailwind 3 + Zustand（单 store，无 slice / 无中间件）。
+React 19 + TypeScript + Vite 8 + Tailwind 4 + Zustand（单 store，无 slice / 无中间件）。
 测试：Vitest（纯逻辑，`tests/unit/`，**不用** `@testing-library/react`）+ Playwright（UI，`tests/e2e/`）。
 无 eslint / prettier。
 
