@@ -21,13 +21,16 @@ const byTravel = (dx: number, dy: number): Direction | null =>
 
 describe('四方向：位移达到阈值即给出方向', () => {
   // 正好等于阈值。含端点的比较：差这一条，「24px 划不动」与「23px 划得动」
-  // 两种实现都测得过
+  // 两种实现都测得过。
+  // 名字里打的是**两个**位移而不只是 dx：只打 dx 的话，down / up 两行会印成「正好
+  // 0px 的位移算达到阈值」——在这个把测试名当文档看的仓库里，那看着就像写错了
+  // （而它其实说的是「竖直方向正好走了 24px」）
   test.each([
     ['right', SWIPE_THRESHOLD, 0],
     ['left', -SWIPE_THRESHOLD, 0],
     ['down', 0, SWIPE_THRESHOLD],
     ['up', 0, -SWIPE_THRESHOLD],
-  ])('%s：正好 %ipx 的位移算达到阈值', (expected, dx, dy) => {
+  ])('%s：位移 (%i, %i) 正好达到阈值', (expected, dx, dy) => {
     expect(byTravel(dx, dy)).toBe(expected)
   })
 
@@ -37,7 +40,7 @@ describe('四方向：位移达到阈值即给出方向', () => {
     ['left', -120, 0],
     ['down', 0, 120],
     ['up', 0, -120],
-  ])('%s：越过阈值 %ipx 仍然给出同一个方向', (expected, dx, dy) => {
+  ])('%s：位移 (%i, %i) 越过阈值仍然给出同一个方向', (expected, dx, dy) => {
     expect(byTravel(dx, dy)).toBe(expected)
   })
 })

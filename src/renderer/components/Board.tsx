@@ -18,7 +18,7 @@ import {
   fitCellSize,
   type BoardLayout,
 } from './BoardLayout'
-import { SWIPE_THRESHOLD, swipeDirection, type Point } from './SwipeGesture'
+import { createGestureTracker, type GestureTracker } from './GestureTracker'
 
 interface Props {
   game: GameState
@@ -93,47 +93,50 @@ export function Board({ game, onMove }: Props): JSX.Element {
 
   // 手势起点只进 ref，不进 state：拖动过程中没有任何东西要显示它，而每帧
   // setState 会让 5×5 棋盘白重渲染一遍。「派生显示状态按需进 React」——这里
-  // 没有显示依赖，所以一根手指按下去到松手之间 React 一次都不参与
-  const gesture = useRef<{ pointerId: number; point: Point } | null>(null)
+  // 没有显示依赖，所以一根手指按下去到松手之间 React 一次都不参与。
+  // 状态机整段在 GestureTracker.ts：缺陷出在处理器被调用的**顺序**上，而顺序只有
+  // 浏览器能给，抽成纯模块之后那串顺序才能在 tests/unit 里逐帧重放
+  // useState 的懒初始化只跑一次；写成 useRef(createGestureTracker()) 会每渲染
+  // 造一个再扔掉
+  const [gesture] = useState(createGestureTracker)
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>): void => {
     // 与键盘同一条守卫：落在棋盘内的交互控件上的手势放行。这里不只是「别误动棋盘」——
     // 指针捕获会把后续的 pointerup 连同兼容鼠标事件（含 click）一起重定向到棋盘，
     // 在控件上捕获等于把那个控件的点击吃掉。T03 的 e2e 已经钉了这条守卫的键盘半边
     if (isInteractiveTarget(event.target)) return
-    // 已经有一根手指在手势里就忽略第二根：两个起点互相覆写，最后算出来的是第三根
-    // 手指的轨迹
-    if (gesture.current) return
     // 捕获指针：划出棋盘边界再松手也算一次完整手势。不捕获的话 pointerup 落在棋盘
     // 外，这次划动整段丢掉（触摸设备上手指划过棋盘边缘是常事）
     event.currentTarget.setPointerCapture(event.pointerId)
-    gesture.current = {
-      pointerId: event.pointerId,
-      point: { x: event.clientX, y: event.clientY },
-    }
+    // 「已有一根手指在手势里就忽略第二根」这句在 GestureTracker.down 里
+    gesture.down(event.pointerId, { x: event.clientX, y: event.clientY })
   }
 
   const handlePointerUp = (event: PointerEvent<HTMLDivElement>): void => {
-    const active = gesture.current
-    gesture.current = null
-    // 起点不匹配就不是这次手势（上面被忽略的第二根手指松手时走这里）
-    if (!active || active.pointerId !== event.pointerId) return
     // 手势只在这里判一次：起点是按下那一刻，终点是松手那一刻，中间帧一概不看。
     // 每帧都判的话，一次划动会连着触发多个 Move——而非法 Move 是空操作，画面看着
     // 几乎对，棋盘却会从中间某一帧开始动，那是规则测试看不见的静默损坏
-    // （T10 interface sheet §2 点名要防的正是它）
-    const direction = swipeDirection(
-      { x: active.point.x, y: active.point.y },
-      { x: event.clientX, y: event.clientY },
-      SWIPE_THRESHOLD
-    )
+    // （T10 interface sheet §2 点名要防的正是它）。「判几次」的逻辑整段在
+    // GestureTracker.up 里，这里只负责把它接到 onMove 上
+    const direction = gesture.up(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    })
     if (!direction) return
     onMove(direction)
   }
 
   // 取消（浏览器把手势收走、或被别的事件流打断）：手势作废，一次 Move 都不触发
-  const handlePointerCancel = (): void => {
-    gesture.current = null
+  const handlePointerCancel = (event: PointerEvent<HTMLDivElement>): void => {
+    gesture.cancel(event.pointerId)
+  }
+
+  // 捕获被释放也作废。它不是可选的：只给 up 加指针比对会楔住——一次没送到的
+  // pointerup 会把起点永远留在里面，而 down 的「已有一根在手势里就忽略第二根」从此
+  // 再也不放行任何新手势。捕获在 pointerup **之后**才释放，所以正常路径上这里是空
+  // 动作；被忽略的第二根手指从未捕获过，也不会走到这里
+  const handleLostPointerCapture = (): void => {
+    gesture.lost()
   }
 
   const style = {
@@ -158,6 +161,7 @@ export function Board({ game, onMove }: Props): JSX.Element {
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
+      onLostPointerCapture={handleLostPointerCapture}
     >
       <div className="board__cells" aria-hidden="true">
         {Array.from({ length: mode.size * mode.size }, (_, index) => {
