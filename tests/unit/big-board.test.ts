@@ -80,8 +80,8 @@ describe('模式声明：5×5 与 4096 都来自契约', () => {
 
   test('createBoard(5, []) 铺出正好 25 个空格，全部可生成', () => {
     const board = createBoard(MODE.size, MODE.walls)
-    expect(board).toHaveLength(5)
-    for (const row of board) expect(row).toHaveLength(5)
+    expect(board).toHaveLength(MODE.size)
+    for (const row of board) expect(row).toHaveLength(MODE.size)
     // 无障碍模式：25 格都能生成。这是「生成覆盖四条边」的前提
     expect(playableCells(board)).toHaveLength(25)
     expect(tilesOf(board)).toHaveLength(0)

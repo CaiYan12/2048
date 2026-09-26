@@ -106,7 +106,6 @@ async function expectTilesInsideCells(page: Page, tolerance = 1): Promise<void> 
   }
 }
 
-/** 惰性填充：横纵相邻都不相等且本来就压紧，四个方向都推不动 */
 /** 惰性填充：25 格全满、横纵相邻都不相等且本来就压紧，四个方向都推不动 */
 const FULL_BOARD: (number | null)[][] = [
   [2, 4, 2, 4, 2],
