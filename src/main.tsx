@@ -7,6 +7,11 @@ import { initFontState } from './renderer/styles/fontState'
 // 本地 @import 内联一份，Vite 的 CSS 模块图又会解析同一个 @import 再内联一份，
 // 构建产物里 13 条 @font-face 就出现两次（实测 26 条）。从 JS 引一次即干净。
 import './renderer/styles/fonts.css'
+// board.css 与主题 CSS 同样从 JS 引、不进 index.css 的 @import（同上的双份内联坑）。
+// T03 只有 classic 一套，入口直接引它；多风格同时加载的策略归 T13 的换肤机制。
+import './renderer/styles/themes/classic/tokens.css'
+import './renderer/styles/themes/classic/styles.css'
+import './renderer/styles/board.css'
 import './renderer/styles/index.css'
 
 const container = document.getElementById('root')

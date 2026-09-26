@@ -1,0 +1,113 @@
+/**
+ * Classic 的呈现规则
+ *
+ * 只管两件事：外壳（纸面、标注、按钮、提示）与棋盘层的装饰参数（圆角、动效时长）。
+ * 棋盘与方块的**结构**在 board.css，颜色在 tokens.css——这里不重复它们，
+ * 也不出现 Tailwind utility：这一层与棋盘层一样，都要能整块换掉。
+ *
+ * 圆角与动效用「带默认值的变量」声明：board.css 里写的是 var(--cell-radius, 6px)，
+ * 风格想换观感只改这一处，不必动棋盘层。
+ */
+
+:root {
+  --board-radius: 6px;
+  --cell-radius: 6px;
+  --tile-move-duration: 140ms;
+  --tile-spawn-duration: 120ms;
+}
+
+/* 外壳：纸面 + 无衬线正文 */
+.shell {
+  min-height: 100dvh;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-body);
+}
+
+/* 标题。字体走 @theme inline 映射出来的 font-display（见 index.css） */
+.shell__title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* 卡片式标注：分数 / 目标 / 最高方块 */
+.panel {
+  background: var(--control-bg);
+  color: var(--ink-bright);
+  border-radius: var(--cell-radius);
+  padding: 0.5rem 0.875rem;
+  text-align: center;
+}
+
+.panel__label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.panel__value {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+/* 控件：按钮。焦点用「页面色垫圈 + 深色描边」双环，深色环永远只与页面色相邻 */
+.control {
+  background: var(--control-bg);
+  color: var(--ink-bright);
+  border: 0;
+  border-radius: var(--cell-radius);
+  padding: 0.625rem 1.25rem;
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.control:hover {
+  background: var(--control-bg-hover);
+}
+
+.control:focus-visible {
+  outline: 0;
+  box-shadow:
+    0 0 0 2px var(--page),
+    0 0 0 4px var(--focus);
+}
+
+/* 已选项：同一族里用更深的底表示「选中」，不引入新颜色 */
+.control[aria-pressed='true'] {
+  background: var(--focus);
+}
+
+/* 操作提示：纸面上最弱的一层字 */
+.hint {
+  color: var(--ink);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+/* 棋盘区域是交互目标：可见焦点 + 不把光标当文本框 */
+.board {
+  cursor: default;
+}
+
+.board:focus-visible {
+  outline: 0;
+  box-shadow:
+    0 0 0 2px var(--page),
+    0 0 0 4px var(--focus);
+}
+
+/* reduced-motion：动效全部退化为静态（SPEC §3.2） */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --tile-move-duration: 0ms;
+    --tile-spawn-duration: 0ms;
+  }
+}

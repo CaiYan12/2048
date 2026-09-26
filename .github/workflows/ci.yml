@@ -21,8 +21,8 @@ jobs:
 
       - run: npm run typecheck
 
-      # P0 阶段这里是零测试通过，只证明 vitest 装配正确（vitest.config.ts 的
-      # passWithNoTests 有同样说明）；第一条真实单测落下后必须撤掉该开关
+      # T03 起 `npm test` 跑真实单测并会为坏测试失败；vitest.config.ts 里的
+      # passWithNoTests 已随之撤掉，这里不再需要「零测试通过」的说明
       - run: npm test
 
       - run: npm run build

@@ -266,6 +266,7 @@ React 19 + TypeScript + Vite 8 + Tailwind 4 + Zustand（单 store，无 slice / 
 | typescript | 7.0.2 | `tsc --noEmit` 已通过；strict 全开 |
 | @playwright/test | 1.63.0 | e2e 用构建预览跑，版本跟随当前 |
 | @types/node | 26.6.3 | 配置文件与 Node API 类型 |
+| zustand | 5.0.15 | T03 引入单 store（SPEC §4：无 slice、无中间件）；v5 的 TS 类型要求 `create<T>()(...)` 双调用形式，钉死以免误升到破坏类型接口的大版本 |
 
 回退基线：`tailwindcss@3.4.19`（npm `v3-lts`）+ Vite 7 + Vitest 4 + plugin-react 5，理由见
 SDD ledger 的「依赖版本走当前」裁决。Node 需 `>=22.12.0`（`engines`）。

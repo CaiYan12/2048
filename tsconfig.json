@@ -13,6 +13,10 @@
     "skipLibCheck": true,
     "isolatedModules": true,
     "esModuleInterop": true,
+    // 契约的机读半边：tests/unit/fixtures/mode-contract.json 要被单测直接 import。
+    // 开着它，键名写错是编译错误；不开的话只能 readFileSync，拼错键只会安静拿到
+    // undefined，契约就白冻结了。T14 的 check-contrast 是普通 .mjs，不受此项影响。
+    "resolveJsonModule": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },

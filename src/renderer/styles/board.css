@@ -1,0 +1,127 @@
+/**
+ * 棋盘 / 方块层（ADR-0002 · 全局约束 3）
+ *
+ * 这里**不用任何 Tailwind utility**，Tailwind 只修饰外壳。原因：这一层要能在
+ * 换风格时整块换掉呈现，而 Tailwind 的调色板色值写在 utility 类名里，风格文件夹
+ * 管不到它。所有颜色来自当前风格 tokens.css 的变量。
+ *
+ * 尺寸只有一份来源：`components/BoardLayout.ts`。它算出的 cell-size / gap / padding
+ * 以 CSS 变量贴到棋盘根元素上，这里只消费，不抄第二份数值。
+ *
+ * 方块按 [row][col] 绝对定位（transform 而非 top/left）：T21 的位移动画要靠
+ * transform 才能跑在合成层上，且 DOM 结构此后不再变。
+ */
+
+.board {
+  position: relative;
+  width: var(--board-size-px);
+  height: var(--board-size-px);
+  padding: var(--board-padding);
+  background: var(--board);
+  border-radius: var(--board-radius, 6px);
+  box-sizing: border-box;
+}
+
+.board__cells,
+.board__tiles {
+  position: absolute;
+  inset: var(--board-padding);
+}
+
+/* 格子只是底板：没有交互、不朗读、不吸引焦点 */
+.board__cells {
+  pointer-events: none;
+}
+
+.board__cell {
+  position: absolute;
+  width: var(--cell-size);
+  height: var(--cell-size);
+  background: var(--cell-bg);
+  border-radius: var(--cell-radius, 6px);
+}
+
+.board__tile {
+  /* 阶梯默认值：超过 2048 的取值（4096 起）落在 --tile-beyond 上 */
+  --tile-bg: var(--tile-beyond);
+  --tile-ink: var(--ink-bright);
+
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: var(--cell-size);
+  height: var(--cell-size);
+  background: var(--tile-bg);
+  color: var(--tile-ink);
+  border-radius: var(--cell-radius, 6px);
+  font-family: var(--font-body);
+  font-weight: 700;
+  /* 等宽数字：合并前后位数变化时数字不横向抖动 */
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  user-select: none;
+  /* T21 落地位移动画；reduced-motion 的降级见风格 styles.css */
+  transition:
+    transform var(--tile-move-duration, 140ms) ease-out,
+    opacity var(--tile-spawn-duration, 120ms) ease-out;
+}
+
+/* 数值 → 底色。属性选择器把变量贴到具体方块上，.board__tile 的声明保持不变，
+   所以风格只换色值、棋盘层的规则一行都不用动 */
+.board__tile[data-value='2'] {
+  --tile-bg: var(--tile-2);
+  --tile-ink: var(--ink);
+}
+.board__tile[data-value='4'] {
+  --tile-bg: var(--tile-4);
+  --tile-ink: var(--ink);
+}
+.board__tile[data-value='8'] {
+  --tile-bg: var(--tile-8);
+}
+.board__tile[data-value='16'] {
+  --tile-bg: var(--tile-16);
+}
+.board__tile[data-value='32'] {
+  --tile-bg: var(--tile-32);
+}
+.board__tile[data-value='64'] {
+  --tile-bg: var(--tile-64);
+}
+.board__tile[data-value='128'] {
+  --tile-bg: var(--tile-128);
+}
+.board__tile[data-value='256'] {
+  --tile-bg: var(--tile-256);
+}
+.board__tile[data-value='512'] {
+  --tile-bg: var(--tile-512);
+}
+.board__tile[data-value='1024'] {
+  --tile-bg: var(--tile-1024);
+}
+.board__tile[data-value='2048'] {
+  --tile-bg: var(--tile-2048);
+}
+
+/* 位数越多字号越小。字号跟着格子边长等比缩，不设硬下限：超过 2048 的长数值
+   允许缩到 24px 以下，因为它们全部落在 ≥ 4.56:1 的深色档上，按普通文字也算过线
+   （唯一依赖大字口径的是 8 号，而它永远是一位数、字号最大）。见设计卡 §9 */
+.board__tile {
+  font-size: calc(var(--cell-size) * 0.45);
+}
+.board__tile[data-digits='2'] {
+  font-size: calc(var(--cell-size) * 0.4);
+}
+.board__tile[data-digits='3'] {
+  font-size: calc(var(--cell-size) * 0.32);
+}
+.board__tile[data-digits='4'] {
+  font-size: calc(var(--cell-size) * 0.27);
+}
+.board__tile[data-digits='5'] {
+  font-size: calc(var(--cell-size) * 0.23);
+}
+.board__tile[data-digits='6'] {
+  font-size: calc(var(--cell-size) * 0.2);
+}

@@ -1,0 +1,39 @@
+/**
+ * Classic 风格的设计令牌（只放「值」，不放规则）
+ *
+ * 三个三角色的字体栈与回退在 fonts.css 的 :root 上声明，这里按 Classic 的口径覆盖。
+ * 回退必须落在同一字形类别内（ADR-0005）：Classic 是无衬线，所以挂 --fallback-grotesk。
+ */
+
+:root {
+  --page: #faf8ef;
+  --board: #bbada0;
+  --cell-bg: #cdc1b4;
+
+  /* 正文 / 小字 / 亮底方块上的字 */
+  --ink: #5f564e;
+  /* 深底方块上的字、控件上的字 */
+  --ink-bright: #f9f6f2;
+
+  --control-bg: #6f6055;
+  --control-bg-hover: #5f564e;
+  --focus: #4a443f;
+
+  /* 方块阶梯：2/4 亮底深字，8 起深底亮字。
+     每一档的对比度见 contrast.json——除 8 号（一位数、按大字 3:1）外都 ≥ 4.56:1 */
+  --tile-2: #eee4da;
+  --tile-4: #ede0c8;
+  --tile-8: #c2622c;
+  --tile-16: #b5561f;
+  --tile-32: #a54a1c;
+  --tile-64: #953f18;
+  --tile-128: #916a0e;
+  --tile-256: #8a680d;
+  --tile-512: #85640b;
+  --tile-1024: #7c5d0a;
+  --tile-2048: #6c5109;
+  --tile-beyond: #4a443f;
+
+  --font-display: 'Inter', var(--fallback-grotesk);
+  --font-body: 'Inter', var(--fallback-grotesk);
+}
