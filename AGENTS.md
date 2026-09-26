@@ -289,6 +289,17 @@ SDD ledger 的「依赖版本走当前」裁决。Node 需 `>=22.12.0`（`engine
 - 永不使用 `--headed`、`--debug`、`--ui`，不打开 trace viewer、HTML report 或 `codegen`。
 - 需要看渲染结果时读回 DOM（computed style、`data-*`、文本内容），不开可见窗口。
 - `playwright.config.ts` 里 `headless: true` 是显式约定，不是默认值巧合。
+- **禁参数列表不够。** `chrome-devtools-mcp` 一类驱动真实浏览器的 MCP **默认开可见窗口**，
+  而且能在一个被叮嘱过「保持 headless」的 agent 里跑起来。所以每条派发指令都要另写一句：
+  不许用任何驱动真实浏览器的 MCP / Puppeteer / 会开真实窗口的东西；**如果你认为需要浏览器，
+  先问，不要自己开。**
+
+**派出去的每个子代理都要被持续监督，频率自定但必须固定。** 本项目默认每 5 分钟一次：跑
+`node scripts/subagent-watch.mjs --since-minutes 10`，配合 `ListAgents` 看已跑时长。
+**判据是落盘活动，不是墙钟**——一个 40 分钟的票是正当的，13 分钟只写了一个临时脚本则不是。
+阈值与处置、以及「先诊断再重派」（是派发令太宽、是你给了无解任务、还是它真卡在代码上）
+见 `docs/agents/subagent-supervision.md`。监督是控制人的职责，不是使用者的：本次会话里
+「T07 卡住」就是使用者发现的，而那类信号本该由这套机制先抓到。
 
 
 
