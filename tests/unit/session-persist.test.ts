@@ -44,6 +44,8 @@ const fake = vi.hoisted(() => {
     blockReads: false,
     /** 打开这个开关之后每一次写都失败 */
     failWrites: false,
+    /** 打开这个开关之后每一次读都失败（隐私模式 / 存储被禁用） */
+    failReads: false,
     releaseReads(): void {
       // 解锁之后就不再拦：读存档是好几步（settings → session → 历史），
       // 只放行第一步会把第二步永远挂在原地
@@ -65,10 +67,12 @@ const fake = vi.hoisted(() => {
 vi.mock('../../src/renderer/stores/sessionStore', () => ({
   readSettingsRaw: async (): Promise<unknown> => {
     await fake.waitForGate()
+    if (fake.failReads) throw new DOMException('Storage disabled', 'UnknownError')
     return fake.store.settings.get('current') ?? null
   },
   readSessionRaw: async (): Promise<unknown> => {
     await fake.waitForGate()
+    if (fake.failReads) throw new DOMException('Storage disabled', 'UnknownError')
     return fake.store.session.get('current') ?? null
   },
   readHistoryRaw: async (count: number): Promise<unknown[]> => {
@@ -189,6 +193,7 @@ beforeEach(() => {
   fake.store.records.set('classic:material', { bestScore: 9999 })
   fake.store.writes = []
   fake.failWrites = false
+  fake.failReads = false
   fake.blockReads = false
   pristineStore()
 })
@@ -451,6 +456,24 @@ describe('读回来怎么落到 store 上', () => {
     expect(useGameStore.getState().restoring).toBe(false)
   })
 
+  test('连存储都打不开：说的是「这一局无法恢复」，界面上不会永远停在「正在恢复」', async () => {
+    // 隐私模式 / 存储被禁用：读都读不了。这同样是「不假装」——界面要说的是恢复
+    // 没发生，而不是安静开一局新的
+    fake.failReads = true
+
+    useGameStore.getState().hydrate()
+    await settleHydration()
+
+    const state = useGameStore.getState()
+    expect(state.storageNotice?.kind).toBe('restore-rejected')
+    expect(state.storageNotice?.message).toContain('无法恢复')
+    expect(state.storageNotice?.message).toContain('开始新游戏')
+    expect(state.game).toBeNull()
+    // 这一句是硬要求：restoring 永远为 true 的话玩家面对的是一句永远不退的
+    // 「正在恢复」，比没有这句话更糟
+    expect(state.restoring).toBe(false)
+  })
+
   test('旧版 session：不当成可续玩，而是明说，store 里什么都不恢复', async () => {
     // 一份版本 0 的记录（形状本身是好的）
     fake.store.session.set('current', {
@@ -568,5 +591,36 @@ describe('开局界面上的选择也进 settings', () => {
 
     expect(useGameStore.getState().selectedModeId).toBe('time-attack')
     expect(useGameStore.getState().styleId).toBe('claude')
+  })
+
+  test('带了 ?seed= 的加载不恢复这一局，但设置照旧恢复', async () => {
+    // 显式开局指令优先于存档：那一次加载要的是指令给的那一题。
+    // 浏览器里 reflect 的是「同一个 seed 跑第二遍」——夹具用例的对照组
+    // （tests/e2e/claude.spec.ts 等）正是这么写的
+    vi.stubGlobal('window', { location: { search: '?seed=20260926' } })
+    fake.store.settings.set('current', encodeSettings('walls', 'claude'))
+    fake.store.session.set(
+      'current',
+      encodeSession({
+        game: createGame('classic', 20260926, NOW),
+        dailyDate: null,
+        styleId: 'material',
+        historyLength: 0,
+      })
+    )
+
+    useGameStore.getState().hydrate()
+    await settleHydration()
+
+    const state = useGameStore.getState()
+    // 这一局没有恢复（开局界面会照 ?seed= 重开一局），但风格与模式的选择恢复了
+    expect(state.game).toBeNull()
+    expect(state.storageNotice).toBeNull()
+    expect(state.selectedModeId).toBe('walls')
+    expect(state.styleId).toBe('claude')
+    // 存档没被这一句删掉：玩家真去开局时它会被覆盖，而不是先被悄悄清一次
+    expect(fake.store.session.size).toBe(1)
+    expect(fake.store.writes).toEqual([])
+    vi.unstubAllGlobals()
   })
 })

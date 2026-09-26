@@ -149,6 +149,26 @@ export interface SessionSnapshot {
 
 // ─── 形状判据 ────────────────────────────────────────────────────────────────
 
+/**
+ * 这一次加载是不是带着**显式开局指令**（`?seed=` / `?board=`）
+ *
+ * 显式指令优先于存档。理由不是为测试行方便，而是这两个缝本身的性质：它们说的是
+ * 「这一次从这一题 / 这一副局面开局」，是一条命令，不是一个默认值（见 stores/seed.ts
+ * 与 stores/fixture.ts 的头注）。存档盖掉它，这条缝在任何有存档的浏览器里都会静默
+ * 失效——同一个 seed 跑第二遍拿到的是上一局的残局，对照实验整套作废。
+ *
+ * 副作用要说清楚：带了这两个参数的刷新**不会**续上上一局，而是按指令重开一局。
+ * 这是那条缝的既有语义，不是本 Ticket 新加的限制。
+ */
+export function hasExplicitStart(search: string): boolean {
+  const params = new URLSearchParams(search)
+  // has 而不是 get：给了空值（?seed=）也算显式指令——seed.ts 把空值解析成
+  // 「没给」，但那是在决定**用什么种子**；这里问的是「玩家是不是在指定开局」，
+  // 空参数同样是一次指定，而且与 seed.ts 的兜底并不矛盾
+  return params.has('seed') || params.has('board')
+}
+
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

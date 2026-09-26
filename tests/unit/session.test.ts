@@ -4,6 +4,7 @@ import { seedFromUtcDate } from '../../src/shared/rng'
 import {
   STORAGE_VERSION,
   assembleSession,
+  hasExplicitStart,
   decodeSession,
   decodeSessionText,
   encodeSession,
@@ -64,6 +65,33 @@ function distinctiveRecord(): SessionRecord {
 function roundTrip(record: SessionRecord): ReturnType<typeof decodeSession> {
   return decodeSession(JSON.parse(JSON.stringify(record)))
 }
+
+describe('显式开局指令优先于存档', () => {
+  test('?seed= / ?board= 都算显式指令', () => {
+    // 带的正是这两个参数时，刷新不该悄悄续上一局，而是按指令重开一局
+    expect(hasExplicitStart('?seed=20260926')).toBe(true)
+    expect(hasExplicitStart('?board=2,4,,8')).toBe(true)
+    expect(hasExplicitStart('?seed=20260926&board=2,4,,8')).toBe(true)
+  })
+
+  test('空参数也算：那同样是一次指定，不能当成「没给」放存档进来', () => {
+    // seed.ts 把空值解析成「没给」，那是决定**用什么种子**；这里问的是
+    // 「玩家是不是在指定开局」。两者不矛盾：空 seed 退回随机抽种，
+    // 而这一次加载仍然是玩家指定的一次加载
+    expect(hasExplicitStart('?seed=')).toBe(true)
+    expect(hasExplicitStart('?board=')).toBe(true)
+    expect(hasExplicitStart('?seed=+')).toBe(true)
+  })
+
+  test('没有指令、或参数长得不像指令，就不拦着存档恢复', () => {
+    expect(hasExplicitStart('')).toBe(false)
+    expect(hasExplicitStart('?')).toBe(false)
+    expect(hasExplicitStart('?seedling=1')).toBe(false)
+    expect(hasExplicitStart('?boards=2')).toBe(false)
+    // 别的调试参数不算：只有 seed 与 board 是开局指令
+    expect(hasExplicitStart('?whatever=1')).toBe(false)
+  })
+})
 
 describe('一整个 session 的往返', () => {
   test('编码后解回来，十一个字段逐项等价', () => {

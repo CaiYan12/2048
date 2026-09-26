@@ -115,13 +115,54 @@ async function openDaily(page: Page, url = '/'): Promise<void> {
 }
 
 /**
+ * 丢掉本地存档里的那一局（settings 留着）。
+ *
+ * **T16 起这一步是必需的**：刷新会恢复上一局的 session，于是「再全新加载一次、
+ * 重新点模式与开始」这条路不再必然走到开局界面——盘面自己就回来了。
+ *
+ * 这两个用例要证的是「**日期重新推出同一张盘**」，不是「存档把盘面搬回来」。
+ * 后者由 tests/e2e/session.spec.ts 专门覆盖，这里不该被它顶掉：把存档丢掉之后，
+ * 新的一次加载仍然要从 UTC 日期重新抽题，断言的强度一句都没减。
+ *
+ * 为什么删 session 单条而不是 `indexedDB.deleteDatabase`：应用持有那个库的连接，
+ * 整库删除会被它挡住（IndexedDB 的语义）， blocked 之后什么时候真的删掉没有保证。
+ * 删一条记录不需要升级版本，也就不存在被挡这一回事。
+ */
+async function dropStoredSession(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('2048', 1)
+      request.onupgradeneeded = () => {
+        for (const name of ['settings', 'session', 'history']) {
+          if (!request.result.objectStoreNames.contains(name)) {
+            request.result.createObjectStore(name)
+          }
+        }
+      }
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(['session', 'history'], 'readwrite')
+      transaction.objectStore('session').delete('current')
+      transaction.objectStore('history').clear()
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+    db.close()
+  })
+}
+
+/**
  * 再全新加载一次（时钟还在当天，不重新 install）。
  *
  * 用来验「刷新不换题」：种子必须在每一次页面加载时由同样的 UTC 日期重新推出同一个
- * 值，而不是某份只在当次会话里生效的缓存。
+ * 值，而不是某份只在当次会话里生效的缓存。T16 起先用 dropStoredSession 把上一局的
+ * 存档丢掉，否则回到面前的是恢复出来的那一局，「重新抽题」这件事就被绕过去了。
  */
 async function reloadDaily(page: Page, url = '/'): Promise<void> {
   await page.clock.setSystemTime(FIXED_CLOCK)
+  await dropStoredSession(page)
   await page.goto(url)
   await startDaily(page)
 }

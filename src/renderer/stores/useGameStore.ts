@@ -22,6 +22,7 @@ import {
   decodeSettings,
   encodeSession,
   encodeSettings,
+  hasExplicitStart,
   storageUnavailableNotice,
   restoreNotice,
   writeFailureMessage,
@@ -239,6 +240,13 @@ async function doHydrate(): Promise<void> {
   let sessionNotice: StorageNotice | null = null
   let restored: RestoredSession | null = null
 
+  // 显式开局指令优先于存档（?seed= / ?board=，理由见 hasExplicitStart）。
+  // typeof 那一句是给 node 单测留的门：store 的其余动作在 node 里没人调，
+  // 只有 hydrate 会被单测直接驱动（tests/unit/session-persist.test.ts）
+  const explicitStart = hasExplicitStart(
+    typeof window === 'undefined' ? '' : window.location.search
+  )
+
   try {
     const rawSettings = await readSettingsRaw()
     const parsedSettings = decodeSettings(rawSettings)
@@ -253,7 +261,10 @@ async function doHydrate(): Promise<void> {
 
     const rawSession = await readSessionRaw()
     const parsedSession = decodeSession(rawSession)
-    if (parsedSession.kind === 'ok') {
+    // 带了显式开局指令就不恢复这一局（但设置照旧恢复）：那一次加载要的是
+    // 指令给的那一题 / 那一副局面。存档不会被这一句删掉——玩家点「开始游戏」
+    // 或按一次方向键，新一局就把它覆盖了
+    if (!explicitStart && parsedSession.kind === 'ok') {
       if (parsedSession.record.game.phase === 'ended') {
         clearPersistedRun()
       } else {
@@ -263,7 +274,7 @@ async function doHydrate(): Promise<void> {
         // 那种存档**不算可恢复**：ADR-0003 禁的就是悄悄丢历史
         if (restored === null) sessionNotice = restoreNotice('shape', 'session')
       }
-    } else if (parsedSession.kind === 'rejected') {
+    } else if (!explicitStart && parsedSession.kind === 'rejected') {
       sessionNotice = restoreNotice(parsedSession.reason, 'session')
     }
   } catch {
@@ -635,10 +646,21 @@ export const useGameStore = create<GameStore>()((set) => ({
   storageNotice: null,
   restoring: true,
   hydrate: () => {
-    // 记一次正在进行的读：React StrictMode 会把挂载 effect 跑两遍，两遍读同一份
+    // 记一次正在进行的读：React StrictMode 会把挂载效果跑两遍，两遍读同一份
     // 才不会有两次 IndexedDB 读、两次 setState。读完就清空，之后还想再读可以再调
-    hydration ??= doHydrate().finally(() => {
-      hydration = null
-    })
+    hydration ??= doHydrate()
+      .catch(() => {
+        // doHydrate 里面的读都包在 try 里，能走到这里的是没预料到的那一类。
+        // 两条都要做到：不许把拒绝漏成一条 unhandled rejection（e2e 的
+        // watchProblems 会把 console error 当失败），也不许把「正在恢复」
+        // 永远挂在界面上——那句话的诚实版本是「恢复没发生」
+        useGameStore.setState({
+          restoring: false,
+          storageNotice: storageUnavailableNotice(),
+        })
+      })
+      .finally(() => {
+        hydration = null
+      })
   },
 }))
