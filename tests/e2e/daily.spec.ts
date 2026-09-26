@@ -6,8 +6,8 @@ import { expect, test, type Page } from '@playwright/test'
  *
  * 局面确定性来自两件事，而不是 `?seed=`：
  *   1. 固定时钟。Daily 的题只由 UTC 日期推导，所以每个用例先 `page.clock.install`
- *      装上同一个时刻，再加载页面。**`?seed=` 对 Daily 无效**（见 useGameStore 的
- *      `seedFromLocation` 说明：一条 URL 就能换题的话，「同一个 UTC 日期全球同一题」
+ *      装上同一个时刻，再加载页面。**`?seed=` 对 Daily 无效**（见 stores/seed.ts 的
+ *      说明：一条 URL 就能换题的话，「同一个 UTC 日期全球同一题」
  *      这句话处处是洞）。
  *   2. `?board=` 开局局面夹具仍在：局面铺好之后每一步仍走真实按键与真实规则内核。
  *

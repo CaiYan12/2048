@@ -4,6 +4,7 @@ import type { ModeId } from '../../shared/modes'
 import { abandon, continueRun, createGame, move, settle } from '../../game/engine'
 import { seedFromUtcDate } from '../../shared/rng'
 import { fixtureFromQuery } from './fixture'
+import { seedFromSearch } from './seed'
 
 /**
  * 唯一的 Zustand store（SPEC §4：无 slice、无中间件）
@@ -56,38 +57,16 @@ function drawDailySeed(): { seed: number; date: string } {
   return { seed: seedFromUtcDate(date), date }
 }
 
-/**
- * 确定性测试缝：`?seed=12345` 替代随机种子。
- *
- * Playwright 的「固定局面合并测试」与 T08 的每日复现都走这个入口——同一个 seed 得到
- * 同一个初始局面和同一条随机流。本项目无服务器、无排行榜、也不主张竞技公平
- * （SPEC §6），所以它是调试/验收入口，不是作弊面；不带该参数时行为不变。
- *
- * **Daily 不吃这条缝**：题目由日期决定，`?seed=` 只对其它模式生效。三条理由：
- *   1. 本模式的承诺是「同一个 UTC 日期 → 同一张盘」。一条 URL 就能把题换掉的话，
- *      这个承诺处处是洞，分享出去的链接会把每个人都带去不同的盘；
- *   2. 日期标签写的是 initialSeed 所属的那个日期。?seed= 把题面换掉，标签与盘面就
- *      对不上——这正是本模式最不该出现的错；
- *   3. 要固定日期，测试该固定的是时钟（Playwright 的 page.clock），而不是借道一个
- *      与 Daily 语义无关的参数。
- */
-function seedFromLocation(): number | null {
-  if (typeof window === 'undefined') return null
-  const raw = new URLSearchParams(window.location.search).get('seed')
-  // 非整数的 seed 视为没给：宁可退回随机，也不要拿 NaN 当种子开局
-  const seed = Number(raw)
-  return Number.isInteger(seed) ? seed : null
-}
-
 export const useGameStore = create<GameStore>()((set) => ({
   game: null,
   dailyDate: null,
   startRun: (modeId) => {
     // 种子在这里抽：store 是调用方，Math.random 与 UTC 日期都由它取
     // （ADR-0001 禁的是 src/game/ 自己抽，不是禁调用方抽）。
-    // Daily 用 UTC 日期推导，其余模式才看 ?seed=（见 seedFromLocation 的说明）。
+    // Daily 用 UTC 日期推导，其余模式才看 ?seed=（解析与理由见 ./seed：它是调试 /
+    // 验收的确定性入口，SPEC §6 无服务器、无排行榜，所以不是作弊面）。
     const daily = modeId === 'daily' ? drawDailySeed() : null
-    const seed = daily?.seed ?? seedFromLocation() ?? drawSeed()
+    const seed = daily?.seed ?? seedFromSearch(window.location.search) ?? drawSeed()
     // 开局局面夹具：?board= 给了合法局面就从那开局（T04 的终局 e2e 靠它复现局面，
     // 后续每一步仍走真实按键与真实内核）。只有开局读它——「新游戏」用的是 drawSeed。
     set({
