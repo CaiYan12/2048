@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
 
 /**
- * T04 的终局路径：胜利→继续、死局→结算、新游戏不沿用旧局面、面板按钮不吃方向键。
+ * T04 的终局路径：胜利→继续、胜利→结算、死局→结算、死局锁死时推不动棋盘、
+ * 新游戏不沿用旧局面、面板按钮不吃方向键。
  *
  * 局面确定性来自 `?board=`（开局夹具，见 src/renderer/stores/fixture.ts）与
  * `?seed=` 这两条调试入口——胜利与死局靠人手按键几乎无法复现，而这里要断言的
@@ -133,6 +134,69 @@ test('已经达标过的局面再合出目标块：胜利面板不回来', async
   expect(problems).toEqual([])
 })
 
+test('胜利面板 → 结束并记录：赢下的一局就此结算，棋盘与分数冻结在那一手', async ({ page }) => {
+  const problems = watchProblems(page)
+  // 复用 FOUR_1024（一次左移合出两个 2048 = 本局第一次达标）。**不能**拿 ALREADY_WON
+  // 开局：那个局面本来就带着 2048，夹具按棋盘把 reachedTarget 置真，而胜利面板的触发
+  // 条件是 reachedTarget 由假转真——从真起步的面板一次都不会弹（另一条用例正在断言
+  // 这件事）。所以「已经赢了的局面」在这条路上只能靠一次真实按键走进去。
+  await page.goto(startUrl(FOUR_1024, 4321))
+  await page.getByRole('button', { name: '开始游戏' }).click()
+
+  await page.keyboard.press('ArrowLeft')
+  const winPanel = page.locator('[data-panel="win"]')
+  await expect(winPanel).toBeVisible()
+  // 8417 = 4321 + 2048 + 2048（两个 1024 各合成一个 2048，得分按产物数值累加）；
+  // 3 个方块 = 两个 2048 + 新生成的那个。逐格盘面由上一条用例钉着，这里不重复抄
+  await expect(page.locator('[data-score]')).toHaveText('8417')
+  await expect(page.locator('[data-tile-id]')).toHaveCount(3)
+
+  // 结算必须一个格子都不动：先把盘面抄下来，回头逐格对
+  const boardAtWin = await readBoard(page)
+
+  // 结束并记录：胜利面板只在 phase === 'won' 时挂载，结算把它送去 ended，于是它当场
+  // 退下、由死局/终局面板来接——同一次点击里换的是面板，不是同一个面板换个说法
+  await page.getByRole('button', { name: '结束并记录' }).click()
+  await expect(winPanel).toHaveCount(0)
+
+  const settledPanel = page.locator('[data-panel="gameover"]')
+  await expect(settledPanel).toBeVisible()
+  // 赢下的收工：原因必须是 won，不是 deadlock——界面上这两句得能区分开
+  await expect(settledPanel).toHaveAttribute('data-end-reason', 'won')
+  await expect(settledPanel.getByRole('heading')).toHaveText('本局已结束')
+  const reason = settledPanel.locator('.overlay__text')
+  await expect(reason).toHaveText('达成目标后收工：赢下的一局')
+  // 「本局已结束」是 endReason 为 null 时的兜底句（标题也正好是这句，所以只能拿
+  // 原因那一行比）：这里走的是 won 分支，不能落回默认
+  await expect(reason).not.toHaveText('本局已结束')
+
+  // 结算不改盘面：棋盘逐格相同，分数原样
+  expect(await readBoard(page)).toEqual(boardAtWin)
+  await expect(page.locator('[data-score]')).toHaveText('8417')
+
+  // ended 之后方向键一概是空操作。焦点放回棋盘上按（不是面板按钮上按——那个连
+  // Board 的 handler 都冒泡不到，按什么都不算数），证的正是 move 的阶段守卫
+  await page.locator('[data-board]').focus()
+  for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+    await page.keyboard.press(key)
+  }
+  expect(await readBoard(page)).toEqual(boardAtWin)
+  await expect(page.locator('[data-score]')).toHaveText('8417')
+
+  // 结算只执行一次：ended 的面板只剩「新游戏」一个出口，整个页面再没有第二次结算的入口
+  await expect(settledPanel.getByRole('button')).toHaveText(['新游戏'])
+  await expect(page.getByRole('button', { name: '结束并记录' })).toHaveCount(0)
+
+  // 从已结算的面板开新局：不沿用旧格子与旧分数，是一张干净的开局
+  await page.getByRole('button', { name: '新游戏' }).click()
+  await expect(settledPanel).toHaveCount(0)
+  await expect(page.locator('[data-score]')).toHaveText('0')
+  await expect(page.locator('[data-tile-id]')).toHaveCount(2)
+  expect(await readBoard(page)).not.toEqual(boardAtWin)
+
+  expect(problems).toEqual([])
+})
+
 test('死局 → 结束并记录 → 原因可读 → 新游戏是干净的开局', async ({ page }) => {
   const problems = watchProblems(page)
   await page.goto(startUrl(ONE_STEP_FROM_DEADLOCK))
@@ -167,6 +231,52 @@ test('死局 → 结束并记录 → 原因可读 → 新游戏是干净的开�
   await expect(panel).toHaveCount(0)
   await expect(page.locator('[data-score]')).toHaveText('0')
   await expect(page.locator('[data-tile-id]')).toHaveCount(2)
+
+  expect(problems).toEqual([])
+})
+
+test('死局锁死的棋盘推不动：四个方向键按完，棋盘一个字节都没变', async ({ page }) => {
+  const problems = watchProblems(page)
+  await page.goto(startUrl(ONE_STEP_FROM_DEADLOCK))
+  await page.getByRole('button', { name: '开始游戏' }).click()
+
+  // 一次右移把第 0 行推过去、空出 (0,0) 给生成：16 格全满且横向纵向相邻都不相等
+  await page.keyboard.press('ArrowRight')
+  const panel = page.locator('[data-panel="gameover"]')
+  await expect(panel).toBeVisible()
+  // 标题是「死局」：这一刻只是 stuck、还没结算（结算后标题才换成「本局已结束」）。
+  // 要推的是一张**锁着但活着**的棋盘，不是 ended 那张冻结的
+  await expect(panel.getByRole('heading')).toHaveText('死局')
+  // 16 格全满；(0,0) 那个生成值是 2（seed 20260926 的第三次抽取），换成 4 也照样死局
+  await expect(page.locator('[data-tile-id]')).toHaveCount(16)
+  expect(await readBoard(page)).toEqual([
+    [2, 8, 2, 4],
+    [8, 2, 4, 8],
+    [2, 4, 8, 2],
+    [4, 8, 2, 4],
+  ])
+  // 右移一行都没合并，所以分数一步没涨（开局分数缺省 0）
+  await expect(page.locator('[data-score]')).toHaveText('0')
+
+  // 往一张锁死的棋盘上推：焦点放回棋盘上按四个方向键。
+  // 必须先聚焦 [data-board]——面板是 .board 的**兄弟**，从面板按钮出发的 keydown
+  // 压根冒泡不到 Board 的 handler，那样按完什么都证明不了
+  const lockedBoard = await readBoard(page)
+  await page.locator('[data-board]').focus()
+  for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+    await page.keyboard.press(key)
+  }
+  expect(await readBoard(page)).toEqual(lockedBoard)
+  await expect(page.locator('[data-score]')).toHaveText('0')
+  // 无效移动不生成：还是那 16 个方块，没有多出第 17 个来
+  await expect(page.locator('[data-tile-id]')).toHaveCount(16)
+
+  // 这一局没有废：死局是可恢复面板，「新游戏」照样给一张干净的开局
+  await page.getByRole('button', { name: '新游戏' }).click()
+  await expect(panel).toHaveCount(0)
+  await expect(page.locator('[data-score]')).toHaveText('0')
+  await expect(page.locator('[data-tile-id]')).toHaveCount(2)
+  expect(await readBoard(page)).not.toEqual(lockedBoard)
 
   expect(problems).toEqual([])
 })
