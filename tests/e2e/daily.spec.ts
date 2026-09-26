@@ -178,8 +178,8 @@ test('固定局面：一次左移合并计分并生成，逐格与离线推演�
     ])
   )
 
-  // 开局即铺好的 15 块；一次左移并两个、生一个，所以还是 15 块
-  await expect(page.locator('[data-tile-id]')).toHaveCount(15)
+  // 开局即铺满的 16 块；一次左移并两个、生一个，所以还是 16 块
+  await expect(page.locator('[data-tile-id]')).toHaveCount(16)
   await expect(page.locator('[data-score]')).toHaveText('0')
 
   await page.locator('[data-board]').focus()
