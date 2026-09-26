@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { countdownLabel } from '../../src/renderer/components/CountdownLabel'
+import { NOW } from './support'
 
 /**
  * 倒计时的读数口径（T09）
@@ -9,10 +10,7 @@ import { countdownLabel } from '../../src/renderer/components/CountdownLabel'
  * 这份钉「界面上那一行怎么读」，两边的截止时间戳必须对得上。
  */
 
-/** UTC 2026-09-26 中午，与 tests/unit/support.ts 的 NOW 同值 */
-const NOW = Date.UTC(2026, 8, 26, 12)
-
-/** 三分钟后的截止点 */
+/** 固定时刻从 support.ts 导入，不在这里另写一份：两边必须是同一个瞬间 */
 const DEADLINE = NOW + 180_000
 
 describe('countdownLabel', () => {

@@ -183,6 +183,27 @@ export function abandon(state: GameState): GameState {
  *
  * 幂等不靠第二套机制：`settle` / `abandon` / `tick` 三条路径都用同一个早退——
  * 已结算的局原样返回同一个对象，所以结算只执行一次（mode-contract §3）。
+ *
+ * **为什么它不复用 settle**（接口单规则 4 原话是「tick 应走共用的结算路径」，这里
+ * 做不到，理由得写下来）：`settle` 的 endReason 是**从 phase 反推**的
+ * （won → 'won'，其余 → 'deadlock'），而 tick 的入参 phase 恒为 'playing'——
+ * 第一条早退已经把 won / stuck 挡在外面了。若真的改走 settle，一局 Time Attack
+ * 到点会被写成 `deadlock`：把「强制超时」说成「玩家自己撞上死局」，正是
+ * mode-contract §3 用两句不同文案去区分的那两件事。所以这里自己写终态字面量。
+ *
+ * 共用的不变量因此不在代码里，而在约定上，两条都一样重要，改 tick 时请一起守住：
+ *
+ *   1. **结算只执行一次，靠引用相等。** 三条路径的终局判据都是同一个早退
+ *      （`phase !== 'playing'` / `phase === 'ended'`），已结算的局原样返回同一对象。
+ *      store 与 React 都拿引用相等当「什么都没发生」看（见 useGameStore 的 tick）。
+ *   2. **「该由谁决定结束」不外移。** tick 只回答「现在到没到点」，不回答「这局是
+ *      怎么死的」——后者由 phase 与玩家的动作定，所以 timeout 只能由这条路径写。
+ *
+ * **交接给 T16 / T17**：`timeout` 是第四条终局迁移，与 settle（won / deadlock）、
+ * abandon（abandoned）**不共用任何一行代码**。T16 持久化时只要有 deadline 与
+ * phase 就够恢复这个状态（deadline 是绝对时间戳，见 deadlineOf）；T17 写记录时要
+ * 记得终局原因有四个取值而不是三个——`runEndLabel` 的四个分支是它们的界面半边，
+ * 别只按 settle 那两条去枚举。
  */
 export function tick(state: GameState, now: number): GameState {
   if (state.phase !== 'playing') return state

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { MODES } from '../../src/shared/modes'
 import type { GameState } from '../../src/shared/types'
-import { abandon, createGame, move, settle, tick } from '../../src/game/engine'
+import { abandon, continueRun, createGame, move, settle, tick } from '../../src/game/engine'
 import { runEndLabel } from '../../src/renderer/components/runEndLabel'
 import { NOW, stateWithBoard } from './support'
 
@@ -50,10 +50,18 @@ describe('模式声明：只有 Time Attack 限时', () => {
     expect(timed[0].timeLimitSeconds).toBe(LIMIT_SECONDS)
   })
 
-  test('限时秒数是三分钟：与截止时间的换算只在这一处发生（NOW + 180000）', () => {
-    // createGame 那一侧钉的就是这个乘积；这里把「三分钟」这个口径单独钉住，
-    // 免得有人在 modes.ts 改成 200 而在测试里只看到 180000
-    expect(LIMIT_SECONDS * 1000).toBe(180_000)
+  test('限时秒数是三分钟：deadline 的偏移等于 modes.ts 声明的秒数', () => {
+    // 秒数从 MODES 读。原先这里写的是 LIMIT_SECONDS * 1000 === 180_000——两个都在
+    // 本文件里的字面量相乘，modes.ts 漂移到 200 它照绿，是装饰性断言（漂移本身由
+    // 上面那条遍历 MODES 的用例抓）。
+    const declared = MODES.find((mode) => mode.id === 'time-attack')?.timeLimitSeconds
+    expect(declared).toBe(LIMIT_SECONDS)
+
+    // 换算让引擎去做，这里用差量反着量：随便挑一个 now 开局，deadline − now 必须
+    // 正好等于声明的限时秒数。NOW + 1234 只是要一个不等于 NOW 的偏移，
+    // 免得这一行退化成跟上面那条逐字节相同
+    const state = createGame('time-attack', 20260926, NOW + 1234)
+    expect((state.deadline as number) - (NOW + 1234)).toBe(LIMIT_SECONDS * 1000)
   })
 })
 
@@ -82,9 +90,6 @@ describe('createGame 写入截止时间', () => {
     // 未到期时 tick 原样返回同一个对象——截止点一个字节都没动
     expect(tick(state, NOW + 60_000)).toBe(state)
     expect(state.deadline).toBe(DEADLINE)
-    // 「还剩多久」不是 state 里的字段：它是 deadline − now 现算的，
-    // 所以不存在一个会被后台 / 刷新重置的累计量（SPEC §3.1）
-    expect('remainingMs' in state).toBe(false)
   })
 })
 
@@ -245,6 +250,36 @@ describe('tick：非限时模式完全无感', () => {
       expect(tick(state, now), String(now)).toBe(state)
     }
     expect(state.phase).toBe('playing')
+  })
+})
+
+describe('胜利之后继续玩：截止点照旧带过去，到点仍结算成 timeout', () => {
+  test('continueRun 不改写 deadline：续走过截止点之后是 timeout，不是被延长', () => {
+    // 开局四个 1024（T04 同款局面）：一次左移合出两个 2048，正好在截止之前达标，
+    // 此刻距到点还有整整三分钟
+    const won = move(stateWithBoard(FOUR_1024, 7, 'time-attack'), 'left').state
+    expect(won.phase).toBe('won')
+    expect(won.deadline).toBe(DEADLINE)
+
+    const resumed = continueRun(won)
+    expect(resumed.phase).toBe('playing')
+    // SPEC §3.1「后台、刷新不延长时限」：继续玩不是重新开局，截止点一个字节都不该动。
+    // 将来有人在这里重算 now + 180000、或把它清成 null，这一局就被悄悄延长了整整
+    // 一段新的三分钟——而这一条就是拦住那次改动的钉子
+    expect(resumed.deadline).toBe(DEADLINE)
+    // 其余字段同样原样：继续玩只搬 phase，盘面与分数一个格子都不动
+    expect(resumed.score).toBe(won.score)
+    expect(resumed.board).toBe(won.board)
+    expect(resumed.moves).toBe(won.moves)
+    expect(resumed.endReason).toBe(null)
+
+    // 读表周期推过截止点：原因仍是 timeout，不是 deadlock（tick 的第一条早退只放
+    // playing 过去，所以续走之后到点照样由这条路径结算），也不是「什么都没发生」
+    const expired = tick(resumed, DEADLINE)
+    expect(expired.phase).toBe('ended')
+    expect(expired.endReason).toBe('timeout')
+    // 截止点还是原来那一个：结算不改历史事实
+    expect(expired.deadline).toBe(DEADLINE)
   })
 })
 

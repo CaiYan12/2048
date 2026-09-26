@@ -2,7 +2,8 @@ import { expect, test, type Page } from '@playwright/test'
 
 /**
  * T09 的限时切片：模式可选、六个模式全在、倒计时由绝对截止点推导、到点结算成
- * timeout 且与死局是两句不同的话、以及**提前死局不会被到点改判成超时**。
+ * timeout 且与死局是两句不同的话、**提前死局不会被到点改判成超时**，以及
+ * **胜利之后继续玩：截止点照旧带过去，到点仍结算成 timeout**。
  *
  * 时钟用 `page.clock`（repo 在 T08 的 daily.spec.ts 第一次用）。装表之后每一步
  * 都立刻 `pauseAt` 停住：Playwright 的 `install` 允许 `resume()` 让时间按真实速度
@@ -39,6 +40,14 @@ function boardQuery(rows: (number | null)[][]): string {
   return rows.flat().map((value) => value ?? '').join(',')
 }
 
+/** 四个 1024：一次左移合出两个 2048，正好是「第一次达标」（T04 的同款局面） */
+const FOUR_1024: (number | null)[][] = [
+  [1024, 1024, 1024, 1024],
+  [null, null, null, null],
+  [null, null, null, null],
+  [null, null, null, null],
+]
+
 /** 开局 URL：固定种子让「移动后的生成」也可预期，`rows` 给了就再钉开局局面 */
 function startUrl(rows?: (number | null)[][]): string {
   const board = rows === undefined ? '' : `&board=${boardQuery(rows)}`
@@ -73,28 +82,51 @@ function watchProblems(page: Page): string[] {
 }
 
 /**
- * 装表 → 停表 → 全新加载 → 选限时 → 开局。
+ * 装表 → 停表 → 全新加载 → 选「限时」，**不点「开始游戏」**。
  *
  * 时钟必须在 goto **之前**装（Playwright 的约定），页面脚本读到的才是固定时刻，
  * deadline 才落在 START + 三分钟上。
+ *
+ * 为什么单独拆出这一步：模式清单、风格清单全都属于开局界面，点掉「开始游戏」
+ * 之后 StartScreen 就卸载了，那时候再去 getByRole('group', { name: '模式' }) 只会
+ * 查到 0 个元素。要断言开局界面，就得在开局界面还挂着的时候断言。
  */
-async function openTimeAttack(page: Page, url = startUrl()): Promise<void> {
+async function selectTimeAttack(page: Page, url = startUrl()): Promise<void> {
   await page.clock.install({ time: START })
   await page.clock.pauseAt(START)
   await page.goto(url)
   await page.getByRole('button', { name: '限时' }).click()
+}
+
+/** 选「限时」并开局：真正要跑起来的用例走这条 */
+async function openTimeAttack(page: Page, url = startUrl()): Promise<void> {
+  await selectTimeAttack(page, url)
   await page.getByRole('button', { name: '开始游戏' }).click()
   await expect(page.locator('[data-board]')).toBeVisible()
 }
 
 test('开局界面能选限时：六个模式一个不多，倒计时读 3:00', async ({ page }) => {
   const problems = watchProblems(page)
-  await openTimeAttack(page)
+  // 只选模式、不开局：这一段断言的是开局界面本身。
+  // 本票原先在这里调 openTimeAttack（它连「开始游戏」一起点掉），断言因此落在
+  // 一张已经卸载的界面上——不是 locator 写错，是拿的帮手比自己以为的多做了事。
+  await selectTimeAttack(page)
 
   // AVAILABLE_MODE_IDS 从五个放宽到正好六个（T09 加进 time-attack）：六种模式
   // 到此全部到位，未实现的更不该以「不可点」的样子出现在界面上
   const modes = page.getByRole('group', { name: '模式' }).getByRole('button')
   await expect(modes).toHaveText(['经典', '斐波那契', '大棋盘', '障碍', '每日', '限时'])
+
+  // 界面确认选中的是限时（aria-pressed 由 StartScreen 自己维护）
+  await expect(page.getByRole('button', { name: '限时' })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  )
+
+  // 开一局，然后**当场**读表：表停在 START 上一毫秒都没走过，所以这一读数就是
+  // 「开局那一刻的三分钟整」，而不是这一局已经开始跑了一阵子之后的剩余量
+  await page.getByRole('button', { name: '开始游戏' }).click()
+  await expect(page.locator('[data-board]')).toBeVisible()
 
   // Time Attack 与 Classic 同规则：4×4、目标 2048、开局两个方块
   await expect(page.locator('[data-board]')).toHaveAttribute('data-mode', 'time-attack')
@@ -229,6 +261,56 @@ test('提前死局不会被到点改判：仍是死局，原因只在玩家收�
   await expect(panel).toContainText('死局')
   await expect(panel).not.toContainText('时间到')
   expect(await readBoard(page)).toEqual(locked)
+
+  expect(problems).toEqual([])
+})
+
+test('胜利之后继续玩：截止点照旧带过去，到点仍结算成 timeout', async ({ page }) => {
+  const problems = watchProblems(page)
+  // 开局即四个 1024（T04 的同款局面）：一次左移合出两个 2048，正好在截止之前达标。
+  // ?board= 与 ?seed= 一起给（T08 修复轮定下的规矩），于是「移动后的生成」也可预期
+  await openTimeAttack(page, startUrl(FOUR_1024))
+
+  await page.locator('[data-board]').focus()
+  await page.keyboard.press('ArrowLeft')
+  const winPanel = page.locator('[data-panel="win"]')
+  await expect(winPanel).toBeVisible()
+  await expect(page.locator('[data-score]')).toHaveText('4096')
+  const boardAtWin = await readBoard(page)
+
+  // 趁表还停在 START：胜利面板挂着，读数仍是整三分钟——此刻距到点整整三分钟
+  await expect(page.locator('[data-countdown]')).toHaveText('3:00')
+
+  // 时钟推过截止点：won 期间 tick 是空操作（计时器不许改判任何非 playing 阶段），
+  // 所以此刻表读 0:00 而面板仍是「达成目标」、没有任何结束原因
+  await page.clock.fastForward(180_000)
+  await page.clock.runFor(250)
+  await expect(winPanel).toBeVisible()
+  await expect(page.locator('[data-countdown]')).toHaveText('0:00')
+  expect(await winPanel.getAttribute('data-end-reason')).toBeNull()
+
+  // 继续玩：phase 回到 playing，而 deadline 是绝对时间戳、continueRun 不动它——
+  // 所以下一个读表周期就把这一局结算掉。**SPEC §3.1「后台、刷新不延长时限」在
+  // 这条路上看得见**：若 continueRun 里重算或清掉 deadline，这一局会被悄悄延长成
+  // 一整段新的三分钟，而这里会一直停在 playing。
+  await page.getByRole('button', { name: '继续玩' }).click()
+  await expect(winPanel).toHaveCount(0)
+  // 走一个读表周期：结算就是由这一步触发的（Countdown 每 250ms 问一次 store.tick），
+  // 不是靠轮询等出来的
+  await page.clock.runFor(250)
+
+  const panel = page.locator('[data-panel="gameover"]')
+  await expect(panel).toBeVisible()
+  await expect(panel).toHaveAttribute('data-end-reason', 'timeout')
+  await expect(panel.getByRole('heading')).toHaveText('本局已结束')
+  await expect(panel).toContainText('时间到')
+  await expect(panel).not.toContainText('死局')
+  // 倒计时退场就是 phase 离开 playing 的可观测证据：App 只在 phase !== 'ended' 时挂它
+  await expect(page.locator('[data-countdown]')).toHaveCount(0)
+
+  // 结算冻结的就是胜利那一刻的棋盘与分数：继续玩不改盘面，超时也不改
+  await expect(page.locator('[data-score]')).toHaveText('4096')
+  expect(await readBoard(page)).toEqual(boardAtWin)
 
   expect(problems).toEqual([])
 })
