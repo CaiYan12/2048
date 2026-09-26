@@ -92,6 +92,51 @@
   text-align: center;
 }
 
+/* 方向按钮（T10 · SPEC 用户故事 13）
+   按**输入设备**显隐，不按视口宽度：宽屏也可能接着触屏，窄屏也可能是鼠标，
+   pointer: coarse 描述的正是「主指针不精确」（手指），它就是该不该给屏幕方向的判据。
+   默认 display:none：桌面端不是「看不见」而是**不在布局里**——flex/gap 都不给
+   display:none 的盒子留缝，「非触摸设备不占用布局」由这一行直接兑现。
+   单排四个而不是九宫格：九宫格高 160px，会把「新游戏」推到手机视口外；单排只占
+   48px，棋盘加方向按钮在 393×727 的 Pixel 5 上一屏放得下。 */
+.dpad {
+  display: none;
+  grid-template-columns: repeat(4, 3rem);
+  gap: 0.5rem;
+}
+
+/* 键面复用 .control 的配色与焦点环，只把形状改成 48px 的方块（触控目标下限） */
+.dpad__key {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  padding: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+/* 触摸版的移动键提示：默认不占位 */
+.hint__touch {
+  display: none;
+}
+
+/* 触摸设备：方向按钮进场，键盘那一版提示让位。
+   判据与上面同一条——描述输入设备，不描述视口宽度。 */
+@media (pointer: coarse) {
+  .dpad {
+    display: grid;
+  }
+
+  .hint__pointer {
+    display: none;
+  }
+
+  .hint__touch {
+    display: inline;
+  }
+}
+
 /* 终局面板：盖在棋盘上的一层纸面。
    它是外壳元素（ADR-0002 的棋盘 DOM 固定结构不动），所以颜色仍走主题 token，
    换风格时跟着 tokens.css 整块变。用不透明底色而不是半透明：半透明会把棋盘上的

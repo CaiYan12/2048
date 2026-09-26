@@ -20,6 +20,10 @@
   background: var(--board);
   border-radius: var(--board-radius, 6px);
   box-sizing: border-box;
+  /* 触摸手势要由自己吃掉：不设 touch-action 的话，一次纵向划动先被浏览器读成滚
+     页面，手势变成 pointercancel（阈值还没到就取消），玩家看到的是「滑了没反应」。
+     none 只作用于棋盘这块区域，页面其余地方照常可滚。 */
+  touch-action: none;
 }
 
 .board__cells,

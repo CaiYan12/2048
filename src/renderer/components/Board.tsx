@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type JSX,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react'
 import type { Direction, GameState } from '../../shared/types'
 import { getMode } from '../../shared/modes'
 import { DEFAULT_THEME_ID, getTheme } from '../styles/themes'
@@ -10,6 +18,7 @@ import {
   fitCellSize,
   type BoardLayout,
 } from './BoardLayout'
+import { SWIPE_THRESHOLD, swipeDirection, type Point } from './SwipeGesture'
 
 interface Props {
   game: GameState
@@ -82,6 +91,51 @@ export function Board({ game, onMove }: Props): JSX.Element {
     onMove(direction)
   }
 
+  // 手势起点只进 ref，不进 state：拖动过程中没有任何东西要显示它，而每帧
+  // setState 会让 5×5 棋盘白重渲染一遍。「派生显示状态按需进 React」——这里
+  // 没有显示依赖，所以一根手指按下去到松手之间 React 一次都不参与
+  const gesture = useRef<{ pointerId: number; point: Point } | null>(null)
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>): void => {
+    // 与键盘同一条守卫：落在棋盘内的交互控件上的手势放行。这里不只是「别误动棋盘」——
+    // 指针捕获会把后续的 pointerup 连同兼容鼠标事件（含 click）一起重定向到棋盘，
+    // 在控件上捕获等于把那个控件的点击吃掉。T03 的 e2e 已经钉了这条守卫的键盘半边
+    if (isInteractiveTarget(event.target)) return
+    // 已经有一根手指在手势里就忽略第二根：两个起点互相覆写，最后算出来的是第三根
+    // 手指的轨迹
+    if (gesture.current) return
+    // 捕获指针：划出棋盘边界再松手也算一次完整手势。不捕获的话 pointerup 落在棋盘
+    // 外，这次划动整段丢掉（触摸设备上手指划过棋盘边缘是常事）
+    event.currentTarget.setPointerCapture(event.pointerId)
+    gesture.current = {
+      pointerId: event.pointerId,
+      point: { x: event.clientX, y: event.clientY },
+    }
+  }
+
+  const handlePointerUp = (event: PointerEvent<HTMLDivElement>): void => {
+    const active = gesture.current
+    gesture.current = null
+    // 起点不匹配就不是这次手势（上面被忽略的第二根手指松手时走这里）
+    if (!active || active.pointerId !== event.pointerId) return
+    // 手势只在这里判一次：起点是按下那一刻，终点是松手那一刻，中间帧一概不看。
+    // 每帧都判的话，一次划动会连着触发多个 Move——而非法 Move 是空操作，画面看着
+    // 几乎对，棋盘却会从中间某一帧开始动，那是规则测试看不见的静默损坏
+    // （T10 interface sheet §2 点名要防的正是它）
+    const direction = swipeDirection(
+      { x: active.point.x, y: active.point.y },
+      { x: event.clientX, y: event.clientY },
+      SWIPE_THRESHOLD
+    )
+    if (!direction) return
+    onMove(direction)
+  }
+
+  // 取消（浏览器把手势收走、或被别的事件流打断）：手势作废，一次 Move 都不触发
+  const handlePointerCancel = (): void => {
+    gesture.current = null
+  }
+
   const style = {
     '--board-size-px': `${layout.pixelSize}px`,
     '--cell-size': `${cellSize}px`,
@@ -101,6 +155,9 @@ export function Board({ game, onMove }: Props): JSX.Element {
       aria-label={`${mode.label}棋盘，方向键或 WASD 移动方块`}
       style={style}
       onKeyDown={handleKeyDown}
+      onPointerDown={handlePointerDown}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
     >
       <div className="board__cells" aria-hidden="true">
         {Array.from({ length: mode.size * mode.size }, (_, index) => {

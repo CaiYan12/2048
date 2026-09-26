@@ -3,6 +3,7 @@ import type { ModeId } from '../shared/modes'
 import { Board } from './components/Board'
 import { Countdown } from './components/Countdown'
 import { DailyDateLabel } from './components/DailyDateLabel'
+import { DirectionPad } from './components/DirectionPad'
 import { GameOverPanel } from './components/GameOverPanel'
 import { StatusBar } from './components/StatusBar'
 import { StartScreen } from './components/StartScreen'
@@ -60,6 +61,11 @@ export default function App(): JSX.Element {
               <GameOverPanel game={game} onSettle={settle} onNewGame={newGame} />
             )}
           </div>
+          {/* 屏幕方向按钮（T10）：外壳元素，与 Board 平级——ADR-0002 的棋盘固定
+              DOM 不增节点。只在触摸设备显示（styles.css 的 pointer: coarse），
+              桌面端连布局都不占。它调的是同一个 move，与键盘、滑动共用一条派发
+              路径。 */}
+          <DirectionPad onMove={move} />
           {/* 面板露头时它自己带「新游戏」入口；这里再摆一个会同名重歧，
               所以在活跃局才显示（mode-contract §3：活跃局直接新游戏 = 放弃本局）。
               移动键提示同理：面板露着（won / stuck / ended）时方向键一概是空操作，
@@ -69,7 +75,12 @@ export default function App(): JSX.Element {
               <button type="button" className="control" onClick={newGame}>
                 新游戏
               </button>
-              <p className="hint">方向键或 WASD 移动方块</p>
+              <p className="hint">
+                {/* 两句话按输入设备二选一（T10）：触摸设备上没有方向键也没有 WASD，
+                    摆着那一版是在骗人。判据与方向按钮同一条 pointer: coarse */}
+                <span className="hint__pointer">方向键或 WASD 移动方块</span>
+                <span className="hint__touch">滑动或点方向按钮移动方块</span>
+              </p>
             </>
           )}
         </div>
