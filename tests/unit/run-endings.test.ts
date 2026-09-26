@@ -215,6 +215,18 @@ describe('settle', () => {
     expect(withoutEnd(settled)).toEqual(withoutEnd(stuck))
   })
 
+  test('胜利面板结算：ended + won（mode-contract §3 补订的 won→结算边）', () => {
+    const won = move(stateWithBoard(WIN_ROWS), 'left').state
+
+    const settled = settle(won)
+
+    expect(settled.phase).toBe('ended')
+    // won 是**赢下的收工**，不是败因：与 deadlock / abandoned 三者互不相同，
+    // 也因此不能沿用任何一个原有的结束原因值
+    expect(settled.endReason).toBe('won')
+    expect(withoutEnd(settled)).toEqual(withoutEnd(won))
+  })
+
   test('幂等：再结算返回同一个对象（结算只执行一次）', () => {
     const settled = settle(move(stateWithBoard(ONE_STEP_FROM_DEADLOCK), 'right').state)
 
@@ -222,12 +234,23 @@ describe('settle', () => {
     expect(settle(settle(settled)).endReason).toBe('deadlock')
   })
 
-  test('非死局不能结算：其他阶段原样返回', () => {
-    const playing = move(stateWithBoard(WIN_ROWS), 'left').state
-    expect(settle(playing)).toBe(playing)
+  test('从 won 结算之后同样幂等：won 也不会被 abandon 改判', () => {
+    const settled = settle(move(stateWithBoard(WIN_ROWS), 'left').state)
+    expect(settled.endReason).toBe('won')
 
-    const won: GameState = { ...playing, phase: 'won' }
-    expect(settle(won)).toBe(won)
+    expect(settle(settled)).toBe(settled)
+    expect(abandon(settled)).toBe(settled)
+    expect(settled.endReason).toBe('won')
+  })
+
+  test('活跃局不能结算：原样返回（进得去的只有 stuck 与 won）', () => {
+    // 注意 move 落地的这个状态 phase 就是 won，不是 playing——不能拿它充活跃局。
+    // 真要覆盖 playing，得用 continueRun 把它送回 playing。
+    const won = move(stateWithBoard(WIN_ROWS), 'left').state
+    const playing = continueRun(won)
+    expect(playing.phase).toBe('playing')
+
+    expect(settle(playing)).toBe(playing)
   })
 })
 
@@ -276,6 +299,15 @@ describe('状态迁移表（task-4-interfaces §4）', () => {
   test('won 主线：playing → won → playing → abandoned，终局之后什么都不接受', () => {
     const won = move(stateWithBoard(WIN_ROWS), 'left').state
     expect([won.phase, won.endReason]).toEqual(['won', null])
+
+    // 结算边（mode-contract §3 状态图补订）：won 也能就此收工，留下一个赢下的结局
+    const settled = settle(won)
+    expect([settled.phase, settled.endReason]).toEqual(['ended', 'won'])
+    expect(settle(settled)).toBe(settled)
+
+    // 放弃边：新游戏不写记录，所以原因不是 won
+    const givenUp = abandon(won)
+    expect([givenUp.phase, givenUp.endReason]).toEqual(['ended', 'abandoned'])
 
     const playing = continueRun(won)
     expect(playing.phase).toBe('playing')
@@ -335,14 +367,32 @@ describe('holdsAtLeast（里程碑判据）', () => {
 describe('结束原因可区分（SPEC 用户故事 7）', () => {
   const stuck = move(stateWithBoard(ONE_STEP_FROM_DEADLOCK), 'right').state
 
-  test('stuck / deadlock / abandoned 是三种不同的说法', () => {
+  test('runEndLabel 的每个分支各说一句话，五句互不相同', () => {
     const deadlock: GameState = { ...stuck, phase: 'ended', endReason: 'deadlock' }
     const abandoned: GameState = { ...stuck, phase: 'ended', endReason: 'abandoned' }
+    // 结算后的 won 由引擎真的走过来，不手搓：settle 是它唯一的入口
+    const won = settle(move(stateWithBoard(WIN_ROWS), 'left').state)
+    expect(won.endReason).toBe('won')
+    // 未结束的活跃局：endReason 还是 null
+    const playing: GameState = { ...stuck, phase: 'playing', endReason: null }
 
     expect(runEndLabel(stuck)).toContain('无合法移动')
     expect(runEndLabel(deadlock)).toContain('死局')
     expect(runEndLabel(abandoned)).toContain('放弃')
-    // 三句话互不相同：读屏与肉眼都能区分「怎么结束的」
-    expect(new Set([runEndLabel(stuck), runEndLabel(deadlock), runEndLabel(abandoned)]).size).toBe(3)
+    expect(runEndLabel(won)).toContain('达成目标')
+    expect(runEndLabel(playing)).toBe('本局已结束')
+    // 赢下的收工不许落回默认那句——那不是一句能区分原因的话，
+    // 也说明它不是漏了分支的被静默兜底
+    expect(runEndLabel(won)).not.toBe('本局已结束')
+    // 读屏与肉眼都能区分「怎么结束的」
+    expect(
+      new Set([
+        runEndLabel(stuck),
+        runEndLabel(deadlock),
+        runEndLabel(abandoned),
+        runEndLabel(won),
+        runEndLabel(playing),
+      ]).size
+    ).toBe(5)
   })
 })

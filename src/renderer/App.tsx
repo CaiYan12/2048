@@ -40,20 +40,24 @@ export default function App(): JSX.Element {
           <div className="relative w-fit">
             <Board game={game} onMove={move} />
             {game.phase === 'won' && (
-              <WinPanel onContinue={continueRun} onNewGame={newGame} />
+              <WinPanel onContinue={continueRun} onSettle={settle} onNewGame={newGame} />
             )}
             {(game.phase === 'stuck' || game.phase === 'ended') && (
               <GameOverPanel game={game} onSettle={settle} onNewGame={newGame} />
             )}
           </div>
           {/* 面板露头时它自己带「新游戏」入口；这里再摆一个会同名重歧，
-              所以在活跃局才显示（mode-contract §3：活跃局直接新游戏 = 放弃本局） */}
+              所以在活跃局才显示（mode-contract §3：活跃局直接新游戏 = 放弃本局）。
+              移动键提示同理：面板露着（won / stuck / ended）时方向键一概是空操作，
+              摆着这句提示就是在骗人，所以它跟按钮共用一个 phase 条件。 */}
           {game.phase === 'playing' && (
-            <button type="button" className="control" onClick={newGame}>
-              新游戏
-            </button>
+            <>
+              <button type="button" className="control" onClick={newGame}>
+                新游戏
+              </button>
+              <p className="hint">方向键或 WASD 移动方块</p>
+            </>
           )}
-          <p className="hint">方向键或 WASD 移动方块</p>
         </div>
       )}
     </main>

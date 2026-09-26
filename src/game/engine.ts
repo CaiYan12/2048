@@ -103,16 +103,26 @@ export function continueRun(state: GameState): GameState {
 }
 
 /**
- * 结束并记录：置 ended + endReason 'deadlock'，只允许从 stuck 进入。
+ * 结束并记录：置 ended + 结束原因，只允许从 stuck / won 进入；幂等。
+ *
+ * 两条入口、两个原因：
+ *   stuck → deadlock（死局后收工）；
+ *   won   → won（mode-contract §3 状态图补订的 won→结算边：正文第一句就写着
+ *          达成目标块后玩家可选「继续玩」或结算，图原先漏画了这条边）。
+ *          `won` 是**赢下的收工**，不是败因。
  *
  * 幂等——已结算的局原样返回，因为 mode-contract §3 要求结算只执行一次；
- * 非 stuck 阶段同样原样返回：界面上根本没有这个入口，函数层面也不给走后门的机会。
+ * 其余阶段（playing）同样原样返回：界面上根本没有这个入口，函数层面也不给走后门的机会。
  *
  * 记录本身归 T17：这里只把终态与原因定下来。
  */
 export function settle(state: GameState): GameState {
-  if (state.phase !== 'stuck') return state
-  return { ...state, phase: 'ended', endReason: 'deadlock' }
+  if (state.phase !== 'stuck' && state.phase !== 'won') return state
+  return {
+    ...state,
+    phase: 'ended',
+    endReason: state.phase === 'won' ? 'won' : 'deadlock',
+  }
 }
 
 /**

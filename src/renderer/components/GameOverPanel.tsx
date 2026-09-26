@@ -11,8 +11,9 @@ interface Props {
 /**
  * 死局 / 终局面板（mode-contract §3：死局先给可恢复面板，不直接判负）。
  *
- * 渲染时机：stuck（死局，还没决定）与 ended（已结算）。T04 的 ended 只可能是
- * deadlock——abandoned 那一档在 store 里紧跟着 createGame，界面永远来不及露它。
+ * 渲染时机：stuck（死局，还没决定）与 ended（已结算）。ended 的原因有三种——
+ * deadlock（死局收工）、won（达成目标后主动收工）、以及 abandoned（在 store 里紧跟着
+ * createGame，界面永远来不及露它）。
  *
  * 「为什么结束」从 game.endReason 读，不靠面板自己推断（SPEC 用户故事 7）：
  * 死局与超时必须是两句不同的话，读懂 endReason 即可。

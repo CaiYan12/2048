@@ -16,7 +16,7 @@ export interface GameStore {
   move(direction: Direction): void
   /** 从胜利面板继续玩：分数与棋盘保留，phase 由引擎判回 playing 还是 stuck */
   continueRun(): void
-  /** 结束并记录：只有死局进得去；幂等（结算只执行一次） */
+  /** 结束并记录：死局与胜利面板都进得去；幂等（结算只执行一次） */
   settle(): void
   /** 放弃当前局并开新局。活跃局直接新游戏 = 放弃本局，不写任何记录 */
   newGame(): void
@@ -80,6 +80,10 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 先终态化再开新局：mode-contract §3 把「活跃局直接新游戏」定义为放弃本局，
       // 所以这一步必须走 abandon（不写记录）。被放弃的那个状态只活在这一次 set 里，
       // 界面看不到它——紧接着就是一张干净的开局棋盘，不沿用任何旧格子与旧分数。
+      //
+      // 现在只读 abandoned.modeId，而 abandon 并不改 modeId，所以这一行目前**不可观测**。
+      // 别删：它是 T17「写记录」要接的那道缝——届时被放弃的那个终态就是 abandoned 记录的
+      // 依据，在此之前它刻意保持惰性，不写任何东西。
       const abandoned = abandon(state.game)
       return { game: createGame(abandoned.modeId, drawSeed()) }
     })

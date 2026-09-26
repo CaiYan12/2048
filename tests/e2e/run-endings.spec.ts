@@ -195,7 +195,7 @@ test('活跃局直接点新游戏：放弃本局，不沿用任何旧格子与�
   expect(problems).toEqual([])
 })
 
-test('面板按钮上的方向键不动棋盘（守卫仍有效，键也没坏）', async ({ page }) => {
+test('面板按钮上的方向键不动棋盘，收起面板后同一个键立刻生效', async ({ page }) => {
   const problems = watchProblems(page)
   await page.goto(startUrl(FOUR_1024, 4321))
   await page.getByRole('button', { name: '开始游戏' }).click()
@@ -205,7 +205,11 @@ test('面板按钮上的方向键不动棋盘（守卫仍有效，键也没坏�
   const boardAtWin = await readBoard(page)
   await expect(page.locator('[data-score]')).toHaveText('8417')
 
-  // 焦点落在面板按钮上，四个方向键 + WASD 一概不动棋盘
+  // 焦点落在面板按钮上，四个方向键 + WASD 一概不动棋盘。
+  // 注意：这不是在验 Board 里那个 isInteractiveTarget 守卫——面板是 .board 的**兄弟**
+  // （ADR-0002 的固定 DOM 不许往棋盘里塞东西），从按钮出发的 keydown 根本冒泡不到
+  // Board 的 handler，守卫压根没被问过。这里断言的是「面板挡着时按键推不动棋盘」这个
+  // 用户可见的事实，别把标题写成守卫。
   await page.getByRole('button', { name: '继续玩' }).focus()
   for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'w', 'd']) {
     await page.keyboard.press(key)
@@ -214,7 +218,13 @@ test('面板按钮上的方向键不动棋盘（守卫仍有效，键也没坏�
   await expect(page.locator('[data-score]')).toHaveText('8417')
   await expect(page.locator('[data-panel="win"]')).toBeVisible()
 
-  // 键没坏：回到棋盘上同一个键立刻生效
+  // 键没坏：面板挡着的时候确实什么都按不动（move 对 won 一律拒绝），所以要证明
+  // 「上面没动不是键坏了」就得先收起面板——点「继续玩」回到 playing，胜负盘一个格子不动。
+  await page.getByRole('button', { name: '继续玩' }).click()
+  await expect(page.locator('[data-panel="win"]')).toHaveCount(0)
+  expect(await readBoard(page)).toEqual(boardAtWin)
+
+  // 回到 playing 之后，棋盘上同一个键立刻生效
   await page.locator('[data-board]').focus()
   await page.keyboard.press('ArrowLeft')
   expect(await readBoard(page)).not.toEqual(boardAtWin)

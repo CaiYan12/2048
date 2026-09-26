@@ -29,10 +29,13 @@ export type RngState = number
 export type RunPhase = 'playing' | 'won' | 'stuck' | 'ended'
 
 /**
- * 为什么结束。deadlock = 死局后点「结束并记录」；abandoned = 活跃局或死局面板上点「新游戏」。
- * timeout 是 T09 的第三个值：它只补这个联合与引擎行为，界面不预设它。
+ * 为什么结束。deadlock = 死局后点「结束并记录」；abandoned = 活跃局或死局面板上点「新游戏」；
+ * won = 达成目标后主动收工（mode-contract §3 状态图补订的 won→结算边）。
+ * timeout 是 T09 的第四个值：它只补这个联合与引擎行为，界面不预设它。
+ *
+ * `won` 是**赢下的收工**，不是失败：渲染它的 runEndLabel 不许写成一句败局的话。
  */
-export type EndReason = 'deadlock' | 'abandoned' | null
+export type EndReason = 'won' | 'deadlock' | 'abandoned' | null
 
 export interface GameState {
   modeId: ModeId
