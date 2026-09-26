@@ -178,10 +178,22 @@ export function Board({
   // 不还就会掉进一个键盘陷阱：拾取中的方块才带 tabIndex，模式一关它取不到了，
   // 焦点落在 body 上，方向键从此失灵——而键盘玩家每完成一次交换都正好走到这里，
   // 所以这不是补丁，是那条路径的一部分
+  //
+  // T22：同一个陷阱还有另一条来路，**更宽**——玩家在终局面板 / 胜利面板上按下的
+  // 任何一枚按钮都会让那一层面板卸载，被聚焦的按钮跟着从 DOM 上消失，焦点掉到
+  // body 上：撤销、继续玩、结束并记录、新游戏，四条路一条都逃不掉。此后方向键
+  // 失灵，键盘玩家每用一次面板就断一次（鼠标玩家点一下棋盘就恢复了，所以这个
+  // 缺陷只在纯键盘路径上现形——T22 的验收标准 1 正是那条路径）。
+  // 判据因此从「拾取态收摊了」换成「焦点掉到 body 上了」：移动一步时焦点在棋盘上，
+  // 这一问是个空操作；只有焦点真的丢了才把它还给棋盘。拾取收摊那一路径也仍然
+  // 由它覆盖（tabIndex 一摘掉焦点就掉到 body），所以两条并成一条 effect 就够。
+  // 依赖里带 game：没有它，一条不换 game 的纯界面变化（收起面板、Esc 出拾取）
+  // 不会重跑；带上它，每一次状态变化都问一次那句话，代价是一次相等比较。
   useEffect(() => {
     if (swapArmed || swapSelection !== null) return
+    if (document.activeElement !== document.body) return
     rootRef.current?.focus({ preventScroll: true })
-  }, [swapArmed, swapSelection])
+  }, [game, swapArmed, swapSelection])
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (isInteractiveTarget(event.target)) return

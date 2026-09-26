@@ -2,6 +2,7 @@ import type { JSX } from 'react'
 import type { GameState } from '../../shared/types'
 import type { Coordinate } from '../../game/board'
 import { getMode } from '../../shared/modes'
+import { swapPrompt } from './RunAnnouncement'
 
 interface Props {
   game: GameState
@@ -33,6 +34,8 @@ export function StatusBar({ game, swapArmed, swapSelection, onToggleSwap }: Prop
       0
     )
   const swapAvailable = game.phase === 'playing' || game.phase === 'stuck'
+  // 拾取态的操作播报（T22 定策略，内容在 RunAnnouncement.ts）
+  const prompt = swapPrompt(swapArmed, swapSelection)
 
   return (
     <div className="flex flex-wrap items-start justify-center gap-3">
@@ -64,18 +67,30 @@ export function StatusBar({ game, swapArmed, swapSelection, onToggleSwap }: Prop
             {swapArmed ? '取消交换' : '交换'}
           </button>
           {/*
-            操作播报（ticket 交付范围最后一项）。**只用文字把当前状态念出来**，
-            不建 live region、不定 aria-live 策略：屏幕阅读器验收归 T22，
-            这里抢先造一套机制，届时会变成第二套与它打架的策略。
+            操作播报（ticket 交付范围最后一项）。**只用文字把当前状态念出来**：
             行号列号都按人口计数从 1 起——DOM 上 data-row 是零基，两套口径
             故意分开：给人看的从 1，给规则与选择态用的从 0。
+
+            T12 落下这句话时刻意**没有**定 live region 策略（原话「屏幕阅读器验收归
+            T22，抢先造一套机制届时会变成第二套与它打架的」）。T22 定的策略就是上面
+            那一条：内容按当前状态推导、一句一事、与 StorageNotice / AchievementNotice
+            共用 role="status" 这个机制——所以这里补的只是 role 与 data-swap-prompt
+            这两个钩子，话本身还是同一句，而且由 swapPrompt 这一个纯函数出（内容因此
+            可单测，见 tests/unit/announcement.test.ts）。
+            拾取态是键盘玩家在屏幕上唯一会变的东西，两枚方块之间 Tab 时它得被念出来。
+            多余的进度反馈已经由方块自己的 aria-label（位置 + 数值 +「按 Enter 选择」）
+            与 aria-pressed 给足，这里只说「现在轮到选第几枚」这一件面板上没有的事。
           */}
-          {swapSelection !== null ? (
-            <p className="hint">
-              已选择第 {swapSelection[0] + 1} 行第 {swapSelection[1] + 1} 列，再选一枚方块完成交换
+          {prompt !== null && (
+            <p
+              className="hint"
+              // data-swap-prompt 是 e2e 的断言点（DOM 契约），两个值对应
+              // 拾取态的两步：等第一枚 / 等第二枚
+              data-swap-prompt={swapSelection === null ? 'first' : 'second'}
+              role="status"
+            >
+              {prompt}
             </p>
-          ) : (
-            swapArmed && <p className="hint">请选择第一枚方块，Esc 退出</p>
           )}
         </div>
       )}

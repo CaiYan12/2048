@@ -7,6 +7,7 @@ import { DailyDateLabel } from './components/DailyDateLabel'
 import { DirectionPad } from './components/DirectionPad'
 import { GameOverPanel } from './components/GameOverPanel'
 import { MuteToggle } from './components/MuteToggle'
+import { RunAnnouncer } from './components/RunAnnouncer'
 import { StatsPanel } from './components/StatsPanel'
 import { StatusBar } from './components/StatusBar'
 import { StorageNotice } from './components/StorageNotice'
@@ -75,6 +76,11 @@ export default function App(): JSX.Element {
   // 战绩面板的开合。住在 App 而不是 store：它只被这一处用到，而 store 里的每个
   // 字段都会被 hydrate / setState 的字段表牵着走（T16 的形状判据就是这么变复杂的）
   const [statsOpen, setStatsOpen] = useState(false)
+  // 战绩面板的开关。面板收起时焦点该还给谁，由它回答（下面那个 effect）
+  const statsToggleRef = useRef<HTMLButtonElement>(null)
+  // 开关状态的上一个值：只为分辨「刚收起」与「从没开过」。挂载那一遍 StatsOpen
+  // 本来就是 false，不分辨的话它会被当成一次「收起」而在载入时抢走焦点
+  const previousStatsOpen = useRef(statsOpen)
 
   const handleStart = (modeId: ModeId): void => {
     startRun(modeId)
@@ -97,6 +103,22 @@ export default function App(): JSX.Element {
   useEffect(() => {
     hydrate()
   }, [hydrate])
+
+  // 战绩面板一收起就把焦点还给开关（T17 的面板 · T22 验收标准 1）。
+  // 「收起」那枚按钮与面板一起卸载，焦点掉到 body 上，此后方向键失灵——键盘玩家
+  // 每关一次面板就断一次键盘，而 SPEC §3.4 把 statistics 明确列在键盘操作范围内。
+  // 鼠标玩家点一下棋盘就恢复了，所以它只在纯键盘路径上现形。
+  // 判据是「焦点真的掉了」而不是「statsOpen 变了」：只在丢了焦点这一种情况下动手，
+  // 否则它会从玩家正在用的别处把焦点抢走。方向与 Board.tsx 里那个 effect 同一条
+  // 路子（那里还棋盘，这里还开关—— disclosures 关掉之后焦点回触发器）
+  useEffect(() => {
+    const wasOpen = previousStatsOpen.current
+    previousStatsOpen.current = statsOpen
+    // 没开关过（含挂载那一遍）与「刚打开」都不管
+    if (!wasOpen || statsOpen) return
+    if (document.activeElement !== document.body) return
+    statsToggleRef.current?.focus()
+  }, [statsOpen])
 
   return (
     <main
@@ -144,6 +166,10 @@ export default function App(): JSX.Element {
             swapSelection={swapSelection}
             onToggleSwap={toggleSwap}
           />
+          {/* 一局的结果播报（T22 验收标准 2）。只对读屏软件存在（sr-only），不抢焦点、
+              不盖棋盘：它是 Shell 元素，与 StatusBar 平级。什么时候说话、说什么，
+              全在 RunAnnouncement.ts 那张表里。 */}
+          <RunAnnouncer game={game} />
           {/* Daily 的日期说明（T08）：写的是这一局抽题那天的 UTC 日期，跨零点也不翻篇。
               摆在外壳里，与 Board 平级——ADR-0002 的棋盘固定结构不许塞进来说明文字。 */}
           {game.modeId === 'daily' && dailyDate !== null && <DailyDateLabel date={dailyDate} />}
@@ -227,6 +253,7 @@ export default function App(): JSX.Element {
           <button
             type="button"
             className="control"
+            ref={statsToggleRef}
             aria-expanded={statsOpen}
             onClick={() => setStatsOpen((open) => !open)}
           >

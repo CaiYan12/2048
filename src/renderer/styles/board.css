@@ -281,6 +281,28 @@
     var(--tile-elevation, 0 0 #0000);
 }
 
+/* —— 拾取中的方块的焦点环（T22 验收标准 1）——
+   交换拾取里的方块带 tabIndex（TileView 的 `tabIndex={selectable ? 0 : undefined}`），
+   于是它是**真的**焦点目标。真的焦点目标就必须有一个看得见的环：拾取态下 Tab 到一枚
+   方块却没有环，键盘玩家看不见焦点在哪，只能靠猜——这正是本票要堵的那个洞。
+   环为什么用 outline 而不是 box-shadow：box-shadow 那一位已经被占着了——拾取环
+   （[data-selected]）用它，Material 的 --tile-elevation 也用它，再叠一层会互相顶掉
+   （board.css 上面那段记着这个代价）。reduced-motion 的两个静态记号用的是同一个机制、
+   同一条理由。
+   色值仍然只有 --focus 一个，不引入第二种颜色；环画在方块**外侧**（outline-offset 给
+   正值），于是它落在 --cell-bg 上——那一对 T14 已经为拾取环量过：Classic 5.43:1、
+   Material 4.98:1、Claude 3.34:1，都过 3:1 的非文字指示器口径。3px + 2px 外移全在
+   BOARD_GAP = 12 的间距内，蹭不到隔壁那一枚。
+   与拾取环同时出现时不打架：拾取环画在 border box 外侧、零偏移，焦点环外移 2px，
+   两圈同心——被聚焦又被拾取的那一枚读作「它有焦点、它也被选了」，两个事实都还在。
+   与 reduced-motion 的静态记号可能同时出现（那一枚既是焦点目标又是新生成的）：两条
+   特异性相同，而媒体查询那块在文件后面，于是记号那一条赢，环显示成 2px。仍然看得见，
+   而且是同一个 --focus、同一个 offset——那一枚同时说着「它是新的」和「它有焦点」。 */
+.board__tile:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
 /* —— reduced-motion（SPEC §3.2 · 用户故事 24）——
    系统设置优先于这里的一切默认值，但降级**不是把动效关掉了事**。上面四个效果每一个
    都说清自己「在图什么」，这里给的是不动而同样说得清的那一半；T20 对音频的做法
