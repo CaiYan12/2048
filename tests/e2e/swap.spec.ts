@@ -148,6 +148,26 @@ function valueById(tiles: TileSnapshot[]): Record<string, number> {
   return table
 }
 
+/**
+ * 方块快照 → 「身份编号 → 这一枚的全部事实（数值 + 位置）」。
+ *
+ * 与 valueById 同一条理由，只是多带位置。**document order 不是一条安全的比较基准**，
+ * 所以凡是「同一批方块」的比较都按身份索引做，理由就是上面那段：节点被 React 按 key
+ * 复用与重排，`nth(index)` 收到的只是同一批方块的另一种排列。
+ *
+ * 这一点对本文件尤其要紧：这里断言的每一句「哪些棋子换了位置、哪些没动」都以「哪一枚
+ * 是哪一枚」为前提。按 document order 逐位比，一次纯重排就能让「对的那次交换」读成红，
+ * 而红色指向的原因（顺序）与交换做对了没有毫无关系——T12 因此埋过一次，T21 的位移动效
+ * 让重排从偶发变成必然，所以剩下的两处都在这里换成按身份索引。
+ */
+function snapshotById(tiles: TileSnapshot[]): Record<string, Omit<TileSnapshot, 'id'>> {
+  const table: Record<string, Omit<TileSnapshot, 'id'>> = {}
+  for (const tile of tiles) {
+    table[tile.id] = { value: tile.value, row: tile.row, col: tile.col }
+  }
+  return table
+}
+
 async function readScore(page: Page): Promise<number> {
   return Number(await page.locator('[data-score]').textContent())
 }
@@ -240,7 +260,8 @@ test('纯键盘完成一次交换：进拾取态、选第一枚、选第二枚�
   await page.locator('[data-board]').focus()
   await page.keyboard.press('z')
   expect(await readBoard(page)).toEqual(opening)
-  expect(await readTiles(page)).toEqual(openingTiles)
+  // 按身份编号索引再比，**不按 document order 逐位比**（理由见 snapshotById 的注释）
+  expect(snapshotById(await readTiles(page))).toEqual(snapshotById(openingTiles))
   expect(await readScore(page)).toBe(500)
 
   expect(problems).toEqual([])
@@ -339,9 +360,12 @@ test('指针完成一次交换：点两枚方块，分数不变', async ({ page 
     col: 0,
     value: 4,
   })
-  expect(swappedTiles.filter((tile) => tile.id !== '1' && tile.id !== '2')).toEqual(
-    openingTiles.filter((tile) => tile.id !== '1' && tile.id !== '2')
-  )
+  // 其余一枚都没挪。同样按身份编号索引再比——逐位比 document order 的话，
+  // 一次纯重排就会把这句读成红，而红色指向的原因与交换做对了没有毫无关系
+  // （T21 的位移动效把重排从偶发变成必然，理由见 snapshotById 的注释）
+  expect(
+    snapshotById(swappedTiles.filter((tile) => tile.id !== '1' && tile.id !== '2'))
+  ).toEqual(snapshotById(openingTiles.filter((tile) => tile.id !== '1' && tile.id !== '2')))
   // 换到的位置与棋盘网格一致
   await expect(page.locator('[data-tile-id="1"]')).toHaveAttribute('data-col', '1')
   await expect(page.locator('[data-tile-id="2"]')).toHaveAttribute('data-col', '0')

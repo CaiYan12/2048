@@ -258,8 +258,10 @@ test('选中的那一套换成暖色填充，其余控件仍是纸面', async ({
 })
 
 test('reduced-motion：位移与淡入归零，方块直接到位', async ({ browser }) => {
-  // SPEC §3.2：reduced-motion 要有静态替代。Claude 没有投影也没有缩放，
-  // 所以「静态替代」= 两个时长归零，方块仍在、数字仍读得清
+  // SPEC §3.2：reduced-motion 要有静态替代。Claude 没有投影也没有缩放，所以它的静态
+  // 替代由 board.css 的降级块给：过渡整个关掉 + 三个静止记号。这里断第一条——
+  // 「一个动画都不剩」。**逐条判零而不是逐条比长度**：T21 给 .board__tile 加了
+  // scale 这条入场用的过渡，过渡列表从两条变三条，「正好两条」不再是可断言的实现细节
   const context = await browser.newContext({ reducedMotion: 'reduce' })
   const page = await context.newPage()
   try {
@@ -274,11 +276,16 @@ test('reduced-motion：位移与淡入归零，方块直接到位', async ({ bro
       .evaluate((el) => {
         const style = getComputedStyle(el)
         return {
+          property: style.transitionProperty,
+          animation: style.animationName,
           durations: style.transitionDuration.split(',').map((value) => value.trim()),
           visible: el.getBoundingClientRect().width > 0,
         }
       })
-    expect(tile.durations).toEqual(['0s', '0s'])
+    // 过渡整个关掉（board.css 的 reduced-motion 块），于是浏览器把列表收成一条 0s
+    for (const duration of tile.durations) expect(parseFloat(duration)).toBe(0)
+    // 脉冲与呼吸同样一个都不剩
+    expect(tile.animation).toBe('none')
     expect(tile.visible).toBe(true)
   } finally {
     await context.close()
