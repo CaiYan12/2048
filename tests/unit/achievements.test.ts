@@ -10,6 +10,7 @@ import {
   decodeAchievementProgress,
   emptyAchievementProgress,
   mergeCountBetween,
+  STYLE_TRAVELLER_SWITCHES,
   utcDayNumberOf,
   type AchievementProgress,
   type RunFacts,
@@ -39,6 +40,8 @@ function facts(overrides: Partial<RunFacts> = {}): RunFacts {
     highestTile: 1024,
     reachedTarget: false,
     merges: 12,
+    // T19 的风格切换次数：这里默认没切过，风格旅行者的用例按需覆盖它
+    styleSwitches: 0,
     dailyDate: null,
     ...overrides,
   }
@@ -269,6 +272,80 @@ describe('七个成就：解锁与不解锁各一例', () => {
   })
 })
 
+/**
+ * 风格旅行者：计划附录风格轴那一个，条件原话「单局内切换 5 次以上风格」。
+ *
+ * 阈值钉在 5、判据是 `>=`（STYLE_TRAVELLER_SWITCHES 的注释写了为什么这么读），
+ * 所以三档都要钉住：4 不解、5 解、6 也解。日后谁把「以上」读成「超过」要 6 次，
+ * 「6 也解」那一行不会红，而「5 解」这一行会——所以它才是那道闸门。
+ */
+describe('风格旅行者：单局内切换 5 次以上', () => {
+  test('4 次不解锁，5 次解锁，6 次也解锁（阈值那一刀切在 5）', () => {
+    const four = applyRunToAchievements(null, facts({ styleSwitches: 4 }))
+    expect(four.unlocked).toEqual([])
+    expect(four.progress.unlocked).toEqual([])
+
+    const five = applyRunToAchievements(null, facts({ styleSwitches: 5 }))
+    expect(five.unlocked).toEqual(['style-traveller'])
+    expect(five.progress.unlocked).toEqual(['style-traveller'])
+
+    const six = applyRunToAchievements(null, facts({ styleSwitches: 6 }))
+    expect(six.unlocked).toEqual(['style-traveller'])
+  })
+
+  test('0 次（一次都没换过）当然不解锁', () => {
+    const none = applyRunToAchievements(null, facts({ styleSwitches: 0 }))
+    expect(none.unlocked).toEqual([])
+  })
+
+  test('解锁过一次之后，第二局少换几次也收不回去', () => {
+    // 只增不减是整份进度的形状（SPEC §3.3）：unlocked 是并集，没有「这一局不够，
+    // 上一局白解锁了」这种中间态
+    const first = applyRunToAchievements(null, facts({ styleSwitches: 5 })).progress
+    const second = applyRunToAchievements(first, facts({ styleSwitches: 1 }))
+    expect(second.unlocked).toEqual([])
+    expect(second.progress.unlocked).toEqual(['style-traveller'])
+  })
+
+  test('同一个结算递两次：第二次没有新解锁', () => {
+    const once = applyRunToAchievements(null, facts({ styleSwitches: 9 }))
+    const twice = applyRunToAchievements(once.progress, facts({ styleSwitches: 9 }))
+    expect(twice.unlocked).toEqual([])
+    expect(twice.progress).toEqual(once.progress)
+  })
+
+  test('界面上那句话照实写出附录原话，一个数都不改', () => {
+    // 锁着的时候照实显示条件（AchievementDefinition 的约定）。条件与上面钉的常数
+    // 必须是同一个数——改条件不改常数会让玩家以为自己要的不是实现要的那个数
+    const entry = ACHIEVEMENTS.find((item) => item.id === 'style-traveller')
+    expect(entry).toEqual({
+      id: 'style-traveller',
+      label: '风格旅行者',
+      condition: '单局内切换 5 次以上风格',
+    })
+    expect(STYLE_TRAVELLER_SWITCHES).toBe(5)
+  })
+
+  test('它与别的成就同时达成时，按注册表次序落在最后', () => {
+    // 落库次序只由 ACHIEVEMENTS 定（刷新前后逐字节可比、e2e 有稳定下标）
+    const both = applyRunToAchievements(
+      null,
+      facts({ reachedTarget: true, highestTile: 4096, styleSwitches: 5 })
+    )
+    expect(both.unlocked).toEqual(['first-win', 'tile-4096', 'style-traveller'])
+    expect(both.progress.unlocked).toEqual(['first-win', 'tile-4096', 'style-traveller'])
+  })
+
+  test('进度里没有「最多切过几次」这种字段：它没有累积可言', () => {
+    // 「单局内切了五次」与「三局各切两次」不是一回事。攒一个跨局最大值只会造出一个
+    // 谁也不知道该怎么解释的数，而这个成就要的只是 unlocked 里那一个 id
+    const done = applyRunToAchievements(null, facts({ styleSwitches: 8 })).progress
+    expect(Object.keys(done)).not.toContain('bestStyleSwitches')
+    expect(Object.keys(done)).not.toContain('styleSwitches')
+  })
+})
+
+
 describe('跨局进度：只增不减，刷新前后逐字节同形', () => {
   test('几局累积起来：赢过的模式、最高方块、最高合并数各按各的来', () => {
     let current = applyRunToAchievements(
@@ -435,15 +512,24 @@ describe('结算接线：事实从结算载荷带过来', () => {
       RUN_START,
       SETTLE_AT,
       [opening()],
-      '2026-09-26'
+      '2026-09-26',
+      // T19 的切换次数：这一局换过 6 次观感（阈值是 5，见 STYLE_TRAVELLER_SWITCHES）。
+      // 它与合并次数、Daily 日期走同一条路——结算方在 session 作废之前带进来
+      6
     )
     // 沿路径数出来：这一步合并了 2 对（第 0 行与第 3 行各一对）
     expect(settlement.merges).toBe(2)
     expect(settlement.dailyDate).toBe('2026-09-26')
+    // 切换次数原样过到结算载荷上（T19）：结算方带进来的那一个数，一个都不加工
+    expect(settlement.styleSwitches).toBe(6)
     const outcome = applyRunToStats(null, settlement)
     expect(outcome.stats.achievements.bestMerges).toBe(2)
     expect(outcome.stats.achievements.dailyStreakDate).toBe('2026-09-26')
     expect(outcome.stats.achievements.dailyStreakLength).toBe(1)
+    // 6 ≥ 5，所以这一局同时拿到风格旅行者
+    expect(outcome.unlocked).toContain('style-traveller')
+    // 而它不留下任何「最多切过几次」的进度字段：unlocked 那一个 id 是唯一残留
+    expect(Object.keys(outcome.stats.achievements)).not.toContain('styleSwitches')
   })
 
   test('结算只执行一次：同一个对象原样返回，第二次没有新解锁', () => {
@@ -453,7 +539,8 @@ describe('结算接线：事实从结算载荷带过来', () => {
       RUN_START,
       SETTLE_AT,
       [opening()],
-      null
+      null,
+      0
     )
     const first = applyRunToStats(null, settlement)
     const second = applyRunToStats(first.stats, settlement)
@@ -513,6 +600,18 @@ describe('成就进度的形状判据：拒绝，而不是静默重置', () => {
   test('六个模式一个都不能少：注册表是唯一真话', () => {
     // 收藏家的目标按 MODES 的长度算：加一个模式就得赢七个，不写死 6
     expect(MODES).toHaveLength(6)
-    expect(ACHIEVEMENTS).toHaveLength(7)
+    // 七个模式轴 + 风格旅行者。**恰好八个**：没有给全风格征服 / 复古大师留行，
+    // 也没有给挂起的完美一局 / 无作弊通关留行（见 achievements.ts 头注）
+    expect(ACHIEVEMENTS).toHaveLength(8)
+    expect(ACHIEVEMENTS.map((item) => item.id)).toEqual([
+      'first-win',
+      'mode-collector',
+      'tile-4096',
+      'tile-8192',
+      'quick-hand',
+      'daily-stand',
+      'merge-machine',
+      'style-traveller',
+    ])
   })
 })

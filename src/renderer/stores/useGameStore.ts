@@ -125,6 +125,29 @@ export interface GameStore {
    */
   styleId: StyleId
   /**
+   * 本局**真实发生**的风格切换次数（T19 的风格旅行者读它）；还没开局为 0
+   *
+   * 为什么它住在 store 而不是 GameState：它是**发生过的事件**的计数，不是规则数据。
+   * 塞进 GameState 会有两个后果，都正好是它要防的那件事——撤销搬回的是整个前态，
+   *   1. 撤销一步就把计数带回那一步的数，于是「切过五次」能被撤销抹掉；
+   *   2. 它会被 T16 当成规则状态持久化、被 T17 的重放当成一次状态迁移。
+   * T18 在「本局曾经撤销过」上摔的就是第 1 个坑（那件事至今不可恢复），而切换次数
+   * 是廉价可数的事实，没有理由再摔一次。
+   *
+   * 为什么它要跨刷新活着：结算那一刻 session 存档连同撤销历史一起作废，而「这一局
+   * 切过几次」必须在那一刻还读得出来（SessionRecord.styleSwitches，并在结算之前
+   * 由结算方带进 Settlement）。刷新之后从零数起 = 把已经达成的成就判成没达成。
+   *
+   * 只数**活的这一局**（`game !== null && phase !== 'ended'`）：开局界面上换来换去
+   * 不是「单局内」的切换，结算之后这一局也结束了。两个边界合起来才是 ticket 的
+   * 「单局内真实切换事件」。
+   *
+   * 重置点只有两个：startRun 与 newGame。**结算不清它**（那一局刚刚结束，留着它不
+   * 碍事，而下一局开局时会归零），**放弃本局也不留**：newGame 把计数与撤销历史一起
+   * 归零，两个战绩桶一个字节都不写（mode-contract §3「不写任何记录」）。
+   */
+  styleSwitches: number
+  /**
    * 本局起始时刻（epoch ms）；null = 还没开局
    *
    * T17 的「本局时长」要从它推导，所以它必须跟着这一局跨过刷新：startRun / newGame
@@ -155,7 +178,10 @@ export interface GameStore {
   dismissAchievementNotice(): void
   /** 换开局界面上选中的模式（T16：写 settings 桶）。不改动已经开的那一局 */
   selectMode(id: ModeId): void
-  /** 换风格。只改呈现；同一 id 重复调用连 state 都不换 */
+  /**
+   * 换风格。只改呈现；同一 id 重复调用连 state 都不换，
+   * 也不算一次切换（重复选当前风格不是切换——ticket 验收标准 1）
+   */
   setStyle(id: StyleId): void
   /** 开 / 关交换拾取。StatusBar 与死局面板的那两个按钮调的是同一个动作 */
   toggleSwap(): void
@@ -276,10 +302,10 @@ function clearPersistedRun(): void {
 /**
  * 结算的写入半边（T17）。
  *
- * **它在 session 存档被作废之前被调用**，终态、起始时刻、撤销路径与 Daily 日期都是
- * 当场从 store 取的：T16 把「已结算的一局」定义为没有可恢复的东西，于是结算之后
- * session 就没了，能读到这局是什么的时刻只有作废之前。所以记录不是从内存里「补」出来的——
- * 它是这一局终止那一刻的快照，与刷新后会看到的终局是同一个东西。
+ * **它在 session 存档被作废之前被调用**，终态、起始时刻、撤销路径、Daily 日期与切换
+ * 次数都是当场从 store 取的：T16 把「已结算的一局」定义为没有可恢复的东西，于是结算
+ * 之后 session 就没了，能读到这局是什么的时刻只有作废之前。所以记录不是从内存里
+ * 「补」出来的——它是这一局终止那一刻的快照，与刷新后会看到的终局是同一个东西。
  *
  * 「结算只执行一次」有两层，缺一不可：
  *   1. 引擎的早退（`settle` 对已结算的局原样返回同一个对象）挡住同一个对象被结算两次；
@@ -293,9 +319,23 @@ function persistSettlement(
   /** 结算那一刻的撤销路径：合并次数只能沿它数，而它随 session 存档一起作废 */
   prior: readonly GameState[],
   /** 本局的 Daily UTC 日期串；非 Daily 为 null（SessionRecord.dailyDate） */
-  dailyDate: string | null
+  dailyDate: string | null,
+  /**
+   * 本局真实切换过几次风格（T19 的风格旅行者读它）。
+   * 与 prior / dailyDate 同一条理由：它住在 session 桶里，结算即作废，所以只能在
+   * 这一刻从 store 取（SessionRecord.styleSwitches）
+   */
+  styleSwitches: number
 ): void {
-  const settlement = settlementOf(game, styleId, startedAt, Date.now(), prior, dailyDate)
+  const settlement = settlementOf(
+    game,
+    styleId,
+    startedAt,
+    Date.now(),
+    prior,
+    dailyDate,
+    styleSwitches
+  )
   void writeSettlement(settlement)
     .then((result) => {
       if (result.kind === 'rejected') {
@@ -438,6 +478,9 @@ async function doHydrate(): Promise<void> {
       stats: settled?.stats ?? state.stats,
       // 起始时刻与 game 一起恢复：否则这一局结算时算不出本局时长
       runStartedAt: restored?.startedAt ?? null,
+      // 切换计数与 game 一起恢复（T19）：它跟着这一局活在 session 桶里，刷新之后
+      // 从零数起就等于把玩家已经切够的次数判成没切过——成就该在结算那一刻照旧解锁
+      styleSwitches: restored?.styleSwitches ?? 0,
     }
     if (restored !== null) {
       patch.game = restored.game
@@ -463,6 +506,8 @@ export const useGameStore = create<GameStore>()((set) => ({
   styleId: DEFAULT_THEME_ID,
   // 还没开局，也就没有起始时刻可言（T17 的本局时长从它算）
   runStartedAt: null,
+  // 还没有开局，也就没切过风格（T19 的风格旅行者从零数起）
+  styleSwitches: 0,
   // 开局时两个新桶已经在 hydrate 里读过；这里是「还没读过」的诚实初值
   records: [],
   stats: null,
@@ -485,6 +530,11 @@ export const useGameStore = create<GameStore>()((set) => ({
   setStyle: (id) => {
     set((state) => {
       if (state.styleId === id) return state
+      // 只有活的这一局里的一次真实换皮才计一次：开局界面（game 为 null）换来换去不是
+      // 「单局内」，结算之后这一局已经结束。结算那个边界同时是验收标准 2 的后半句——
+      // 已结算的一局不再给任何未来的风格成就添数（见 styleSwitches 的注释）
+      const counts = state.game !== null && state.game.phase !== 'ended'
+      const styleSwitches = state.styleSwitches + (counts ? 1 : 0)
       // 风格同时是「设置」与「这一局的观感」：SPEC §3.3 的 settings 与 session
       // 两个桶都列了 selected style，所以两边都写。session 那一份只在本局存在时
       // 写——开局界面上的选择没有一局可挂，而「还没开局」与「这一局是空的」
@@ -498,11 +548,12 @@ export const useGameStore = create<GameStore>()((set) => ({
             styleId: id,
             historyLength: state.history.length,
             startedAt: state.runStartedAt,
+            styleSwitches,
           },
           { kind: 'none' }
         )
       }
-      return { styleId: id }
+      return { styleId: id, styleSwitches }
     })
   },
   // 还没开局：没有拾取、也没有选择
@@ -544,6 +595,7 @@ export const useGameStore = create<GameStore>()((set) => ({
           styleId: state.styleId,
           historyLength: history.length,
           startedAt: state.runStartedAt,
+          styleSwitches: state.styleSwitches,
         },
         { kind: 'push', index: history.length - 1, game }
       )
@@ -595,10 +647,17 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 本局的起始时刻：T17 的「本局时长」从它算到结算那一刻，所以必须跟着
       // 这一局跨过刷新（SessionRecord.startedAt）。与 createGame 用的是同一个 now
       runStartedAt: now,
+      // 本局的切换计数从零开始：开局之前在选择器上换的那几次不算「单局内」的切换
+      // （styleSwitches 的注释），所以开局这一刻必须把它按回 0，而不是接着开局前
+      // 那几次往上加——否则玩家在开局界面抖几下，新一局就凭空多出几次切换
+      styleSwitches: 0,
     })
     // reset：上一局的撤销历史整条作废。这是「新游戏不擦除已结算数据」的另一半——
     // 被擦的只有 session 与 history 两个桶，records / stats（T17）一个字节都不碰
-    persistSession({ game, dailyDate, styleId, historyLength: 0, startedAt: now }, { kind: 'reset' })
+    persistSession(
+      { game, dailyDate, styleId, historyLength: 0, startedAt: now, styleSwitches: 0 },
+      { kind: 'reset' }
+    )
   },
   move: (direction) => {
     set((state) => {
@@ -630,6 +689,7 @@ export const useGameStore = create<GameStore>()((set) => ({
           styleId: state.styleId,
           historyLength: history.length,
           startedAt: state.runStartedAt,
+          styleSwitches: state.styleSwitches,
         },
         { kind: 'push', index: history.length - 1, game: state.game }
       )
@@ -658,7 +718,13 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 「等第二枚的那一枚」这个意图已经不对着任何真实的东西了
       const history = state.history.slice(0, -1)
       // 撤销同样只写两条：session 记录 + 删掉刚刚弹出的那一条前态。
-      // 索引就是新栈的长度——被弹掉的那一条原来就在这个位置上
+      // 索引就是新栈的长度——被弹掉的那一条原来就在这个位置上。
+      //
+      // **切换计数原样写回去**（上面那一行 `styleSwitches: state.styleSwitches`）：
+      // 撤销搬回的是棋盘位置，而「换过几次观感」不是位置的一部分——发生过的事不会
+      // 因为回退一步而没发生过。把它一起回退才是 naive 的那个读法，而那正是 T18 在
+      // 「本局曾经撤销过」上摔过的坑：一个能被撤销抹掉的事实等于没有。测试钉在
+      // tests/unit/style-traveller.test.ts（撤销之后计数与盘上那份都不动）
       persistSession(
         {
           game: state.history[state.history.length - 1],
@@ -666,6 +732,7 @@ export const useGameStore = create<GameStore>()((set) => ({
           styleId: state.styleId,
           historyLength: history.length,
           startedAt: state.runStartedAt,
+          styleSwitches: state.styleSwitches,
         },
         { kind: 'pop', index: history.length }
       )
@@ -691,6 +758,7 @@ export const useGameStore = create<GameStore>()((set) => ({
             styleId: state.styleId,
             historyLength: state.history.length,
             startedAt: state.runStartedAt,
+            styleSwitches: state.styleSwitches,
           },
           { kind: 'none' }
         )
@@ -714,7 +782,14 @@ export const useGameStore = create<GameStore>()((set) => ({
         // abandoned 不写记录（mode-contract §3），而 settle 只从 stuck / won 进来，
         // 所以这道判断不是防御，是把「只有 ended 且不是放弃」这句话钉在写入点上
         if (next.endReason !== 'abandoned') {
-          persistSettlement(next, state.styleId, state.runStartedAt, state.history, state.dailyDate)
+          persistSettlement(
+            next,
+            state.styleId,
+            state.runStartedAt,
+            state.history,
+            state.dailyDate,
+            state.styleSwitches
+          )
         }
         clearPersistedRun()
       } else {
@@ -725,6 +800,7 @@ export const useGameStore = create<GameStore>()((set) => ({
             styleId: state.styleId,
             historyLength: state.history.length,
             startedAt: state.runStartedAt,
+            styleSwitches: state.styleSwitches,
           },
           { kind: 'none' }
         )
@@ -750,7 +826,14 @@ export const useGameStore = create<GameStore>()((set) => ({
       if (next.phase === 'ended') {
         // 超时结算同样写记录（T17），理由见上：它是一条结算路径，不是放弃
         if (next.endReason !== 'abandoned') {
-          persistSettlement(next, state.styleId, state.runStartedAt, state.history, state.dailyDate)
+          persistSettlement(
+            next,
+            state.styleId,
+            state.runStartedAt,
+            state.history,
+            state.dailyDate,
+            state.styleSwitches
+          )
         }
         clearPersistedRun()
       } else {
@@ -761,6 +844,7 @@ export const useGameStore = create<GameStore>()((set) => ({
             styleId: state.styleId,
             historyLength: state.history.length,
             startedAt: state.runStartedAt,
+            styleSwitches: state.styleSwitches,
           },
           { kind: 'none' }
         )
@@ -801,6 +885,11 @@ export const useGameStore = create<GameStore>()((set) => ({
           styleId: state.styleId,
           historyLength: 0,
           startedAt: now,
+          // 新一局从零开始数：被放弃的那一局切过几次跟着它一起消失，两个战绩桶一个
+          // 字节都不写（mode-contract §3「不写任何记录」）。所以放弃不会留下半点
+          // 「这一局换过风格」的痕迹——风格旅行者问的是「单局内」，被放弃的那一局
+          // 不结算，也就没有成就该由它解锁
+          styleSwitches: 0,
         },
         { kind: 'reset' }
       )
@@ -814,6 +903,7 @@ export const useGameStore = create<GameStore>()((set) => ({
         swapArmed: false,
         swapSelection: null,
         runStartedAt: now,
+        styleSwitches: 0,
       }
     })
   },

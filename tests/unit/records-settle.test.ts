@@ -145,6 +145,7 @@ function pristineStore(): void {
     styleId: 'classic',
     selectedModeId: 'classic',
     runStartedAt: null,
+    styleSwitches: 0,
     records: [],
     stats: null,
     achievementNotice: null,
@@ -161,6 +162,8 @@ function mount(
     startedAt?: number
     history?: readonly GameState[]
     dailyDate?: string | null
+    /** T19：这一局切过几次风格。默认 0，风格旅行者的用例按需给 */
+    styleSwitches?: number
   } = {}
 ): void {
   useGameStore.setState({
@@ -172,6 +175,8 @@ function mount(
     styleId: options.styleId ?? 'classic',
     // 与 game 一起落下：结算那一刻才算得出本局时长
     runStartedAt: options.startedAt ?? RUN_START,
+    // 与 game 一起落下：不显式归零的话，上一个用例切过的次数会漏进这一个用例的结算里
+    styleSwitches: options.styleSwitches ?? 0,
   })
 }
 
@@ -810,7 +815,7 @@ describe('成就解锁：提示只响一次，进度跨刷新保持', () => {
 async function writeSameSettlementTwice(): Promise<void> {
   const records = await import('../../src/renderer/stores/records')
   const store = await import('../../src/renderer/stores/sessionStore')
-  const settlement = records.settlementOf(run(), 'classic', RUN_START, SETTLE_AT, [], null)
+  const settlement = records.settlementOf(run(), 'classic', RUN_START, SETTLE_AT, [], null, 0)
   await store.writeSettlement(settlement)
   await store.writeSettlement(settlement)
 }

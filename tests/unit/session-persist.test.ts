@@ -243,6 +243,7 @@ function seedBackend(): SessionRecord {
     styleId: state.styleId,
     historyLength: state.history.length,
     startedAt: state.runStartedAt,
+    styleSwitches: state.styleSwitches,
   })
   fake.store.session.set('current', record)
   state.history.forEach((entry, index) => {
@@ -524,6 +525,7 @@ describe('读回来怎么落到 store 上', () => {
         styleId: 'classic',
         historyLength: 0,
         startedAt: RUN_START,
+        styleSwitches: 0,
       })
     )
 
@@ -613,6 +615,7 @@ describe('读回来怎么落到 store 上', () => {
         styleId: 'classic',
         historyLength: 0,
         startedAt: RUN_START,
+        styleSwitches: 0,
       })
     )
 
@@ -690,6 +693,7 @@ describe('开局界面上的选择也进 settings', () => {
         styleId: 'material',
         historyLength: 0,
         startedAt: RUN_START,
+        styleSwitches: 0,
       })
     )
 

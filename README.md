@@ -62,7 +62,7 @@ are documented in [`docs/agents/`](docs/agents/).
 - [ ] **Cyberpunk** — [cyberpunk-ui](https://github.com/laddtnov/cyberpunk-ui)（MIT）：研究色彩 token、发光边缘和动效的静态替代。
 - [ ] **Bauhaus** — [Hammhaus](https://github.com/g3hamm/hammhaus)（MIT）：研究纸张、原色、几何和海报式排版的 token 系统。
 - [ ] **Newspaper** — [the-lamplighter](https://github.com/starinzlob/the-lamplighter)（代码 MIT，字体 OFL）：研究报纸网格、纸张纹理及中英文字体层级。
-- [ ] 在对应风格上线后再实现 `全风格征服` 与 `复古大师`；当前版本只实现九个模式轴成就与 `风格旅行者`。
+- [ ] 在对应风格上线后再实现 `全风格征服` 与 `复古大师`；当前版本实现附录十个成就里的八个（七个模式轴成就 + `风格旅行者`），另外两个模式轴成就按 ADR-0003 的裁决挂起。**当前版本没有为这四个成就预留任何占位行**，注册表里没有它们的 id，界面上也不会出现暗示未来风格可用的空壳。
 
 每个远期风格都需先写自己的 `DESIGN.md`，沿用固定 Board 与两个装饰插槽，并单独通过对比度、桌面/手机视觉和交互验收。参考仓库的设计语言不等于本项目可以直接复制其组件树。
 

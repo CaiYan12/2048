@@ -25,7 +25,9 @@ import type {
  *
  * **T17 的改动**：records / stats 两个桶由 T17 的 records.ts + sessionStore.ts 建起来，
  * 本文件只扩了 SessionRecord.startedAt（T17 的「本局时长」要从它推导，见那边）。
- * 顺序是有意的：纯逻辑的两个半边各自可被 node 单测驱动，I/O 仍然只有一处。
+ * **T19 的改动**：session 桶多一个 SessionRecord.styleSwitches（本局风格切换次数，
+ * 风格旅行者读它）。顺序是有意的：纯逻辑的两个半边各自可被 node 单测驱动，I/O 仍然
+ * 只有一处。
  */
 
 /**
@@ -118,18 +120,38 @@ export interface SessionRecord {
    * 不是一次真实的开局。
    */
   startedAt: number | null
+  /**
+   * 本局**真实发生**的风格切换次数（T19 的风格旅行者读它）
+   *
+   * 为什么它必须在这里：一次切换是**发生过的事件**，不是棋盘位置的属性。撤销搬回的
+   * 是整个前态（GameState 全文 + 撤销栈本身），所以任何住在 GameState 里的数都会跟着
+   * 撤销一起回退——那正是 T18 在「本局曾经撤销过」上摔过的那个坑：一个能被撤销抹掉的
+   * 事实，等于没有。计次数住在这个记录里，于是撤销那一步写回来的还是同一个数（撤销写
+   * session 时当场从 store 取），它只会往前走。
+   *
+   * 而它又必须**跨过刷新活着**：结算那一刻 session 存档连同撤销历史一起作废（T16），
+   * 「这一局切过几次」在刷新之后若从零开始数，玩家就会在结算时丢掉一个已经达成的成就。
+   * 与 startedAt / dailyDate 同一条路——不是规则数据，但必须跟着这一局活到结算。
+   *
+   * **缺这个字段不是错误**（T18 及更早的存档没有它）：那时没有人在数，0 是诚实的值。
+   * 为它把整局拒掉，等于因为一个统计字段毁掉一局还能下的棋（与 decodeStartedAt 同一
+   * 条理由）。给了却不是 ≥0 的整数才按形状拒。
+   */
+  styleSwitches: number
   game: GameState
   /** 撤销历史的长度：history 桶里 [0, historyLength) 这一段属于这一局 */
   historyLength: number
 }
 
-/** 恢复出来的那一局：store 要落的五个字段（拾取态刻意不在内，见 useGameStore） */
+/** 恢复出来的那一局：store 要落的六个字段（拾取态刻意不在内，见 useGameStore） */
 export interface RestoredSession {
   game: GameState
   history: readonly GameState[]
   dailyDate: string | null
   styleId: StyleId
   startedAt: number | null
+  /** 本局已经切换过几次风格（T19）。见 SessionRecord.styleSwitches */
+  styleSwitches: number
 }
 
 /** 读一份存档的结论。三态缺一不可：没存过不是错，存了读不得才是 */
@@ -171,6 +193,8 @@ export interface SessionSnapshot {
   historyLength: number
   /** 本局起始时刻（T17 的时长公式用）。见 SessionRecord.startedAt */
   startedAt: number | null
+  /** 本局真实切换过几次风格（T19 的风格旅行者用）。见 SessionRecord.styleSwitches */
+  styleSwitches: number
 }
 
 // ─── 形状判据 ────────────────────────────────────────────────────────────────
@@ -316,6 +340,20 @@ function decodeStartedAt(
   return { ok: true, value: raw }
 }
 
+/**
+ * 本局切换次数：`null` / 缺这个字段都按「还没数过」收（T18 及更早的存档），否则必须
+ * 是 ≥0 的整数。
+ *
+ * 0 是合法值（一局一次没换过），所以它不能像 startedAt 那样被单列出去。负数与小数
+ * 说明这份记录来自另一种形状——一个负的切换次数没有任何解释得通的来历，那时照它往下
+ * 算只会让成就判定在一份说不清的数据上做判断。
+ */
+function decodeStyleSwitches(raw: unknown): { ok: true; value: number } | { ok: false } {
+  if (raw === null || raw === undefined) return { ok: true, value: 0 }
+  if (!isInteger(raw, 0)) return { ok: false }
+  return { ok: true, value: raw }
+}
+
 // ─── 编码（store → 存档） ─────────────────────────────────────────────────────
 
 export function encodeSession(snapshot: SessionSnapshot): SessionRecord {
@@ -324,6 +362,7 @@ export function encodeSession(snapshot: SessionSnapshot): SessionRecord {
     styleId: snapshot.styleId,
     dailyDate: snapshot.dailyDate,
     startedAt: snapshot.startedAt,
+    styleSwitches: snapshot.styleSwitches,
     game: snapshot.game,
     historyLength: snapshot.historyLength,
   }
@@ -358,6 +397,8 @@ export function decodeSession(raw: unknown): SessionParse {
   if (!dailyDate.ok) return { kind: 'rejected', reason: 'shape' }
   const startedAt = decodeStartedAt(raw.startedAt)
   if (!startedAt.ok) return { kind: 'rejected', reason: 'shape' }
+  const styleSwitches = decodeStyleSwitches(raw.styleSwitches)
+  if (!styleSwitches.ok) return { kind: 'rejected', reason: 'shape' }
   if (!isInteger(raw.historyLength, 0)) return { kind: 'rejected', reason: 'shape' }
   const game = decodeGame(raw.game)
   if (game === null) return { kind: 'rejected', reason: 'shape' }
@@ -368,6 +409,7 @@ export function decodeSession(raw: unknown): SessionParse {
       styleId: raw.styleId,
       dailyDate: dailyDate.value,
       startedAt: startedAt.value,
+      styleSwitches: styleSwitches.value,
       game,
       historyLength: raw.historyLength,
     },
@@ -436,6 +478,7 @@ export function assembleSession(
     dailyDate: record.dailyDate,
     styleId: record.styleId,
     startedAt: record.startedAt,
+    styleSwitches: record.styleSwitches,
   }
 }
 

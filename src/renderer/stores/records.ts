@@ -34,6 +34,11 @@ import {
  * 用过撤销的一局与干净的一局在记录里逐字节同形。T18 的两个「不使用撤销 / 不使用交换」
  * 成就要的「曾经用过」在持久状态里不可推导（撤销弹掉前态后不留痕迹），按 owner 裁决
  * 之前不实现、也不为它们加字段——见 achievements.ts 头注。
+ *
+ * **T19 的风格切换次数不在此列**：它是**事实**（这一局换过几次观感），不是对玩家行为的
+ * 评判，所以它不违反 ADR-0003「只增不减的标记字段」禁令的那半边——那条禁令禁的是
+ * 「本局用过撤销 / 作弊」这种会污染记录的判据字段。它同样住在 session 桶而不是
+ * records / stats：结算之后这一局连同计数一起作废，两个战绩桶里不留「切换过几次」。
  */
 
 /** 两个新桶的名字（I/O 半边在 sessionStore.ts，两处必须一致） */
@@ -124,6 +129,17 @@ export interface Settlement {
    */
   merges: number
   /**
+   * 本局**真实发生**的风格切换次数（T19 的风格旅行者读它）
+   *
+   * 与 merges / dailyDate 同一条路：它不是 GameState 的字段（结算那一刻的终局里没有
+   * 「这一局换过几次观感」），而是 session 桶里一个跟着这一局活的计数。所以结算方必须
+   * 在 session 作废之前把它带进来，晚一步就只剩 0——而那是**把一个已经达成的成就判成
+   * 没达成**，比没有这个成就更糟（玩家明明切够了五次）。
+   *
+   * 只数真的换了的那几次：重复选当前风格不是切换，一次都不加（ticket 验收标准 1）。
+   */
+  styleSwitches: number
+  /**
    * 本局的 Daily UTC 日期串；非 Daily 为 null（T18 的每日坚守读它）
    *
    * 来源只能是 `SessionRecord.dailyDate`：种子是单向哈希，日期串从 initialSeed 反推
@@ -198,7 +214,8 @@ export function highestTileOf(board: Board): number {
  * `prior` 是结算那一刻的**撤销路径**（store 的 history，索引 0 是开局那一个状态）。
  * 它必须在这一刻传进来，是因为合并次数只能沿它数（见 Settlement.merges），而路径与
  * session 存档一起在结算时作废——晚一步就没有了。`dailyDate` 同理：它是 session 桶
- * 里的字段，不是规则数据，结算方不带过来就丢了。
+ * 里的字段，不是规则数据，结算方不带过来就丢了。`styleSwitches` 是同一个道理的第三个
+ * 例子（T19）：它跟着这一局活，而这一局在结算那一刻被作废。
  */
 export function settlementOf(
   game: GameState,
@@ -206,7 +223,8 @@ export function settlementOf(
   startedAt: number | null,
   now: number,
   prior: readonly GameState[],
-  dailyDate: string | null
+  dailyDate: string | null,
+  styleSwitches: number
 ): Settlement {
   return {
     modeId: game.modeId,
@@ -219,6 +237,7 @@ export function settlementOf(
     startedAt,
     // 合并次数只能沿撤销路径数，判据在 achievements.countMergesAlongPath
     merges: countMergesAlongPath(prior, game),
+    styleSwitches,
     dailyDate,
   }
 }

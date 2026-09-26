@@ -59,6 +59,8 @@ function distinctiveRecord(): SessionRecord {
     version: STORAGE_VERSION,
     styleId: 'material',
     dailyDate: null,
+    // T19 的切换次数：defaultRecord 这一局切过 3 次
+    styleSwitches: 3,
     // T17 的本局起始时刻。给一个与 NOW 不同的值：时长公式要从它算到结算那一刻，
     // 而断言落在一串巧合的初始值上就什么也证明不了
     startedAt: RUN_START,
@@ -108,6 +110,7 @@ describe('一整个 session 的往返', () => {
       styleId: 'material',
       historyLength: 3,
       startedAt: RUN_START,
+      styleSwitches: 3,
     })
 
     const parsed = roundTrip(record)
@@ -123,6 +126,9 @@ describe('一整个 session 的往返', () => {
     // 起始时刻一个毫秒都不差：T17 的「本局时长」从它算到结算那一刻，
     // 差一秒就是统计上平白多出来的一秒
     expect(parsed.record.startedAt).toBe(RUN_START)
+    // 切换次数一个都不差：T19 的风格旅行者在结算那一刻要读到「这一局切过几次」，
+    // 刷新之后少一次就是一个已经达成的成就被判成没达成
+    expect(parsed.record.styleSwitches).toBe(3)
     // 墙与空格各就各位：walls 模式恢复出来还得是四格墙
     expect(parsed.record.game.board[1][1]).toBe('wall')
     expect(parsed.record.game.board[1][2]).toBe('wall')
@@ -153,6 +159,7 @@ describe('一整个 session 的往返', () => {
       styleId: 'classic',
       historyLength: 0,
       startedAt: RUN_START,
+      styleSwitches: 0,
     })
     const parsed = roundTrip(record)
     if (parsed.kind !== 'ok') throw new Error('应当读得出来')
@@ -179,6 +186,7 @@ describe('一整个 session 的往返', () => {
       styleId: 'classic',
       historyLength: 0,
       startedAt: RUN_START,
+      styleSwitches: 0,
     })
     expect(roundTrip(record).kind).toBe('ok')
 
@@ -294,6 +302,10 @@ describe('形状对不上：拒绝', () => {
     ['startedAt 是负数', () => ({ ...distinctiveRecord(), startedAt: -1 })],
     ['startedAt 是小数', () => ({ ...distinctiveRecord(), startedAt: 1.5 })],
     ['startedAt 是字符串', () => ({ ...distinctiveRecord(), startedAt: '2026-09-26' })],
+    ['styleSwitches 是负数', () => ({ ...distinctiveRecord(), styleSwitches: -1 })],
+    ['styleSwitches 是小数', () => ({ ...distinctiveRecord(), styleSwitches: 1.5 })],
+    ['styleSwitches 是字符串', () => ({ ...distinctiveRecord(), styleSwitches: '3' })],
+    ['styleSwitches 是 NaN', () => ({ ...distinctiveRecord(), styleSwitches: Number.NaN })],
   ]
 
   test.each(broken)('%s：整局按不可恢复处理', (_name, make) => {
@@ -343,6 +355,49 @@ describe('dailyDate：与种子各存各的', () => {
     const parsed = roundTrip({ ...distinctiveRecord(), dailyDate: '2026-01-01' })
     if (parsed.kind !== 'ok') throw new Error('应当读得出来')
     expect(parsed.record.dailyDate).toBe('2026-01-01')
+  })
+})
+
+describe('本局风格切换次数：T19 要它跨过刷新活着', () => {
+  test('给了一个就原样回来，一次都不差', () => {
+    const parsed = roundTrip({ ...distinctiveRecord(), styleSwitches: 6 })
+    if (parsed.kind !== 'ok') throw new Error('应当读得出来')
+    expect(parsed.record.styleSwitches).toBe(6)
+  })
+
+  test('0 是合法值：一局一次没换过与换过三次是两回事，都得读得出来', () => {
+    const parsed = roundTrip({ ...distinctiveRecord(), styleSwitches: 0 })
+    if (parsed.kind !== 'ok') throw new Error('应当读得出来')
+    expect(parsed.record.styleSwitches).toBe(0)
+  })
+
+  test('没有这个字段（T18 及更早开的局）照样能恢复，按「还没数过」收 0', () => {
+    // 与 startedAt 同一条理由：那时没有人在数切换，0 是诚实的值。为它把整局拒掉，
+    // 等于因为一个统计字段毁掉一局还能下的棋
+    const { styleSwitches: _absent, ...withoutSwitches } = distinctiveRecord()
+    const parsed = decodeSession(withoutSwitches)
+    expect(parsed.kind).toBe('ok')
+    if (parsed.kind !== 'ok') return
+    expect(parsed.record.styleSwitches).toBe(0)
+    // 其余字段一个都没少：拒绝的判据只针对给了却不对的值
+    expect(parsed.record.startedAt).toBe(RUN_START)
+  })
+
+  test('显式 null 与缺字段同等对待：不是损坏，是「没记」', () => {
+    // 用 unknown 接住：这一条就是要把一个形状不对的值递进去（T16 时代的存档可能
+    // 什么都没有，也可能有 null），判据收不收它由 decodeSession 自己说
+    const withNull: unknown = { ...distinctiveRecord(), styleSwitches: null }
+    const parsed = decodeSession(withNull)
+    expect(parsed.kind).toBe('ok')
+    if (parsed.kind !== 'ok') return
+    expect(parsed.record.styleSwitches).toBe(0)
+  })
+
+  test('assembleSession 把切换次数一并交出来', () => {
+    // store 靠它落在 styleSwitches 上，于是刷新之后结算时读得到这一局切过几次
+    const record: SessionRecord = { ...distinctiveRecord(), styleSwitches: 5, historyLength: 0 }
+    const restored = assembleSession(record, [])
+    expect(restored?.styleSwitches).toBe(5)
   })
 })
 

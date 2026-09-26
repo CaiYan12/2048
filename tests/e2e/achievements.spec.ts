@@ -124,7 +124,7 @@ test('收起提示不动盘上的解锁', async ({ page }) => {
   )
 })
 
-test('StatsPanel：七个成就各一行，锁着的那一行照实写出条件，键盘可达', async ({ page }) => {
+test('StatsPanel：八个成就各一行，锁着的那一行照实写出条件，键盘可达', async ({ page }) => {
   const problems = watchProblems(page)
   await page.goto('/')
   await page.getByRole('button', { name: '开始游戏' }).click()
@@ -137,9 +137,10 @@ test('StatsPanel：七个成就各一行，锁着的那一行照实写出条件�
   await expect(page.locator('[data-stats-panel]')).toBeVisible()
 
   const rows = page.locator('[data-achievement]')
-  await expect(rows).toHaveCount(7)
+  // T19 起是八个：七个模式轴 + 风格旅行者
+  await expect(rows).toHaveCount(8)
   // 一局死局、没赢过：一个都没解锁，而每一行都把条件写出来
-  for (const id of ['first-win', 'mode-collector', 'tile-4096', 'tile-8192', 'quick-hand', 'daily-stand', 'merge-machine']) {
+  for (const id of ['first-win', 'mode-collector', 'tile-4096', 'tile-8192', 'quick-hand', 'daily-stand', 'merge-machine', 'style-traveller']) {
     await expect(page.locator(`[data-achievement="${id}"]`)).toHaveAttribute(
       'data-unlocked',
       'false'

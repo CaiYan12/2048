@@ -77,6 +77,8 @@ function settlement(overrides: Partial<Settlement> = {}): Settlement {
     timePlayedMs: 1800000,
     startedAt: RUN_START,
     merges: 0,
+    // T19 的风格切换次数：这一票的用例全都不切风格，所以恒 0
+    styleSwitches: 0,
     dailyDate: null,
     ...overrides,
   }
@@ -139,7 +141,7 @@ describe('键与身份：一局只归一个风格', () => {
 
 describe('从终局状态取出一次结算', () => {
   test('分数、最高方块、曾达标、结束原因各自就位', () => {
-    const payload = settlementOf(settledDeadlock(), 'material', RUN_START, SETTLE_AT, [], null)
+    const payload = settlementOf(settledDeadlock(), 'material', RUN_START, SETTLE_AT, [], null, 0)
     expect(payload).toEqual({
       modeId: 'walls',
       styleId: 'material',
@@ -150,19 +152,21 @@ describe('从终局状态取出一次结算', () => {
       timePlayedMs: 1800000,
       startedAt: RUN_START,
       merges: 0,
+      // T19 的切换次数：这一个结算载荷是「一次都没换过风格」的一局
+      styleSwitches: 0,
       dailyDate: null,
     })
   })
 
   test('本局时长 = 结算时刻 − 起始时刻，墙上时间，六模式同一个公式', () => {
     // 换一个模式、换一个起始时刻，公式不变：这里只是「差多少算多少」
-    const walls = settlementOf(settledDeadlock(), 'classic', RUN_START, SETTLE_AT, [], null)
+    const walls = settlementOf(settledDeadlock(), 'classic', RUN_START, SETTLE_AT, [], null, 0)
     expect(walls.timePlayedMs).toBe(1800000)
-    const later = settlementOf(settledDeadlock(), 'classic', RUN_START, SETTLE_AT + 42500, [], null)
+    const later = settlementOf(settledDeadlock(), 'classic', RUN_START, SETTLE_AT + 42500, [], null, 0)
     expect(later.timePlayedMs).toBe(1842500)
     // 时钟被拨回（用户改系统时间）：不记负数。负数时长会让累计时长越算越少，
     // 而那是一个没有任何界面能发现的腐败
-    const backwards = settlementOf(settledDeadlock(), 'classic', RUN_START, RUN_START - 5000, [], null)
+    const backwards = settlementOf(settledDeadlock(), 'classic', RUN_START, RUN_START - 5000, [], null, 0)
     expect(backwards.timePlayedMs).toBe(0)
   })
 
@@ -177,14 +181,14 @@ describe('从终局状态取出一次结算', () => {
       endReason: 'timeout',
       deadline: RUN_START + 180000,
     }
-    const payload = settlementOf(timeoutRun, 'claude', RUN_START, SETTLE_AT, [], null)
+    const payload = settlementOf(timeoutRun, 'claude', RUN_START, SETTLE_AT, [], null, 0)
     expect(payload.endReason).toBe('timeout')
     expect(payload.timePlayedMs).toBe(1800000)
   })
 
   test('没有起始时刻（T17 之前开的那一局）：时长记 0，分数与最高方块照记', () => {
     // 为它把整局拒掉，等于因为一个统计字段毁掉一局还能下的棋
-    const payload = settlementOf(settledDeadlock(), 'classic', null, SETTLE_AT, [], null)
+    const payload = settlementOf(settledDeadlock(), 'classic', null, SETTLE_AT, [], null, 0)
     expect(payload.timePlayedMs).toBe(0)
     expect(payload.score).toBe(4242)
     expect(payload.highestTile).toBe(1024)
@@ -334,12 +338,12 @@ describe('没有任何字段能区分「用过撤销的一局」与「干净的�
     // 撤销 400 步的一局
     const assisted = applySettlement(
       null,
-      settlementOf(assistedWin(), 'material', RUN_START, SETTLE_AT, [], null)
+      settlementOf(assistedWin(), 'material', RUN_START, SETTLE_AT, [], null, 0)
     )
     // 一模一样的一局，只是没有撤销历史：同样的盘面、同样的分数、同样的方块
     const clean = applySettlement(
       null,
-      settlementOf(settledWin(), 'material', RUN_START, SETTLE_AT, [], null)
+      settlementOf(settledWin(), 'material', RUN_START, SETTLE_AT, [], null, 0)
     )
     expect(assisted).toEqual(clean)
     // 逐字节同形还不够，还要钉住**没有第三个字段**： someone 日后加一个
@@ -350,11 +354,11 @@ describe('没有任何字段能区分「用过撤销的一局」与「干净的�
   test('统计的键也恰好这六个，撤销历史进不去', () => {
     const assisted = applyRunToStats(
       null,
-      settlementOf(assistedWin(), 'material', RUN_START, SETTLE_AT, [], null)
+      settlementOf(assistedWin(), 'material', RUN_START, SETTLE_AT, [], null, 0)
     ).stats
     const clean = applyRunToStats(
       null,
-      settlementOf(settledWin(), 'material', RUN_START, SETTLE_AT, [], null)
+      settlementOf(settledWin(), 'material', RUN_START, SETTLE_AT, [], null, 0)
     ).stats
     expect(assisted).toEqual(clean)
     // SPEC §3.3 的四个数字 + 成就进度 + 幂等键。没有任何一项携带 undo / history / moves /
@@ -370,7 +374,7 @@ describe('没有任何字段能区分「用过撤销的一局」与「干净的�
   test('结算载荷本身看不见撤销历史：GameState 的十一个字段里没有它', () => {
     // 撤销栈住在 store 而不是 GameState（ADR-0003 的完整前态方案），于是「这一局
     // 撤销过多少次」在结构上就传不到这里来——不是靠某条判断过滤掉的
-    const payload = settlementOf(assistedWin(), 'material', RUN_START, SETTLE_AT, [], null)
+    const payload = settlementOf(assistedWin(), 'material', RUN_START, SETTLE_AT, [], null, 0)
     expect(Object.keys(payload)).not.toContain('history')
     expect(Object.keys(payload)).not.toContain('moves')
     expect(Object.keys(payload)).not.toContain('undoCount')
@@ -516,6 +520,8 @@ describe('版本与形状：拒绝，而不是静默重置', () => {
       styleId: 'material',
       dailyDate: null,
       startedAt: RUN_START,
+      // T19 的切换次数：两个桶的形状互不影响，这里只是让它在 session 那边有个值
+      styleSwitches: 0,
       game: settledWin(),
       historyLength: 3,
     }

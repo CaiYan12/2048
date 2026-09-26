@@ -3,7 +3,7 @@ import { MODES } from '../shared/modes'
 import type { GameState } from '../shared/types'
 
 /**
- * 模式轴成就的**纯判定**（计划附录「本次成就清单」的九个模式轴成就 · SPEC §3.3）
+ * 模式轴成就与「风格旅行者」的**纯判定**（计划附录「本次成就清单」 · SPEC §3.3）
  *
  * 本文件零 DOM、零 `indexedDB`、零 `window`、零 `Date`：一次结算带来的**本局事实**
  * 由调用方喂进来，解锁与进度从这些事实算出来。于是「这一局该不该解锁某个成就」可以在
@@ -15,17 +15,26 @@ import type { GameState } from '../shared/types'
  * 只消费**能从持久化状态推导出来**的本局事实：
  *   · 分数 / 最高方块 / 曾达标 —— 终局 GameState 自己就带着；
  *   · 合并次数 —— 沿结算时的撤销路径逐段数（见 countMergesAlongPath）；
+ *   · 风格切换次数 —— session 桶的一个字段（T19）：它是**发生过的事件**，不是位置，
+ *     所以住在撤销恢复不到的地方；
  *   · Daily 日期 —— SessionRecord.dailyDate（T08：它不能从种子反推，只能由结算方带来）。
  *
  * 进度住在 stats 桶里（SPEC §3.3「stats stores ... achievement unlocks」），形状判据在
  * 本文件的 decodeAchievementProgress，与 STORAGE_VERSION 同一套版本 / 拒绝次序。
  *
- * **为什么只有七个 id**：「完美一局」与「无作弊通关」要的是「这一局**曾经**用过撤销 /
+ * **为什么只有八个 id**：「完美一局」与「无作弊通关」要的是「这一局**曾经**用过撤销 /
  * 作弊交换」，而撤销把前态弹出撤销栈之后，那件事在持久化状态里不再留下任何痕迹——
  * undo 之后 history.length 与 moves 一起回退，两者之差只在交换时变化（见
  * countMergesAlongPath 上方对 `history.length - moves` 的说明）。判定这两个成就需要
  * 一个只增不减的计数器，而加这个字段正是 ADR-0003 明令禁止的标记字段。owner 裁决
  * 之前这两个成就**不实现**，而不是换一个将就的推导。
+ *
+ * 风格轴那两个（`全风格征服` / `复古大师`）也不在这里：它们的前提是**整套特色风格上线**，
+ * 在三套基准风格下连「全风格」指什么都说不清。它们留在家目录的 README TODO（SPEC §6
+ * 也禁止界面上出现暗示未来风格可用的占位），所以 `AchievementId` 与 `ACHIEVEMENTS`
+ * 里都没有它们的 id——不是「先占一行、等以后填」，而是结构上就不给它们留位置。
+ * 本次唯一实现的风格轴成就是 `style-traveller`：它数的是**切换事件本身**，三套风格
+ * 就数得出来，与将来有几套风格无关。
  */
 
 /**
@@ -49,6 +58,8 @@ export type AchievementId =
   | 'daily-stand'
   /** 合并机器：单局完成 200 次合并 */
   | 'merge-machine'
+  /** 风格旅行者：单局内切换 5 次以上风格 */
+  | 'style-traveller'
 
 export interface AchievementDefinition {
   id: AchievementId
@@ -72,6 +83,9 @@ export const ACHIEVEMENTS: readonly AchievementDefinition[] = [
   { id: 'quick-hand', label: '快手', condition: 'Time Attack 单局超过 20000 分' },
   { id: 'daily-stand', label: '每日坚守', condition: '连续 7 个 UTC 日期各结算至少一局 Daily' },
   { id: 'merge-machine', label: '合并机器', condition: '单局完成 200 次合并' },
+  // 风格轴那一个排在最后：计划附录的清单就是「九个模式轴 + 风格旅行者」这个次序，
+  // 而 unlocked 列表按这张表排序，于是刷新前后逐字节可比
+  { id: 'style-traveller', label: '风格旅行者', condition: '单局内切换 5 次以上风格' },
 ]
 
 /** 模式收藏家的目标：**当前注册表里有几个模式**就得赢几个，不写死 6（modes.ts 是唯一真话） */
@@ -91,6 +105,21 @@ export const DAILY_STREAK_TARGET = 7
 
 /** 合并机器：单局 200 次合并 */
 export const MERGE_MACHINE_COUNT = 200
+
+/**
+ * 风格旅行者：计划附录的「单局内切换 5 次以上风格」，**阈值钉在 5，判据是 `>=`**。
+ *
+ * 「以上」在边界上是含本数的（中文规范里「以上」含本数、「超过」不含），而同附录同
+ * 一张表里的「超过 20000 分」被 T18 实现成严格大于——同一份文件的两个措辞应当读出两
+ * 个意思，否则它没必要换词。所以 **5 次解锁、4 次不解**，判据写成
+ * `facts.styleSwitches >= STYLE_TRAVELLER_SWITCHES`。
+ *
+ * 钉在这里而不是留给读代码的人现猜：界面上照实显示的条件原话就是「切换 5 次以上」，
+ * 常数与界面必须说同一个数；要是把「以上」读成「超过」（要 6 次），那句话就与实现
+ * 当场矛盾，而玩家没有别的办法知道自己到底要切几次。tests/unit/achievements.test.ts
+ * 把 4 / 5 / 6 三档都钉住，日后谁也换不成另一种读法。
+ */
+export const STYLE_TRAVELLER_SWITCHES = 5
 
 /**
  * 成就进度（住在 stats 桶里）。
@@ -145,6 +174,18 @@ export interface RunFacts {
   reachedTarget: boolean
   /** 本局合并次数（沿结算时的撤销路径数） */
   merges: number
+  /**
+   * 本局**真实发生**的风格切换次数（T19 的风格旅行者读它）
+   *
+   * 它是事件计数，不是位置的属性：一次切换发生过就发生过，撤销一步移动不会把它变回
+   * 「没发生过」。所以它住在撤销恢复不到的地方——session 桶的一个字段（见
+   * SessionRecord.styleSwitches），由结算方在 session 作废之前带进来。
+   *
+   * **只数真的换了的那几次**：重复选当前风格不是切换，一次都不加。结算那一刻的风格
+   * 归记录（mode-contract §3「成绩归结算那一刻所处的风格」），而这个数问的是另一件
+   * 事——这一局里换过几次观感。
+   */
+  styleSwitches: number
   /** 本局的 Daily UTC 日期串；非 Daily 为 null */
   dailyDate: string | null
 }
@@ -319,6 +360,12 @@ export function applyRunToAchievements(
   if (next.bestTimeAttackScore > QUICK_HAND_SCORE) grant('quick-hand')
   if (next.dailyStreakLength >= DAILY_STREAK_TARGET) grant('daily-stand')
   if (next.bestMerges >= MERGE_MACHINE_COUNT) grant('merge-machine')
+  // 风格旅行者与上面几个不同：它只读**本局事实**，进度里没有对应的最大值字段。
+  // 理由是它没有「累积」可言——「单局内切了五次」与「三局各切两次」不是一回事，攒一个
+  // 跨局最大值只会造出一个谁也不知道该怎么解释的数。于是这个成就的持久残留只有
+  // `unlocked` 里那一个 id（与 first-win 同一条路子），而切换次数本身住在 session 桶、
+  // 结算即作废：结算之后不可能再计数，放弃的一局更是什么都不留（验收标准 2 的后半句）
+  if (facts.styleSwitches >= STYLE_TRAVELLER_SWITCHES) grant('style-traveller')
 
   // 按 ACHIEVEMENTS 的恒定次序落库：刷新前后逐字节可比，e2e 也有稳定下标
   next.unlocked = ACHIEVEMENTS.filter((item) => unlocked.has(item.id)).map((item) => item.id)
