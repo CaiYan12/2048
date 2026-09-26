@@ -88,6 +88,8 @@ interface Measurement {
   bytes: number
   /** 每份前态平均多少字节 */
   bytesPerEntry: number
+  /** 采集这 count 份快照的耗时中位数（ms，3 次取样取中间那次） */
+  collectMs: number
   /** 序列化耗时中位数（ms，3 次取样取中间那次） */
   serializeMs: number
   /** 把这 count 份快照按 store 的方式推进 history 的耗时中位数（ms） */
@@ -109,9 +111,16 @@ function medianOf(run: () => void): number {
 }
 
 function measure(entries: number): Measurement {
-  const history = collectSnapshots(entries)
-  // 一条都不许少：这是「不截断」的断言本体
-  expect(history).toHaveLength(entries)
+  // 采集也计时。collectSnapshots 是拿真实对局一段一段打出来的，此前它完全没被计时，
+  // 于是「会不会失控」那道闸门只看小头。实测（10,000 档）采集约 42 ms、入栈约 73 ms：
+  // 采集不是最大头，最大头是入栈那条平方曲线；但它既然在测量里，就该在被测量的账上。
+  // 三次取中位；最后一份样本直接拿去用，不多打一遍。
+  let history: GameState[] = []
+  const collectMs = medianOf(() => {
+    history = collectSnapshots(entries)
+    // 一条都不许少：这是「不截断」的断言本体
+    expect(history).toHaveLength(entries)
+  })
 
   const serializeMs = medianOf(() => {
     JSON.stringify(history)
@@ -132,6 +141,7 @@ function measure(entries: number): Measurement {
     entries,
     bytes,
     bytesPerEntry: Math.round(bytes / entries),
+    collectMs,
     serializeMs,
     pushMs,
     pushMsPerThousand: (pushMs / entries) * 1_000,
@@ -152,6 +162,11 @@ describe('长局历史成本（mode-contract §4 的实测）', () => {
         指标: '每份前态字节',
         '1,000 次': thousand.bytesPerEntry,
         '10,000 次': tenThousand.bytesPerEntry,
+      },
+      {
+        指标: '采集快照耗时 ms（中位）',
+        '1,000 次': thousand.collectMs.toFixed(2),
+        '10,000 次': tenThousand.collectMs.toFixed(2),
       },
       {
         指标: '序列化耗时 ms（中位）',
@@ -191,16 +206,27 @@ describe('长局历史成本（mode-contract §4 的实测）', () => {
     // `[...state.history, state.game]` 每步都要把已有历史整份复制一遍，
     // 于是「每 1,000 步花多久」会随栈深上升——这是本次设计的事实，
     // 测出来就是为了把它摊在报告里，不是为了让数字好看。
+    //
+    // 增长阶数单看入栈这一项：采集快照是**线性**的（每份一份常量工作），把它并进
+    // 来的话斜率会被摊薄，真要盯的还是入栈那条平方曲线。
     expect(tenThousand.pushMsPerThousand).toBeGreaterThan(thousand.pushMsPerThousand)
   })
 
-  test('CI 承受得住：序列化与入栈都不许把测试拖到秒级', () => {
+  test('CI 承受得住：采集、序列化与入栈都不许把测试拖到秒级', () => {
     // 契约的边界条款：不得把测试规模说成浏览器容量保证。这个上界同理——
     // 它是「这条测试不会拖垮 CI」的闸门，不是对浏览器存储的承诺。
+    // 采集那一项必须也在这个闸门里：它是这份测量的大头，漏掉它等于没闸。
+    expect(thousand.collectMs).toBeLessThan(2_000)
+    expect(tenThousand.collectMs).toBeLessThan(2_000)
     expect(tenThousand.serializeMs).toBeLessThan(2_000)
     expect(tenThousand.pushMs).toBeLessThan(2_000)
     const totalMs =
-      thousand.pushMs + tenThousand.pushMs + thousand.serializeMs + tenThousand.serializeMs
+      thousand.collectMs +
+      tenThousand.collectMs +
+      thousand.pushMs +
+      tenThousand.pushMs +
+      thousand.serializeMs +
+      tenThousand.serializeMs
     expect(totalMs).toBeLessThan(5_000)
   })
 })

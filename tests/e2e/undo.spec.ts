@@ -105,7 +105,7 @@ async function start(page: Page, url: string): Promise<void> {
   await expect(page.locator('[data-board]')).toBeVisible()
 }
 
-test('撤销按钮把一次合法移动之后的棋盘与分数搬回来', async ({ page }) => {
+test('撤销按钮把一次合法移动之后的棋盘搬回来', async ({ page }) => {
   const problems = watchProblems(page)
   await start(page, startUrl(ONE_STEP_FROM_DEADLOCK))
 
@@ -126,9 +126,12 @@ test('撤销按钮把一次合法移动之后的棋盘与分数搬回来', async
   // 没有这一步，玩家唯一的出路就是「结束并记录」或「新游戏」，那就不叫可恢复面板了
   await panel.getByRole('button', { name: '撤销' }).click()
 
-  // 棋盘逐格回到开局夹具，分数回 0，方块身份也回到同一批 id
+  // 棋盘逐格回到开局夹具，方块身份也回到同一批 id
   expect(await readBoard(page)).toEqual(opening)
-  expect(await readScore(page)).toBe(0)
+  // 分数这里**故意不断言**：这条夹具的右移一步是纯滑动，gained = 0，分数从头到尾
+  // 没离开过 0——写 expect(score).toBe(0) 会是一句空转的断言（哪怕撤销把分数擦成
+  // 别的值也照样绿）。「分数跟着回来」由真正得分的那两条顶着：第 2 条（5 步、末态
+  // 得分 12）与第 8 条（右移合并得 4）。
   expect(await readTiles(page)).toEqual(openingTiles)
   // 撤销之后回到活跃局：面板该退下，否则玩家被一个不该在的面板拦住
   await expect(panel).toHaveCount(0)
@@ -224,6 +227,30 @@ test('z 在棋盘聚焦时触发撤销，Shift+Z 是同一个键', async ({ page
   expect(problems).toEqual([])
 })
 
+test('Ctrl+Z 不是撤销：组合键整键放行给浏览器', async ({ page }) => {
+  const problems = watchProblems(page)
+  await start(page, SEED_URL)
+  const opening = await readBoard(page)
+
+  await page.keyboard.press('ArrowUp')
+  const moved = await readBoard(page)
+  expect(moved).not.toEqual(opening)
+
+  // Board.tsx:112 在撤销判断**之前**就为 ctrlKey / metaKey / altKey 放行。
+  // 这条断言是把「为什么不用 Ctrl+Z」那个决定钉成可执行的那一半：少了它，
+  // 那个决定只是 UNDO_KEYS 上头的一段注释——谁把提前 return 删了都照样全绿。
+  await page.keyboard.press('Control+z')
+  expect(await readBoard(page)).toEqual(moved)
+  // 组合键也不该顺手把分动了：撤销没发生，分数与棋盘一个样
+  expect(await readScore(page)).toBe(0)
+
+  // 同一个键去掉修饰键就立刻生效：证明上面那一次没撤销是修饰键的功劳，不是键坏了
+  await page.keyboard.press('z')
+  expect(await readBoard(page)).toEqual(opening)
+
+  expect(problems).toEqual([])
+})
+
 test('z 落在棋盘内的控件上：不撤销，也不吃掉控件自己的激活', async ({ page }) => {
   const problems = watchProblems(page)
   await start(page, SEED_URL)
@@ -258,7 +285,9 @@ test('z 落在棋盘内的控件上：不撤销，也不吃掉控件自己的激
   expect(problems).toEqual([])
 })
 
-test('面板上的撤销按钮保留原生键盘激活（Enter 照旧触发它）', async ({ page }) => {
+test('面板上的撤销按钮保留原生键盘激活（Enter 照旧触发它；这条路径不经 Board 的守卫）', async ({
+  page,
+}) => {
   const problems = watchProblems(page)
   await start(page, startUrl(ONE_STEP_FROM_DEADLOCK))
   const opening = await readBoard(page)
@@ -266,9 +295,12 @@ test('面板上的撤销按钮保留原生键盘激活（Enter 照旧触发它�
   await expect(page.locator('[data-panel="gameover"]')).toBeVisible()
 
   // 焦点给面板里的「撤销」，按 Enter：按钮自己的激活要照旧发生。
-  // 面板在 .board 外面，所以这条路径走的是按钮原生行为而非 Board 的 keydown；
-  // 写在这里是为了把「守卫不拦截控件」这半边也钉住（撤销按钮是 T11 新加的控件，
-  // 第一个真正出现在棋盘壳里的可聚焦元素就是它）
+  //
+  // 但要说清楚这条路径**证明了什么**：面板是 .board 的兄弟节点（ADR-0002 的固定
+  // DOM，面板与方向按钮都在棋盘壳外面），所以面板上的 keydown 根本不会冒泡到
+  // Board 的 onKeyDown——它经过的是按钮的原生行为，不是 isInteractiveTarget 守卫。
+  // 换言之：即使把守卫整条删掉，这条用例照样绿。它钉的是「撤销这个新控件没有把
+  // 键盘激活关掉」这一件 UI 事实；守卫的键位半边由第 6 条（棋盘内插的替身控件）钉。
   await page
     .locator('[data-panel="gameover"]')
     .getByRole('button', { name: '撤销' })
@@ -283,15 +315,23 @@ test('撤销之后分数与方块身份一起回到前值（criterion-2 的可�
   const problems = watchProblems(page)
   await start(page, SEED_URL)
 
-  // 上、左两步：与 game.spec.ts 同一条序列，此刻还没有合并，得分仍是 0、盘上 3 块
+  // 上、左两步：与 game.spec.ts 同一条序列，此刻还没有合并，得分仍是 0、盘上 4 块
+  //（开局 2 块 + 两次生成）
   for (const key of ['ArrowUp', 'ArrowLeft']) await page.keyboard.press(key)
   const beforeScoring = await readBoard(page)
   const beforeScoringTiles = await readTiles(page)
 
-  // 下、右两步：右移把两个 2 合成一个 4，得分 4（game.spec.ts 逐格钉过这张盘）
+  // 下、右两步：右移把同行两个 2 合成一个 4，得分 4（game.spec.ts 逐格钉过这张盘）。
+  // 注意得分的是**右移**：下移纯滑动，gained = 0
   for (const key of ['ArrowDown', 'ArrowRight']) await page.keyboard.press(key)
   expect(await readScore(page)).toBe(4)
 
+  // 两次 z——因为一次 z 只撤一步。撤掉的第一步是得分那一步（ArrowRight），
+  // 此时棋盘停在 ArrowDown 之后的局面、分数已回 0，但还不是上面抓的快照；
+  // 第二次 z 才把 ArrowDown 也撤掉，棋盘与身份一起回到快照。
+  // 刻意不用「快照贴到得分那一步之前 + 按一次 z」的写法：那样「每按一次只退一格」
+  // 这条性质就看不见了。两步两撤，按少了自然红。
+  await page.keyboard.press('z')
   await page.keyboard.press('z')
 
   expect(await readScore(page)).toBe(0)

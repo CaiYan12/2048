@@ -385,6 +385,51 @@ describe('stuck 不是终局', () => {
   })
 })
 
+describe('新游戏是历史的边界', () => {
+  test('newGame 把历史一起清空：撤销回不到被放弃的那一局', () => {
+    // 历史属于「本局」：newGame 在同一个 set 里既换掉 game 又把 history 置空
+    // （useGameStore.ts:185）。少了这一笔，新开的一局能一路撤回到被放弃那一局的
+    // 棋盘上——而「撤销的边界是本局的开局」说的正是这道墙。
+    //
+    // 走真实路径而不是伪造：newGame 抽的是 drawSeed / Math.random，store 之外只碰
+    // 引擎，node 环境里根本不碰 window（读 location.search 的是 startRun，不是它），
+    // 所以这一条在单测里跑得动，也就没有理由不测。
+    mount(
+      stateWithBoard(
+        [
+          [2, 2, null, null],
+          [null, null, null, null],
+          [4, 4, null, null],
+          [null, null, null, null],
+        ],
+        7
+      )
+    )
+    // left 合并两行：2+2 得 4、4+4 得 8，共 12 分（手数出来的）
+    move('left')
+    expect(current().score).toBe(12)
+    expect(useGameStore.getState().history).toHaveLength(1)
+    // down：第 0 列的 4 与 8 必然有一个要挪位置，所以无论上一步的生成落在哪一格，
+    // 这一步都有效——历史到 2 条，这一步不许靠运气
+    move('down')
+    expect(useGameStore.getState().history).toHaveLength(2)
+    const abandonedRun = current()
+
+    useGameStore.getState().newGame()
+    const fresh = useGameStore.getState()
+    expect(fresh.history).toEqual([])
+    // 新一局不是被放弃那一局：换了对象，分数与步数都归零
+    expect(fresh.game).not.toBe(abandonedRun)
+    expect(fresh.game?.score).toBe(0)
+    expect(fresh.game?.moves).toBe(0)
+
+    // 空栈 = 空操作：撤销既搬不回上一局的棋盘，也不会绕回任何局面
+    undo()
+    expect(useGameStore.getState().game).toBe(fresh.game)
+    expect(useGameStore.getState().history).toEqual([])
+  })
+})
+
 describe('没有 assisted 标记', () => {
   /** 递归列出目录下的每个文件（node 环境的 fs；src/ 里没有符号链接） */
   function filesUnder(dir: string): string[] {
