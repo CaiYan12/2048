@@ -44,6 +44,13 @@ let token = 0
 let timer = 0
 
 function setState(state: FontState): void {
+  // 只在真的变了时才写。浏览器会把**每一次** setAttribute 都记进 MutationObserver 的
+  // record 里——包括新值与旧值相同的那一次。状态机里「同一轮探测反复问 check()」是常有
+  // 的事，于是 trace 上会平白多出几个「状态没有变过」的条目（tests/e2e/fonts.spec.ts
+  // 想断言的正是「一次都没动」，而不是「浏览器恰好没记」）。所以在这里去重，而不是到
+  // observer 回调里比 oldValue：前者让页面自己也少一次无意义的 DOM 写入与样式重算，
+  // 后者只是把断言改得能容忍这种写入。
+  if (document.documentElement.dataset.fontState === state) return
   document.documentElement.dataset.fontState = state
 }
 

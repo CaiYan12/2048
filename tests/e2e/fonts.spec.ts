@@ -84,7 +84,9 @@ test('首屏先标 loading，字体到位才升 ready（启动那一轮）', asy
   await expect(page.locator('html')).toHaveAttribute('data-font-state', 'ready', {
     timeout: 5000,
   })
-  // 升了一次，且只升一次（单向升级：ready 之后不会再退回 fallback）
+  // 升了一次，且只升一次（单向升级：ready 之后不会再退回 fallback）。
+  // trace 是**变化**的序列：fontState.setState 只在状态真的变了时才落属性，所以同值
+  // 重写不会出现在这里。于是这条断言语的是状态机的行为，不是浏览器的记录习惯
   expect(await fontStateTrace(page)).toEqual(['ready'])
 })
 
@@ -141,7 +143,9 @@ test('切回已经加载过的字体不再进 loading', async ({ page }) => {
   await pickStyle(page, 'Material')
   await expect(page.locator('main')).toHaveAttribute('data-style', 'material')
 
-  // 空序列 = data-font-state 一个值都没变过。若这里出现 loading，就是一次没有理由的横跳
+  // 空序列 = data-font-state 一个值都没变过。若这里出现 loading，就是一次没有理由的横跳；
+  // 出现 ready 则是白写属性。三种写法在 setState 的去重之后都只剩下同一种解释：
+  // 状态机在这几次切换里一次都不该动（字体没变，recheckEffectiveFont 直接返回）
   expect(await fontStateTrace(page)).toEqual([])
   await expect(page.locator('html')).toHaveAttribute('data-font-state', 'ready')
 })

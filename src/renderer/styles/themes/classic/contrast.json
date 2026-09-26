@@ -24,7 +24,7 @@
       "probe": { "selector": ".panel__label", "background": ".shell" }
     },
     {
-      "usage": "分数 / 目标 / 最高方块面板上的小标签。.panel__label 用 opacity .85 把亮字压在面板底色上——T14 交接条目 2，同一处在面板里、在开局界面上是两对不同的值（见上一条）",
+      "usage": "分数 / 目标 / 最高方块面板上的小标签。.panel__label 用 opacity .85 把亮字压在面板底色上——T14 交接条目 2，同一处在面板里、在开局界面上是两对不同的值（见上一条）。**这是全表贴线最紧的一对**（4.59:1，regular 口径只剩 0.09 余量），想把面板底色调亮一档的人先看这里",
       "basis": "regular",
       "foreground": "#e4e0da",
       "from": { "base": "#f9f6f2", "opacity": 0.85 },
