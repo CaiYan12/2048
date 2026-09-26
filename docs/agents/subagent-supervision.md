@@ -90,3 +90,32 @@ machine.
 Every intervention goes in the SDD ledger: what the signal was, what you concluded, what you did,
 and what it costs if the conclusion was wrong. The ledger is what survives compaction; a stall you
 noticed and fixed without recording is a stall the next session repeats.
+
+## The hooks (this repo)
+
+Supervision is wired to two hook events so it is structural rather than reliant on recall. The owner
+asked for this after a stall reached 13 minutes: the check existing is not the same as the check
+happening.
+
+| Event | Matcher | What it does |
+| --- | --- | --- |
+| `PreToolUse` | `Agent` | Fires **before** a dispatch. Appends a record to `.superpowers/sdd/2048-execution/watch-state.jsonl` and prints the cadence reminder. It must never block the dispatch — never `exit 2`. |
+| `SubagentStop` | — | Fires when a subagent **ends**, which is the strongest moment to invoke supervision: there is now something to review. Prints the three-step nudge (probe → task review → ledger). |
+
+The logic lives in **`scripts/agent-dispatch-hook.mjs`** (committed, so it is versioned and
+reviewable). The wiring is `.claude/settings.json`, which `.gitignore` excludes — so **recreating
+this on a fresh clone means copying that file**. Its contents are two entries pointing at the one
+script.
+
+Two failure modes worth knowing, both of which the script now guards:
+
+- **ESM has no `require`.** The first version read stdin with `require('node:fs')`, which throws
+  under `"type": "module"`; the surrounding `try/catch` turned it into an empty string, so the hook
+  silently became a no-op — no record, no reminder, `exit 0`, everything looking fine. Read failures
+  now write to stderr, because a supervisor that fails silently is worse than none.
+- **A false positive in the browser probe is dangerous.** The owner's own Chrome passes
+  `--user-data-dir` pointing at the *default* profile, so "does it have the flag" is the wrong
+  discriminator — and a regex that truncates a path containing a space (`C:\Users\Einn`) will flag
+  the owner's browser and tell you to kill it. The probe tests the whole command line for the
+  default-profile substring instead, so truncation cannot change the verdict.
+
