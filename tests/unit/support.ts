@@ -1,4 +1,5 @@
 import type { Board, Cell, GameState, Tile } from '../../src/shared/types'
+import type { ModeId } from '../../src/shared/modes'
 import { createGame } from '../../src/game/engine'
 
 /** 一个格子的写法：数字 = 方块值，null = 空格，'wall' = 障碍块 */
@@ -23,9 +24,18 @@ export function boardOf(rows: CellSpec[][]): Board {
   )
 }
 
-/** 以合法初态为底换成手铺局面；随机进度钉死，让「移动后的生成」也可预期 */
-export function stateWithBoard(rows: CellSpec[][], rngState = 7): GameState {
-  const base = createGame('classic', 1)
+/**
+ * 以合法初态为底换成手铺局面；随机进度钉死，让「移动后的生成」也可预期。
+ *
+ * modeId 决定用哪张合并表：引擎的 lane 算法对所有家族同一套，所以同一个手铺局面
+ * 喂给 fibonacci 就是「换表不换算法」——T05 的用例靠这个参数走同一份代码路径。
+ */
+export function stateWithBoard(
+  rows: CellSpec[][],
+  rngState = 7,
+  modeId: ModeId = 'classic'
+): GameState {
+  const base = createGame(modeId, 1)
   return {
     ...base,
     board: boardOf(rows),
