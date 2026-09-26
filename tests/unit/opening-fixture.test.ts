@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { fixtureFromQuery } from '../../src/renderer/stores/fixture'
 import { createGame, move } from '../../src/game/engine'
-import { tilesOf, valueGrid } from './support'
+import { NOW, tilesOf, valueGrid } from './support'
 
 /**
  * 开局局面夹具（?board=）——T04 终局 e2e 的确定性来源。
@@ -25,7 +25,7 @@ const FOUR_1024: (number | null)[][] = [
 
 describe('开局局面夹具', () => {
   test('合法局面照铺：棋盘、分数、随机进度都对齐，后续 move 按规则跑', () => {
-    const state = fixtureFromQuery(`${boardQuery(FOUR_1024)}&score=4321`, 'classic', 20260926)
+    const state = fixtureFromQuery(`${boardQuery(FOUR_1024)}&score=4321`, 'classic', 20260926, NOW)
 
     expect(state).not.toBeNull()
     if (state === null) return
@@ -38,7 +38,7 @@ describe('开局局面夹具', () => {
     expect(state.score).toBe(4321)
     // 开局初态的其余字段：步数 0、随机进度与同种子的普通开局一致
     expect(state.moves).toBe(0)
-    expect(state.rngState).toBe(createGame('classic', 20260926).rngState)
+    expect(state.rngState).toBe(createGame('classic', 20260926, NOW).rngState)
     // 方块身份按行序分配，下一个身份接在后面
     expect(tilesOf(state.board).map((tile) => tile.id)).toEqual([1, 2, 3, 4])
     expect(state.nextTileId).toBe(5)
@@ -60,7 +60,7 @@ describe('开局局面夹具', () => {
       [null, null, null, null],
     ]
 
-    const state = fixtureFromQuery(`${boardQuery(rows)}&score=100`, 'classic', 1)
+    const state = fixtureFromQuery(`${boardQuery(rows)}&score=100`, 'classic', 1, NOW)
 
     expect(state).not.toBeNull()
     if (state === null) return
@@ -74,7 +74,7 @@ describe('开局局面夹具', () => {
   })
 
   test('score 缺省 0', () => {
-    expect(fixtureFromQuery(boardQuery(FOUR_1024), 'classic', 1)?.score).toBe(0)
+    expect(fixtureFromQuery(boardQuery(FOUR_1024), 'classic', 1, NOW)?.score).toBe(0)
   })
 
   test('障碍格保持 wall：夹具不能把方块塞到墙上去', () => {
@@ -86,7 +86,7 @@ describe('开局局面夹具', () => {
       [null, 4, 8, 2],
     ]
 
-    const state = fixtureFromQuery(boardQuery(rows), 'walls', 1)
+    const state = fixtureFromQuery(boardQuery(rows), 'walls', 1, NOW)
 
     expect(state).not.toBeNull()
     if (state === null) return
@@ -99,30 +99,44 @@ describe('开局局面夹具', () => {
   })
 
   test('尺寸必须正好：长度不对就退回随机开局', () => {
-    expect(fixtureFromQuery('board=2,4,8', 'classic', 1)).toBeNull()
+    expect(fixtureFromQuery('board=2,4,8', 'classic', 1, NOW)).toBeNull()
     // 4×4 的局面喂给 5×5 的 Big Board 也不行
-    expect(fixtureFromQuery(boardQuery(FOUR_1024), 'big-board', 1)).toBeNull()
+    expect(fixtureFromQuery(boardQuery(FOUR_1024), 'big-board', 1, NOW)).toBeNull()
     const twentyFive = Array.from({ length: 25 }, () => '')
-    expect(fixtureFromQuery(`board=${twentyFive.join(',')}`, 'big-board', 1)).not.toBeNull()
+    expect(fixtureFromQuery(`board=${twentyFive.join(',')}`, 'big-board', 1, NOW)).not.toBeNull()
   })
 
   test('格子值只接受正整数：0、负数、小数、非数字一律拒绝', () => {
     const tokens = FOUR_1024.flat().map((value) => value ?? '')
     for (const bad of ['0', '-2', '2.5', 'x', ' 2', '0x2', '+2']) {
       const query = `board=${[bad, ...tokens.slice(1)].join(',')}`
-      expect(fixtureFromQuery(query, 'classic', 1), bad).toBeNull()
+      expect(fixtureFromQuery(query, 'classic', 1, NOW), bad).toBeNull()
     }
   })
 
   test('score 只接受非负整数', () => {
-    expect(fixtureFromQuery(`${boardQuery(FOUR_1024)}&score=-1`, 'classic', 1)).toBeNull()
-    expect(fixtureFromQuery(`${boardQuery(FOUR_1024)}&score=1.5`, 'classic', 1)).toBeNull()
-    expect(fixtureFromQuery(`${boardQuery(FOUR_1024)}&score=x`, 'classic', 1)).toBeNull()
-    expect(fixtureFromQuery(`${boardQuery(FOUR_1024)}&score=0`, 'classic', 1)?.score).toBe(0)
+    expect(fixtureFromQuery(`${boardQuery(FOUR_1024)}&score=-1`, 'classic', 1, NOW)).toBeNull()
+    expect(fixtureFromQuery(`${boardQuery(FOUR_1024)}&score=1.5`, 'classic', 1, NOW)).toBeNull()
+    expect(fixtureFromQuery(`${boardQuery(FOUR_1024)}&score=x`, 'classic', 1, NOW)).toBeNull()
+    expect(fixtureFromQuery(`${boardQuery(FOUR_1024)}&score=0`, 'classic', 1, NOW)?.score).toBe(0)
   })
 
   test('没给 board 就退回随机开局', () => {
-    expect(fixtureFromQuery('seed=20260926', 'classic', 1)).toBeNull()
-    expect(fixtureFromQuery('', 'classic', 1)).toBeNull()
+    expect(fixtureFromQuery('seed=20260926', 'classic', 1, NOW)).toBeNull()
+    expect(fixtureFromQuery('', 'classic', 1, NOW)).toBeNull()
+  })
+
+  test('限时模式开局同样带截止点：夹具不改 deadline 的计算', () => {
+    // ?board= 开局的一局 Time Attack 与普通开局一样有时限——否则 e2e 拿夹具铺
+    // 死局时，计时器会变成一条永远不到期的摆设，也就没有「死局不被改判」可证
+    const state = fixtureFromQuery(boardQuery(FOUR_1024), 'time-attack', 20260926, NOW)
+
+    expect(state).not.toBeNull()
+    if (state === null) return
+    expect(state.deadline).toBe(NOW + 180_000)
+    // 非限时模式仍旧是 null：夹具不因为「今天是限时模式」给别的模式加时限
+    expect(fixtureFromQuery(boardQuery(FOUR_1024), 'classic', 20260926, NOW)?.deadline).toBe(
+      null
+    )
   })
 })

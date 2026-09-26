@@ -6,6 +6,17 @@ import { createGame } from '../../src/game/engine'
 export type CellSpec = number | null | 'wall'
 
 /**
+ * 单测注入的固定时刻（epoch ms）：UTC 2026-09-26 中午，与 tests/e2e/daily.spec.ts
+ * 钉的是同一个瞬间。
+ *
+ * 非限时模式的 deadline 恒为 null，所以除限时相关用例外这个值不影响任何断言。
+ * 每个调用点仍然显式传它：时钟由调用方注入是 ADR-0001 的一半，写在这里是为了让
+ * 「注入」在每个 createGame 调用点上都看得见，而不是被一个默认值藏起来——
+ * createGame 的 now 之所以必填，正是为了不留那个默认值。
+ */
+export const NOW = Date.UTC(2026, 8, 26, 12)
+
+/**
  * 用手铺局面造棋盘。
  *
  * Tile 的 id 按行序从 1 递增分配，让断言里可以直接写 id 数值——「身份不随位置变化」
@@ -29,13 +40,16 @@ export function boardOf(rows: CellSpec[][]): Board {
  *
  * modeId 决定用哪张合并表：引擎的 lane 算法对所有家族同一套，所以同一个手铺局面
  * 喂给 fibonacci 就是「换表不换算法」——T05 的用例靠这个参数走同一份代码路径。
+ *
+ * 时钟与 support.ts 外层的 NOW 同一个值：限时模式（time-attack）的手铺局面因此带
+ * deadline = NOW + 180000，T09 的 tick 用例直接在这上面跑。
  */
 export function stateWithBoard(
   rows: CellSpec[][],
   rngState = 7,
   modeId: ModeId = 'classic'
 ): GameState {
-  const base = createGame(modeId, 1)
+  const base = createGame(modeId, 1, NOW)
   return {
     ...base,
     board: boardOf(rows),

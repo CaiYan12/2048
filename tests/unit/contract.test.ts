@@ -4,7 +4,7 @@ import { MODES, getMode } from '../../src/shared/modes'
 import { createBoard, isDeadlocked, playableCells } from '../../src/game/board'
 import { createGame } from '../../src/game/engine'
 import type { Cell, Tile } from '../../src/shared/types'
-import { stateWithBoard } from './support'
+import { NOW, stateWithBoard } from './support'
 
 /**
  * 契约一致性：模式声明的值与 tests/unit/fixtures/mode-contract.json 对齐。
@@ -62,7 +62,7 @@ describe('模式声明与冻结契约一致', () => {
 
   test('引擎读的是模式数据，不是写死的 4×4 与 2/4', () => {
     // 尺寸、障碍、生成值全部来自声明：T06/T07 才能只加字面量而不动引擎
-    const walls = createGame('walls', 20260926)
+    const walls = createGame('walls', 20260926, NOW)
     expect(walls.board).toHaveLength(contract.walls.boardSize)
     expect(walls.board.flat().filter((cell) => cell === 'wall')).toHaveLength(
       contract.walls.blocked.length
@@ -71,13 +71,13 @@ describe('模式声明与冻结契约一致', () => {
       expect(contract.spawnWeights.default.values).toContain(tile.value)
     }
 
-    const big = createGame('big-board', 20260926)
+    const big = createGame('big-board', 20260926, NOW)
     expect(big.board).toHaveLength(5)
     expect(big.board.every((row) => row.length === 5)).toBe(true)
   })
 
   test('开局两个方块占不同可玩格（契约的 initialTilesMustBeDistinctCells）', () => {
-    const opening = createGame('walls', 20260926)
+    const opening = createGame('walls', 20260926, NOW)
     const occupied = opening.board.flatMap((row, r) =>
       row.map((cell, c) => ({ cell, at: `${r},${c}` }))
     )

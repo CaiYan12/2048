@@ -3,7 +3,7 @@ import { getMode } from '../../src/shared/modes'
 import type { Direction, GameState } from '../../src/shared/types'
 import { createBoard, isDeadlocked, playableCells } from '../../src/game/board'
 import { continueRun, createGame, move } from '../../src/game/engine'
-import { stateWithBoard, tilesOf, valueGrid } from './support'
+import { NOW, stateWithBoard, tilesOf, valueGrid } from './support'
 import { tileDigits } from '../../src/renderer/components/TileLabel'
 
 /**
@@ -90,7 +90,7 @@ describe('模式声明：5×5 与 4096 都来自契约', () => {
 
 describe('开局：固定种子的 5×5', () => {
   test('固定种子的开局逐格确定，两个方块分居两格', () => {
-    const state = createGame('big-board', 20260926)
+    const state = createGame('big-board', 20260926, NOW)
 
     expect(valueGrid(state.board)).toEqual([
       [null, null, null, null, null],
@@ -111,7 +111,7 @@ describe('开局：固定种子的 5×5', () => {
 
   test('多个种子的开局都只出现 2 与 4，两个方块永远分居两格', () => {
     for (const seed of [1, 42, 7, 999983]) {
-      const state = createGame('big-board', seed)
+      const state = createGame('big-board', seed, NOW)
       const tiles = tilesOf(state.board)
       expect(tiles, `seed ${seed}`).toHaveLength(2)
       for (const tile of tiles) expect(MODE.spawnValues, `seed ${seed}`).toContain(tile.value)
@@ -347,7 +347,7 @@ describe('生成覆盖四条边', () => {
     // 生成要的是「可玩格 = 全部 25 格」：无障碍模式的 playableCells 就是 25 个，
     // 所以四条边必须都能落子。只走两三步的话边角不一定都出现过，得跑一段。
     const cycle: readonly Direction[] = ['left', 'up', 'right', 'down']
-    let state = createGame('big-board', 20260926)
+    let state = createGame('big-board', 20260926, NOW)
     const rows = new Set<number>()
     const cols = new Set<number>()
     const values = new Set<number>()

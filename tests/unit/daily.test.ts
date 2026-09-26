@@ -3,7 +3,7 @@ import { createGame, move } from '../../src/game/engine'
 import { getMode } from '../../src/shared/modes'
 import { seedFromUtcDate } from '../../src/shared/rng'
 import type { Direction } from '../../src/shared/types'
-import { tilesOf, valueGrid } from './support'
+import { NOW, tilesOf, valueGrid } from './support'
 
 /**
  * T08 Daily 模式（UTC 日期 → 种子）
@@ -175,26 +175,26 @@ describe('开局棋盘', () => {
    * （tests/e2e/daily.spec.ts 用固定时钟把 date 钉在 2026-09-26，读的就是这张盘）。
    */
   test('固定日期的开局棋盘逐格确定', () => {
-    expect(valueGrid(createGame('daily', seedFromUtcDate('2026-09-26')).board)).toEqual([
+    expect(valueGrid(createGame('daily', seedFromUtcDate('2026-09-26'), NOW).board)).toEqual([
       [null, null, null, null],
       [2, null, null, null],
       [null, null, null, null],
       [2, null, null, null],
     ])
-    expect(valueGrid(createGame('daily', seedFromUtcDate('2026-09-27')).board)).toEqual([
+    expect(valueGrid(createGame('daily', seedFromUtcDate('2026-09-27'), NOW).board)).toEqual([
       [null, 2, null, null],
       [null, null, null, null],
       [null, null, null, null],
       [2, null, null, null],
     ])
-    expect(valueGrid(createGame('daily', seedFromUtcDate('2026-10-01')).board)).toEqual([
+    expect(valueGrid(createGame('daily', seedFromUtcDate('2026-10-01'), NOW).board)).toEqual([
       [null, null, null, 2],
       [null, null, null, null],
       [null, null, null, null],
       [null, 2, null, null],
     ])
     // 两块的身份按生成顺序发：1 号先落，2 号后落
-    expect(tilesOf(createGame('daily', seedFromUtcDate('2026-09-26')).board)).toEqual([
+    expect(tilesOf(createGame('daily', seedFromUtcDate('2026-09-26'), NOW).board)).toEqual([
       { id: 1, value: 2 },
       { id: 2, value: 2 },
     ])
@@ -206,7 +206,7 @@ describe('开局棋盘', () => {
     let high = 0
 
     for (const date of dates) {
-      const board = createGame('daily', seedFromUtcDate(date)).board
+      const board = createGame('daily', seedFromUtcDate(date), NOW).board
       const filled: [number, number][] = []
       for (let row = 0; row < board.length; row += 1) {
         for (let col = 0; col < board[row].length; col += 1) {
@@ -249,7 +249,7 @@ describe('开局棋盘', () => {
     const dates = utcDates(60, Date.UTC(2026, 0, 1))
     const boards = new Set(
       dates.map((date) =>
-        signature(valueGrid(createGame('daily', seedFromUtcDate(date)).board))
+        signature(valueGrid(createGame('daily', seedFromUtcDate(date), NOW).board))
       )
     )
 
@@ -265,8 +265,8 @@ describe('开局棋盘', () => {
   test('Daily 与 Classic 同种子同盘：模式没有加任何规则', () => {
     for (const date of ['2026-09-26', '2026-09-27', '2026-10-01']) {
       const seed = seedFromUtcDate(date)
-      const daily = createGame('daily', seed)
-      const classic = createGame('classic', seed)
+      const daily = createGame('daily', seed, NOW)
+      const classic = createGame('classic', seed, NOW)
 
       expect(valueGrid(daily.board), date).toEqual(valueGrid(classic.board))
       // 不只开局一样：随机进度也落在同一个计数器上，所以之后的每一步都会一样
@@ -290,8 +290,8 @@ describe('不变式 A：同日期同输入 → 同盘，时区进不来', () => 
   test('同一个 UTC 日期开两局：整个状态逐字节相同', () => {
     // 两次**独立**抽题：各自重新推种子、各自开局。这才是「同日期同盘」的形态——
     // 先存一份种子再开两局只能证明引擎确定，证明不了「从日期推出种子」这件事确定。
-    const first = createGame('daily', seedFromUtcDate('2026-09-26'))
-    const second = createGame('daily', seedFromUtcDate('2026-09-26'))
+    const first = createGame('daily', seedFromUtcDate('2026-09-26'), NOW)
+    const second = createGame('daily', seedFromUtcDate('2026-09-26'), NOW)
 
     expect(JSON.stringify(second)).toBe(JSON.stringify(first))
     expect(first.initialSeed).toBe(seedFromUtcDate('2026-09-26'))
@@ -303,8 +303,8 @@ describe('不变式 A：同日期同输入 → 同盘，时区进不来', () => 
     const seed = seedFromUtcDate('2026-09-27')
     expect(seedFromUtcDate('2026-09-27')).toBe(seed)
 
-    let first = createGame('daily', seed)
-    let second = createGame('daily', seed)
+    let first = createGame('daily', seed, NOW)
+    let second = createGame('daily', seed, NOW)
 
     for (let step = 0; step < 40; step += 1) {
       const direction = MOVE_CYCLE[step % MOVE_CYCLE.length]
@@ -345,9 +345,9 @@ describe('不变式 A：同日期同输入 → 同盘，时区进不来', () => 
       expect(seedFromUtcDate(date), instant).toBe(seedFromUtcDate('2026-09-26'))
       // 连盘面也一致：这才是玩家能看见的那句承诺
       expect(
-        JSON.stringify(createGame('daily', seedFromUtcDate(date)).board),
+        JSON.stringify(createGame('daily', seedFromUtcDate(date), NOW).board),
         instant
-      ).toBe(JSON.stringify(createGame('daily', seedFromUtcDate('2026-09-26')).board))
+      ).toBe(JSON.stringify(createGame('daily', seedFromUtcDate('2026-09-26'), NOW).board))
     }
 
     // 一秒之后 UTC 翻篇，题目就该跟着换：两侧都断言，测试才不会靠「两档都被冻住」过关
@@ -369,7 +369,7 @@ describe('不变式 B：跨过 UTC 零点', () => {
     expect(tomorrowSeed).not.toBe(todaySeed)
 
     // 未被打断的那局：六步走完，逐步留快照
-    let control = createGame('daily', todaySeed)
+    let control = createGame('daily', todaySeed, NOW)
     const expected: string[] = [JSON.stringify(control)]
     for (let step = 0; step < 6; step += 1) {
       control = move(control, MOVE_CYCLE[step % MOVE_CYCLE.length]).state
@@ -378,7 +378,7 @@ describe('不变式 B：跨过 UTC 零点', () => {
 
     // 被打断的那局：走到第三步之后「现在」已经是第二天。新日期的种子明明算得出来，
     // 但这一局的每一步都只读 state.rngState——日期一次都没有被重新咨询过
-    let crossed = createGame('daily', todaySeed)
+    let crossed = createGame('daily', todaySeed, NOW)
     const actual: string[] = [JSON.stringify(crossed)]
     for (let step = 0; step < 6; step += 1) {
       if (step === 3) {
@@ -394,8 +394,8 @@ describe('不变式 B：跨过 UTC 零点', () => {
   })
 
   test('跨过零点后开新局：换题，且换的是新日期的题', () => {
-    const yesterday = createGame('daily', seedFromUtcDate(TODAY))
-    const fresh = createGame('daily', seedFromUtcDate(TOMORROW))
+    const yesterday = createGame('daily', seedFromUtcDate(TODAY), NOW)
+    const fresh = createGame('daily', seedFromUtcDate(TOMORROW), NOW)
 
     expect(fresh.initialSeed).toBe(seedFromUtcDate(TOMORROW))
     // 逐格写死的那张开局（见「固定日期的开局棋盘逐格确定」）——不是「不同就行」，
@@ -419,8 +419,8 @@ describe('不变式 B：跨过 UTC 零点', () => {
 describe('可恢复的 PRNG 进度', () => {
   test('JSON 往返后续走：与从未中断的那局一字不差', () => {
     const seed = seedFromUtcDate('2026-09-26')
-    let straight = createGame('daily', seed)
-    let roundTripped = createGame('daily', seed)
+    let straight = createGame('daily', seed, NOW)
+    let roundTripped = createGame('daily', seed, NOW)
 
     for (let step = 0; step < 20; step += 1) {
       const direction = MOVE_CYCLE[step % MOVE_CYCLE.length]

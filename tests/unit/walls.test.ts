@@ -4,7 +4,7 @@ import { getMode } from '../../src/shared/modes'
 import type { Direction, GameState } from '../../src/shared/types'
 import { createBoard, isDeadlocked, playableCells } from '../../src/game/board'
 import { continueRun, createGame, move } from '../../src/game/engine'
-import { stateWithBoard, tilesOf, valueGrid, type CellSpec } from './support'
+import { NOW, stateWithBoard, tilesOf, valueGrid, type CellSpec } from './support'
 
 /**
  * T07 的障碍切片：引擎一个字没改（T03 起它就吃 mode.walls / playableCells），
@@ -87,7 +87,7 @@ describe('模式声明：居中 2×2 障碍块', () => {
 
 describe('开局', () => {
   test('固定种子的开局逐格确定：两个方块分居两格，四格墙原样', () => {
-    const state = createGame('walls', 20260926)
+    const state = createGame('walls', 20260926, NOW)
 
     expect(valueGrid(state.board)).toEqual([
       [null, null, null, null],
@@ -110,7 +110,7 @@ describe('开局', () => {
      * 所以「分居两格」与「不落在墙上」必须是结构保证，不是某个种子的巧合。
      */
     for (const seed of [20260926, 1, 42, 7, 999983]) {
-      const state = createGame('walls', seed)
+      const state = createGame('walls', seed, NOW)
       const tiles = tilesOf(state.board)
       const tileCells = state.board.flatMap((row, r) =>
         row.map((cell, c) => ({ cell, at: `${r},${c}` }))
@@ -147,7 +147,7 @@ describe('开局', () => {
      * （见「只因墙而存在的死局」），两块的开局不可能死。
      */
     for (const seed of [20260926, 1, 42, 7, 999983, 123456, 5]) {
-      const state = createGame('walls', seed)
+      const state = createGame('walls', seed, NOW)
       const legal = ALL_DIRECTIONS.filter((direction) => move(state, direction).changed)
       expect(legal, `seed ${seed}`).not.toHaveLength(0)
       expect(isDeadlocked(state), `seed ${seed}`).toBe(false)
@@ -430,7 +430,7 @@ describe('多步走查：墙一个字节都不动', () => {
   const WALK_STEPS = 60
 
   test.each(WALK_SEEDS)('seed %i：走到终局，四个墙坐标每一步都是 wall', (seed) => {
-    let state = createGame('walls', seed)
+    let state = createGame('walls', seed, NOW)
     let effectiveMoves = 0
     let steps = 0
 

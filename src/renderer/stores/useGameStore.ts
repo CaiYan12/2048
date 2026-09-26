@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Direction, GameState } from '../../shared/types'
 import type { ModeId } from '../../shared/modes'
-import { abandon, continueRun, createGame, move, settle } from '../../game/engine'
+import { abandon, continueRun, createGame, move, settle, tick } from '../../game/engine'
 import { seedFromUtcDate } from '../../shared/rng'
 import { fixtureFromQuery } from './fixture'
 import { seedFromSearch } from './seed'
@@ -10,7 +10,8 @@ import { seedFromSearch } from './seed'
  * 唯一的 Zustand store（SPEC §4：无 slice、无中间件）
  *
  * 它是**协调者，不是第二套规则引擎**：只负责调 createGame / move / continueRun /
- * settle / abandon 并把结果收着，一切规则判断（含 phase 迁移）都在 src/game/ 里。
+ * settle / tick / abandon 并把结果收着，一切规则判断（含 phase 迁移、到点该不该
+ * 结算）都在 src/game/ 里。
  *
  * 它同时是**读钟的那一方**（ADR-0001）：Math.random 与 UTC 日期都在这里取，
  * src/game/ 与 src/shared/ 里一行 Date 都没有。
@@ -32,6 +33,8 @@ export interface GameStore {
   continueRun(): void
   /** 结束并记录：死局与胜利面板都进得去；幂等（结算只执行一次） */
   settle(): void
+  /** 时间推进到当前时刻：到期由引擎强制结算。未到期与非限时模式都是空操作 */
+  tick(): void
   /** 放弃当前局并开新局。活跃局直接新游戏 = 放弃本局，不写任何记录 */
   newGame(): void
 }
@@ -67,10 +70,16 @@ export const useGameStore = create<GameStore>()((set) => ({
     // 验收的确定性入口，SPEC §6 无服务器、无排行榜，所以不是作弊面）。
     const daily = modeId === 'daily' ? drawDailySeed() : null
     const seed = daily?.seed ?? seedFromSearch(window.location.search) ?? drawSeed()
+    // 时钟也在这里取：createGame 与开局夹具都只吃一个注入的 now，src/game/ 里
+    // 一行 Date 都没有（ADR-0001）。限时模式的 deadline 由这个 now 决定，
+    // 非限时模式忽略它。
+    const now = Date.now()
     // 开局局面夹具：?board= 给了合法局面就从那开局（T04 的终局 e2e 靠它复现局面，
     // 后续每一步仍走真实按键与真实内核）。只有开局读它——「新游戏」用的是 drawSeed。
     set({
-      game: fixtureFromQuery(window.location.search, modeId, seed) ?? createGame(modeId, seed),
+      game:
+        fixtureFromQuery(window.location.search, modeId, seed, now) ??
+        createGame(modeId, seed, now),
       dailyDate: daily?.date ?? null,
     })
   },
@@ -97,6 +106,16 @@ export const useGameStore = create<GameStore>()((set) => ({
       return { game: settle(state.game) }
     })
   },
+  tick: () => {
+    set((state) => {
+      if (!state.game) return state
+      const next = tick(state.game, Date.now())
+      // 没到期（或非限时、或已不在 playing）时引擎原样返回同一个对象：这里连新
+      // state 都不造。与 move 的无效移动同一条路子——引用相等即「什么都没发生」，
+      // zustand 的选择器因此不会触发重渲染，倒计时的读表也就不打扰棋盘那一层。
+      return next === state.game ? state : { game: next }
+    })
+  },
   newGame: () => {
     set((state) => {
       if (!state.game) return state
@@ -114,7 +133,7 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 那条缝只在开局那一刻读（T03 起的行为，T04/T06/T07 的 e2e 依赖它不变）。
       const daily = modeId === 'daily' ? drawDailySeed() : null
       const seed = daily?.seed ?? drawSeed()
-      return { game: createGame(modeId, seed), dailyDate: daily?.date ?? null }
+      return { game: createGame(modeId, seed, Date.now()), dailyDate: daily?.date ?? null }
     })
   },
 }))

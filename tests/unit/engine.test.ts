@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'vitest'
 import { createGame, move } from '../../src/game/engine'
-import { stateWithBoard, tilesOf, valueGrid } from './support'
+import { NOW, stateWithBoard, tilesOf, valueGrid } from './support'
 
 describe('createGame', () => {
   test('固定种子的开局棋盘逐格确定，两个方块分居两格', () => {
-    const state = createGame('classic', 20260926)
+    const state = createGame('classic', 20260926, NOW)
 
     expect(valueGrid(state.board)).toEqual([
       [null, null, null, null],
@@ -17,7 +17,7 @@ describe('createGame', () => {
     // 两个方块用掉 1、2 号身份，下一个是 3
     expect(state.nextTileId).toBe(3)
     expect(state.reachedTarget).toBe(false)
-    // deadline 由 T09 按注入的时间写入，这里保持 null
+    // classic 不限时：deadline 恒为 null，与注入的 now 无关（限时那一侧归 T09）
     expect(state.deadline).toBe(null)
   })
 })

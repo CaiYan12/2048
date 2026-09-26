@@ -30,12 +30,14 @@ export type RunPhase = 'playing' | 'won' | 'stuck' | 'ended'
 
 /**
  * 为什么结束。deadlock = 死局后点「结束并记录」；abandoned = 活跃局或死局面板上点「新游戏」；
- * won = 达成目标后主动收工（mode-contract §3 状态图补订的 won→结算边）。
- * timeout 是 T09 的第四个值：它只补这个联合与引擎行为，界面不预设它。
+ * won = 达成目标后主动收工（mode-contract §3 状态图补订的 won→结算边）；
+ * timeout = Time Attack 三分钟到点，由 tick 强制结算（T09）。
  *
  * `won` 是**赢下的收工**，不是失败：渲染它的 runEndLabel 不许写成一句败局的话。
+ * timeout 与 deadlock 也必须是两句不同的话——mode-contract §3 把超时定为**强制**结算，
+ * 死局留给玩家自己决定，两回事在界面上要能区分开（SPEC 用户故事 7）。
  */
-export type EndReason = 'won' | 'deadlock' | 'abandoned' | null
+export type EndReason = 'won' | 'deadlock' | 'abandoned' | 'timeout' | null
 
 export interface GameState {
   modeId: ModeId
@@ -50,7 +52,7 @@ export interface GameState {
    * 两者故意并存，不收成一个。
    */
   phase: RunPhase
-  /** 结束原因；未结束前恒为 null。timeout 那一档归 T09 */
+  /** 结束原因；未结束前恒为 null */
   endReason: EndReason
   /** 下一个 Tile 身份的计数器，参与持久化（T16 要求身份可恢复） */
   nextTileId: number
@@ -66,7 +68,13 @@ export interface GameState {
   rngState: RngState
   /** 有效 Move 计数。T11/T16 的长局实测（1,000 / 10,000 次）按它统计 */
   moves: number
-  /** Time Attack 截止时间戳（epoch ms）；非限时模式为 null（T09 写入） */
+  /**
+   * Time Attack 的截止时间戳（epoch ms）；非限时模式为 null
+   *
+   * 它是**绝对**时间戳而不是「还剩多久」：界面显示的剩余时间是 deadline − now 现算的，
+   * 所以后台挂起、刷新页面都不延长限额（SPEC §3.1），T16 持久化时也只要把它存下来，
+   * 续玩就落在同一个截止点上。没有一个字段在累计「已经过去多久」。
+   */
   deadline: number | null
 }
 

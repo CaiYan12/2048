@@ -9,10 +9,11 @@ interface Props {
 
 /**
  * 已交付的模式：T03 的 classic、T05 的 fibonacci、T06 的 big-board、T07 的 walls、
- * T08 的 daily。
+ * T08 的 daily、T09 的 time-attack——六种到此全部到位，这张清单就是 MODES 的全文。
  *
  * 不从 MODES 里过滤——未实现的模式不该以「不可点」的样子出现在界面上。
- * 要放宽的是这张清单本身：T09 把 time-attack 加进来，界面自然多一个选项。
+ * 要放宽的是这张清单本身：T09 加进 time-attack 之后，它已经与 MODES 等长；
+ * 将来加第七种模式时，仍然是 MODES 与这里各加一行。
  */
 const AVAILABLE_MODE_IDS: readonly ModeId[] = [
   DEFAULT_MODE_ID,
@@ -20,6 +21,7 @@ const AVAILABLE_MODE_IDS: readonly ModeId[] = [
   'big-board',
   'walls',
   'daily',
+  'time-attack',
 ]
 
 /** 模式与风格选择（用户故事 1）。缩略预览是 T13/T14 的故事 */
@@ -40,8 +42,9 @@ export function StartScreen({ onStart }: Props): JSX.Element {
       <div className="flex w-full flex-col gap-3" role="group" aria-label="模式">
         <span className="panel__label">模式</span>
         {/* flex-auto 而不是 flex-1：模式按钮按文字宽度占位，一行放不下就折行。
-            五个中文模式名在 393px 窄屏上挤进一行，每个按钮只剩二十来像素装字，
-            「斐波那契」会被拆成一行一个字；桌面上一行仍放得下，观感与改动前一致。 */}
+            六个中文模式名（T09 加进「限时」之后）在 max-w-md 的内容区里放不进一行，
+            于是按 flex-wrap 折成两行——flex-wrap 正是为这一幕准备的，不用调字宽，
+            也不必为了塞进一行把模式名砍短。 */}
         <div className="flex flex-wrap gap-2">
           {AVAILABLE_MODE_IDS.map((id) => {
             const option = getMode(id)

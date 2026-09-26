@@ -126,15 +126,15 @@ async function reloadDaily(page: Page, url = '/'): Promise<void> {
   await startDaily(page)
 }
 
-test('开局界面能选每日：五个模式一个不多，日期标签与盘面对上固定时钟', async ({ page }) => {
+test('开局界面能选每日：六个模式一个不多，日期标签与盘面对上固定时钟', async ({ page }) => {
   const problems = watchProblems(page)
   await page.clock.install({ time: FIXED_CLOCK })
   await page.goto('/')
 
-  // AVAILABLE_MODE_IDS 放宽到正好这五个：未实现的 time-attack 不该以「不可点」的
-  // 样子出现在界面上（StartScreen 不从 MODES 过滤）
+  // AVAILABLE_MODE_IDS 放宽到正好这六个（T09 加进 time-attack）：六种模式到此
+  // 全部到位，未实现的更不该以「不可点」的样子出现在界面上
   const modes = page.getByRole('group', { name: '模式' }).getByRole('button')
-  await expect(modes).toHaveText(['经典', '斐波那契', '大棋盘', '障碍', '每日'])
+  await expect(modes).toHaveText(['经典', '斐波那契', '大棋盘', '障碍', '每日', '限时'])
 
   // 没开局就没有日期标签：它只属于一局 Daily，不是外壳常驻件
   await expect(page.locator('[data-daily-date]')).toHaveCount(0)

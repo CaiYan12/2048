@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import type { ModeId } from '../shared/modes'
 import { Board } from './components/Board'
+import { Countdown } from './components/Countdown'
 import { DailyDateLabel } from './components/DailyDateLabel'
 import { GameOverPanel } from './components/GameOverPanel'
 import { StatusBar } from './components/StatusBar'
@@ -13,6 +14,7 @@ import { useGameStore } from './stores/useGameStore'
  *
  * 这里只做编排——规则在 src/game/，呈现规则在 themes/<id>/，状态在单 store。
  * T04 起按 phase 挂面板：won → 胜利里程碑，stuck / ended → 死局与终局。
+ * T09 起按 deadline 挂倒计时：限时模式才读表，其余模式的 deadline 是 null。
  * 撤销（T11）与作弊交换（T12）将来加在死局面板上，不预埋结构。
  */
 export default function App(): JSX.Element {
@@ -35,6 +37,13 @@ export default function App(): JSX.Element {
       ) : (
         <div className="flex flex-col items-center gap-4">
           <h1 className="shell__title text-5xl">2048</h1>
+          {/* 限时模式的倒计时（T09）：外壳元素，与 StatusBar 平级摆着，不进 .board
+              ——ADR-0002 的棋盘固定 DOM 结构不许因为一个倒计时多出节点。
+              deadline 为 null 就说明这一模式不限时；结算之后表也没用了，
+              剩下的「为什么结束」由 GameOverPanel 从 endReason 读，不在这里推断。 */}
+          {game.deadline !== null && game.phase !== 'ended' && (
+            <Countdown deadline={game.deadline} />
+          )}
           <StatusBar game={game} />
           {/* Daily 的日期说明（T08）：写的是这一局抽题那天的 UTC 日期，跨零点也不翻篇。
               摆在外壳里，与 Board 平级——ADR-0002 的棋盘固定结构不许塞进来说明文字。 */}

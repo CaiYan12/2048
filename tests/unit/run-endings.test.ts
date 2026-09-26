@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { abandon, continueRun, createGame, move, settle } from '../../src/game/engine'
 import { holdsAtLeast, isDeadlocked } from '../../src/game/board'
-import { boardOf, stateWithBoard, valueGrid } from './support'
+import { boardOf, NOW, stateWithBoard, valueGrid } from './support'
 import { runEndLabel } from '../../src/renderer/components/runEndLabel'
 import type { GameState } from '../../src/shared/types'
 
@@ -347,7 +347,7 @@ describe('状态迁移表（task-4-interfaces §4）', () => {
 
     // 新局由调用方开：同样的种子给出同样的开局，但 reachedTarget 回到 false——
     // 上一局的里程碑不带到下一局
-    const fresh = createGame('classic', 1)
+    const fresh = createGame('classic', 1, NOW)
     expect(fresh.phase).toBe('playing')
     expect(fresh.reachedTarget).toBe(false)
     expect(fresh.moves).toBe(0)
@@ -367,7 +367,7 @@ describe('holdsAtLeast（里程碑判据）', () => {
 describe('结束原因可区分（SPEC 用户故事 7）', () => {
   const stuck = move(stateWithBoard(ONE_STEP_FROM_DEADLOCK), 'right').state
 
-  test('runEndLabel 的每个分支各说一句话，五句互不相同', () => {
+  test('runEndLabel 的每个分支各说一句话，六句互不相同', () => {
     const deadlock: GameState = { ...stuck, phase: 'ended', endReason: 'deadlock' }
     const abandoned: GameState = { ...stuck, phase: 'ended', endReason: 'abandoned' }
     // 结算后的 won 由引擎真的走过来，不手搓：settle 是它唯一的入口
@@ -375,6 +375,8 @@ describe('结束原因可区分（SPEC 用户故事 7）', () => {
     expect(won.endReason).toBe('won')
     // 未结束的活跃局：endReason 还是 null
     const playing: GameState = { ...stuck, phase: 'playing', endReason: null }
+    // 超时（T09）：唯一一条由时间而不是玩家触发的结算路径
+    const timeout: GameState = { ...stuck, phase: 'ended', endReason: 'timeout' }
 
     expect(runEndLabel(stuck)).toContain('无合法移动')
     expect(runEndLabel(deadlock)).toContain('死局')
@@ -384,6 +386,10 @@ describe('结束原因可区分（SPEC 用户故事 7）', () => {
     // 赢下的收工不许落回默认那句——那不是一句能区分原因的话，
     // 也说明它不是漏了分支的被静默兜底
     expect(runEndLabel(won)).not.toBe('本局已结束')
+    // 超时同样不许落回默认句，也不该与死局共用词（到点是强制，死局是玩家自己收工）
+    expect(runEndLabel(timeout)).toContain('时间到')
+    expect(runEndLabel(timeout)).not.toContain('死局')
+    expect(runEndLabel(timeout)).not.toBe('本局已结束')
     // 读屏与肉眼都能区分「怎么结束的」
     expect(
       new Set([
@@ -391,8 +397,9 @@ describe('结束原因可区分（SPEC 用户故事 7）', () => {
         runEndLabel(deadlock),
         runEndLabel(abandoned),
         runEndLabel(won),
+        runEndLabel(timeout),
         runEndLabel(playing),
       ]).size
-    ).toBe(5)
+    ).toBe(6)
   })
 })

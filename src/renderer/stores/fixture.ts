@@ -14,11 +14,15 @@ import { holdsAtLeast } from '../../game/board'
  * 形状：`board` 行优先、逗号分隔，长度必须正好 size²，空串 = 空格，`1`~`n` 的数字 = 方块值；
  * `score` 可省，缺省 0。
  * 任何一处不合法都返回 null，退回随机开局——宁可让断言失败，也不要拿 NaN 当方块开局。
+ *
+ * `now` 是调用方注入的当前时刻，原样传给 createGame：限时模式的 deadline 由它算出，
+ * 于是 `?board=` 开局的一局 Time Attack 与普通开局一样带截止点。
  */
 export function fixtureFromQuery(
   query: string,
   modeId: ModeId,
-  seed: number
+  seed: number,
+  now: number
 ): GameState | null {
   const params = new URLSearchParams(query)
   const raw = params.get('board')
@@ -46,7 +50,7 @@ export function fixtureFromQuery(
 
   // 借 createGame 取一份合法初态：rngState / moves / deadline / phase 都在里面，
   // 于是后续的生成仍由这个 rngState 决定——同 seed 同结果，e2e 才可复现。
-  const base = createGame(modeId, seed)
+  const base = createGame(modeId, seed, now)
   let nextTileId = 1
   const board: Board = base.board.map((row, r) =>
     row.map((cell, c): Cell => {

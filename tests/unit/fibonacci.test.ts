@@ -4,7 +4,7 @@ import { getMode } from '../../src/shared/modes'
 import type { Direction, GameState } from '../../src/shared/types'
 import { isDeadlocked } from '../../src/game/board'
 import { continueRun, createGame, move } from '../../src/game/engine'
-import { stateWithBoard, tilesOf, valueGrid } from './support'
+import { NOW, stateWithBoard, tilesOf, valueGrid } from './support'
 import { tileDigits, tileLabel } from '../../src/renderer/components/TileLabel'
 
 /**
@@ -202,7 +202,7 @@ describe('合并表顺着数列延续，不是五对硬编码', () => {
 
 describe('开局与生成只用模式声明的数值', () => {
   test('固定种子的开局逐格确定，两个方块分居两格且只取 1 / 2', () => {
-    const state = createGame('fibonacci', 20260926)
+    const state = createGame('fibonacci', 20260926, NOW)
 
     // 与 Classic 同一种子同一条随机流，只有取值不同：低值 1、高值 2
     expect(valueGrid(state.board)).toEqual([
@@ -219,7 +219,7 @@ describe('开局与生成只用模式声明的数值', () => {
   test('多个种子的开局都只出现 1 与 2', () => {
     const values = [1, 2]
     for (const seed of [1, 42, 7, 999983]) {
-      const state = createGame('fibonacci', seed)
+      const state = createGame('fibonacci', seed, NOW)
       const tiles = tilesOf(state.board)
       expect(tiles, `seed ${seed}`).toHaveLength(2)
       for (const tile of tiles) expect(values, `seed ${seed}`).toContain(tile.value)
@@ -230,7 +230,7 @@ describe('开局与生成只用模式声明的数值', () => {
     // 域的断言而不是某一次抽取：种子的职责是钉死一次开局，「90% 低值」这条规则
     // 要靠长跑的分布来证——只走两三步的话两种值不一定都出现过。
     const cycle: readonly Direction[] = ['left', 'up', 'right', 'down']
-    let state = createGame('fibonacci', 20260926)
+    let state = createGame('fibonacci', 20260926, NOW)
     const spawned: number[] = []
 
     for (let step = 0; step < 100; step++) {
