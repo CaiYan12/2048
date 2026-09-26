@@ -4,8 +4,14 @@ import type { Board, Cell, Direction, GameState, Tile } from '../shared/types'
 import { MERGE } from './merge'
 import { mergeScore } from './score'
 
-/** 零基 [row, col] 坐标，与 modes.ts 的 walls 声明同口径 */
-type Coordinate = readonly [number, number]
+/**
+ * 零基 [row, col] 坐标，与 modes.ts 的 walls 声明同口径。
+ *
+ * 导出而不是留在本文件里：T12 的 swap 与渲染层的选择态都要用它当参数，
+ * 而它在两处都必须是**同一个**类型——各写一份的话，「同一个坐标」这件事就没有
+ * 编译期保证了。
+ */
+export type Coordinate = readonly [number, number]
 
 /** 一条 lane：沿移动轴的一串连续非障碍格子，按自然序（左→右 / 上→下）排列 */
 type Lane = readonly Coordinate[]

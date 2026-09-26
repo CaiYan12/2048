@@ -18,7 +18,9 @@ import { useGameStore } from './stores/useGameStore'
  * T09 起按 deadline 挂倒计时：限时模式才读表，其余模式的 deadline 是 null。
  * T11 起把撤销接到死局面板与键盘 z 上：面板只在 stuck 时给它留入口（ended 之后
  * 不可用，那道判断在 store 的 undo 里），键盘那条路在 won 阶段同样有效——
- * mode-contract §3 只禁 ended 之后的撤销。作弊交换是 T12 的事，这里不预埋。
+ * mode-contract §3 只禁 ended 之后的撤销。
+ * T12 起把作弊交换接到 StatusBar 与死局面板：拾取中先收起死局面板，否则它那层
+ * 不透明满盖会把方块挡住，指针那条路点不到东西（理由见下面板那一段）。
  */
 export default function App(): JSX.Element {
   const game = useGameStore((state) => state.game)
@@ -29,6 +31,11 @@ export default function App(): JSX.Element {
   const continueRun = useGameStore((state) => state.continueRun)
   const settle = useGameStore((state) => state.settle)
   const newGame = useGameStore((state) => state.newGame)
+  const swapArmed = useGameStore((state) => state.swapArmed)
+  const swapSelection = useGameStore((state) => state.swapSelection)
+  const toggleSwap = useGameStore((state) => state.toggleSwap)
+  const selectCell = useGameStore((state) => state.selectCell)
+  const clearSwap = useGameStore((state) => state.clearSwap)
 
   const handleStart = (modeId: ModeId): void => {
     startRun(modeId)
@@ -48,7 +55,12 @@ export default function App(): JSX.Element {
           {game.deadline !== null && game.phase !== 'ended' && (
             <Countdown deadline={game.deadline} />
           )}
-          <StatusBar game={game} />
+          <StatusBar
+            game={game}
+            swapArmed={swapArmed}
+            swapSelection={swapSelection}
+            onToggleSwap={toggleSwap}
+          />
           {/* Daily 的日期说明（T08）：写的是这一局抽题那天的 UTC 日期，跨零点也不翻篇。
               摆在外壳里，与 Board 平级——ADR-0002 的棋盘固定结构不许塞进来说明文字。 */}
           {game.modeId === 'daily' && dailyDate !== null && <DailyDateLabel date={dailyDate} />}
@@ -56,16 +68,31 @@ export default function App(): JSX.Element {
               不能塞进 .board：那层是 ADR-0002 的固定 DOM 结构。w-fit 让这个壳正好
               裹住棋盘，面板 inset:0 才只盖住棋盘，不会横铺整个页面。 */}
           <div className="relative w-fit">
-            <Board game={game} onMove={move} onUndo={undo} />
+            <Board
+              game={game}
+              onMove={move}
+              onUndo={undo}
+              swapArmed={swapArmed}
+              swapSelection={swapSelection}
+              onSelectCell={selectCell}
+              onExitSwap={clearSwap}
+            />
             {game.phase === 'won' && (
               <WinPanel onContinue={continueRun} onSettle={settle} onNewGame={newGame} />
             )}
-            {(game.phase === 'stuck' || game.phase === 'ended') && (
+            {/* 死局可恢复面板。**拾取中先收起**：.overlay 是不透明满盖
+                （styles.css 的 inset:0 + 实底），它挡着棋盘就点不到方块，指针那条
+                交换路径会整个断掉。收起不等于规则变了一步——phase 仍是 stuck，
+                拾取收摊（完成 / Esc / 一次移动）若还死着，面板自己回来。
+                ended 那一侧没有「拾取中」可言：store 的 selectCell 直接拒绝它，
+                所以它不受这个条件影响。 */}
+            {((game.phase === 'stuck' && !swapArmed) || game.phase === 'ended') && (
               <GameOverPanel
                 game={game}
                 onSettle={settle}
                 onNewGame={newGame}
                 onUndo={undo}
+                onSwap={toggleSwap}
               />
             )}
           </div>

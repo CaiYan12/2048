@@ -1,8 +1,22 @@
 import { getMode } from '../shared/modes'
 import type { ModeId } from '../shared/modes'
-import type { Direction, GameState, MoveOutcome } from '../shared/types'
+import type {
+  Board,
+  Cell,
+  Direction,
+  GameState,
+  MoveOutcome,
+  RunPhase,
+  Tile,
+} from '../shared/types'
 import { createRng, restoreRng } from '../shared/rng'
-import { createBoard, holdsAtLeast, isDeadlocked, slideBoard } from './board'
+import {
+  createBoard,
+  holdsAtLeast,
+  isDeadlocked,
+  slideBoard,
+  type Coordinate,
+} from './board'
 import { spawnTile } from './spawn'
 
 /**
@@ -63,7 +77,8 @@ export function createGame(modeId: ModeId, seed: number, now: number): GameState
  * （ADR-0003：store 留着旧对象即可，历史自然无限）——所以引擎里既没有 undo 函数，
  * 也没有历史数组，T11 要的是历史对象，不是引擎能力。
  *
- * swap 属于 T12，此处不实现。
+ * swap 属于 T12，实现在本文件末尾：它同样是不可变过渡，同样靠引用相等表达
+ * 「什么都没发生」（返回 null）。
  */
 export function move(state: GameState, direction: Direction): MoveOutcome {
   // 只有 playing 接受移动。三个非活跃阶段各有各的道理，共一条守卫比依赖巧合更硬：
@@ -212,4 +227,76 @@ export function tick(state: GameState, now: number): GameState {
   if (state.phase !== 'playing') return state
   if (state.deadline === null || now < state.deadline) return state
   return { ...state, phase: 'ended', endReason: 'timeout' }
+}
+
+/**
+ * 取一格。越界记作 undefined 而不是抛：棋盘里没有这一格，与「这一格是空的」
+ * （null）是两件事，调用方该拒绝的是前者。
+ *
+ * 越界是可能到达的：坐标由调用方（渲染层）从 DOM 上读出来再递进来，
+ * 而 DOM 与棋盘不一致的那一瞬间不值得让整局游戏崩掉。
+ */
+function cellAt(board: Board, [row, col]: Coordinate): Cell | undefined {
+  return board[row]?.[col]
+}
+
+function isTile(cell: Cell | undefined): cell is Tile {
+  return cell !== undefined && cell !== null && cell !== 'wall'
+}
+
+/** 同一格。坐标是零基 [row, col]，逐位比即可 */
+function sameCellAt(a: Coordinate, b: Coordinate): boolean {
+  return a[0] === b[0] && a[1] === b[1]
+}
+
+/**
+ * 交换两枚数值方块的位置（T12 · SPEC §5 的 swap · 用户故事 15）。
+ *
+ * **它改变方块的位置，不改变任何规则量**：score / rngState / moves / nextTileId /
+ * reachedTarget / initialSeed / deadline 一个都不动。所以除了 board 与 phase，
+ * 新状态与旧状态逐字段相同——交换不是一次移动，不生成、不计分、不消耗随机进度。
+ *
+ * 非法选择返回 null，含义是「什么都没发生」：store 因此既不进撤销历史
+ * （ADR-0003：无效输入不加历史），也不重渲染。四种非法：
+ *   任一端是墙 / 空格 / 越界 —— 只有数值方块参与交换；
+ *   两端同一格            —— 那是取消选择，由 store 的状态机处理，不是引擎的事；
+ *   已终局（phase === 'ended'）—— mode-contract §3 关键不变量 4：「进入 ended 后，
+ *                           Undo 与作弊交换一律不可用」。Time Attack 到点强制结算的
+ *                           那一局也落在这里（settlement.undoDisabledAfterEnded /
+ *                           swapDisabledAfterEnded 两条契约字段由这一行兑现）。
+ *
+ * **它同样是不可变过渡**：返回新对象、绝不改传入的那个。于是撤销历史白拿——
+ * store 留着旧对象就是完整前态（ADR-0003），与 move 同一个道理，T03 的那个裁决
+ * 在这里第二次兑现。
+ */
+export function swap(state: GameState, first: Coordinate, second: Coordinate): GameState | null {
+  if (state.phase === 'ended') return null
+  if (sameCellAt(first, second)) return null
+
+  const firstCell = cellAt(state.board, first)
+  const secondCell = cellAt(state.board, second)
+  if (!isTile(firstCell) || !isTile(secondCell)) return null
+
+  // 行先复制再改：棋盘是二维数组，只换外层的话内层行仍是共享的，
+  // 「旧棋盘一个字节都没被碰」就不成立了
+  const board: Board = state.board.map((row) => [...row])
+  board[first[0]][first[1]] = secondCell
+  board[second[0]][second[1]] = firstCell
+  const swapped: GameState = { ...state, board }
+
+  /**
+   * 交换之后重判死局——mode-contract §3 把 swap 列为 `stuckRecoveryMoves` 的第二项，
+   * 整个票的存在理由就是这一行。三种走向都要：
+   *   stuck  → 解锁了：phase 回 playing（可恢复面板自动退下）；
+   *   stuck  → 还死着：留在 stuck，玩家可以再换一次或撤销；
+   *   playing→ 交换把它走死：转 stuck，与 move 完全同一个重判。
+   *
+   * won **不在**重判里：胜利里程碑面板正等玩家决定「继续玩」还是「结束并记录」，
+   * 一次交换不该把那个面板撤掉。而方块动了之后四方向的合法性真的可能变，
+   * 所以续走那一刻由 continueRun 重新判——它本来就是干这个的。
+   */
+  const phase: RunPhase =
+    state.phase === 'won' ? state.phase : isDeadlocked(swapped) ? 'stuck' : 'playing'
+
+  return { ...swapped, phase }
 }

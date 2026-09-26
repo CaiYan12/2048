@@ -8,6 +8,7 @@ import {
   type PointerEvent,
 } from 'react'
 import type { Direction, GameState } from '../../shared/types'
+import type { Coordinate } from '../../game/board'
 import { getMode } from '../../shared/modes'
 import { DEFAULT_THEME_ID, getTheme } from '../styles/themes'
 import { TileView } from './TileView'
@@ -19,11 +20,18 @@ import {
   type BoardLayout,
 } from './BoardLayout'
 import { createGestureTracker, type GestureTracker } from './GestureTracker'
+import { withinPickRadius } from './TilePick'
 
 interface Props {
   game: GameState
   onMove(direction: Direction): void
   onUndo(): void
+  /** 交换拾取中（T12）：true 时方块才进 Tab 序列、才认轻点 */
+  swapArmed: boolean
+  /** 等第二枚的那一枚（T12）；null = 没有待确认的选择 */
+  swapSelection: Coordinate | null
+  onSelectCell(coordinate: Coordinate): void
+  onExitSwap(): void
 }
 
 /**
@@ -60,6 +68,44 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   return target.closest('button, select, input, a[href]') !== null
 }
 
+/**
+ * 一次拾取候选：按下时落在数值方块上的那一根手指（T12）。
+ *
+ * 与手势状态机各记各的：判「点中」的位移阈值在 TilePick.ts，判「划动」的在
+ * GestureTracker.ts。两份判据故意不共享入口，理由见 TilePick 的说明。
+ */
+interface PickCandidate {
+  pointerId: number
+  point: { x: number; y: number }
+  row: number
+  col: number
+}
+
+/**
+ * 按下那一刻如果落在数值方块上，就产出一个拾取候选；否则 null。
+ *
+ * 认的是**元素**而不是坐标：方块在 DOM 上按 [row][col] 绝对定位（board.css），
+ * 「这一下按在哪一枚上」由 DOM 回答最不容易和几何计算脱节。空格与障碍在底板层
+ * （.board__cells，pointer-events:none），按到它们时目标根本不是方块，于是天然没有
+ * 候选——「障碍不能被选中」因此是结构决定的，不需要一条特判。
+ */
+function pickCandidate(event: PointerEvent<HTMLDivElement>): PickCandidate | null {
+  if (!(event.target instanceof Element)) return null
+  const tile = event.target.closest('[data-tile-id]')
+  if (!(tile instanceof HTMLElement)) return null
+  const row = Number(tile.dataset.row)
+  const col = Number(tile.dataset.col)
+  // data-row / data-col 一向由 Board 自己写成整数；取不到就当没按在方块上，
+  // 绝不让 NaN 坐标流到 store 里去
+  if (!Number.isInteger(row) || !Number.isInteger(col)) return null
+  return {
+    pointerId: event.pointerId,
+    point: { x: event.clientX, y: event.clientY },
+    row,
+    col,
+  }
+}
+
 /** 棋盘随视口缩放（设计卡 §8）：只在尺寸真的变化时重算，resize 频率不高 */
 function useCellSize(size: number): number {
   const [cellSize, setCellSize] = useState(() =>
@@ -81,7 +127,15 @@ function useCellSize(size: number): number {
  * 插槽永远从风格配置解构出来渲染，不写死成 null——否则 T13/T15 想加装饰时
  * 又得回来改这个组件。
  */
-export function Board({ game, onMove, onUndo }: Props): JSX.Element {
+export function Board({
+  game,
+  onMove,
+  onUndo,
+  swapArmed,
+  swapSelection,
+  onSelectCell,
+  onExitSwap,
+}: Props): JSX.Element {
   const mode = getMode(game.modeId)
   const theme = getTheme(DEFAULT_THEME_ID)
   // 插槽的数据名叫 boardOverlay / tileOverlay（interface sheet 定的形状），
@@ -96,10 +150,26 @@ export function Board({ game, onMove, onUndo }: Props): JSX.Element {
   useEffect(() => {
     rootRef.current?.focus({ preventScroll: true })
   }, [])
+  // 交换交互一收摊（完成 / Esc / 被一次移动或撤销清掉）就把焦点还给棋盘。
+  // 不还就会掉进一个键盘陷阱：拾取中的方块才带 tabIndex，模式一关它取不到了，
+  // 焦点落在 body 上，方向键从此失灵——而键盘玩家每完成一次交换都正好走到这里，
+  // 所以这不是补丁，是那条路径的一部分
+  useEffect(() => {
+    if (swapArmed || swapSelection !== null) return
+    rootRef.current?.focus({ preventScroll: true })
+  }, [swapArmed, swapSelection])
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (isInteractiveTarget(event.target)) return
     const key = event.key.toLowerCase()
+    // Esc：取消选择并退出交换拾取（用户故事 16 的「不用指针退出」）。键名与移动键
+    // 同一条 lowercase 查表路子（'Escape'.toLowerCase() === 'escape'）。
+    // 顺序在移动键之前：拾取中按 Esc 只该收摊，不该顺手推一下棋盘
+    if (key === 'escape') {
+      event.preventDefault()
+      onExitSwap()
+      return
+    }
     const direction = MOVE_KEYS[key]
     if (direction) {
       event.preventDefault()
@@ -124,12 +194,19 @@ export function Board({ game, onMove, onUndo }: Props): JSX.Element {
   // useState 的懒初始化只跑一次；写成 useRef(createGestureTracker()) 会每渲染
   // 造一个再扔掉
   const [gesture] = useState(createGestureTracker)
+  // 拾取候选与手势起点各记各的（见 PickCandidate 的说明）。ref 而不是 state：
+  // 按下到松手之间没有任何东西要显示它
+  const pick = useRef<PickCandidate | null>(null)
 
   const handlePointerDown = (event: PointerEvent<HTMLDivElement>): void => {
     // 与键盘同一条守卫：落在棋盘内的交互控件上的手势放行。这里不只是「别误动棋盘」——
     // 指针捕获会把后续的 pointerup 连同兼容鼠标事件（含 click）一起重定向到棋盘，
     // 在控件上捕获等于把那个控件的点击吃掉。T03 的 e2e 已经钉了这条守卫的键盘半边
     if (isInteractiveTarget(event.target)) return
+    // 交换拾取：按下就在方块上就记一个候选。与手势**并行**、互不依赖——
+    // 即便这一根手指随后被手势状态机忽略（第二根手指），一次真正的轻点照样算选中，
+    // 因为它本来就是另一个问题（见 TilePick）
+    pick.current = swapArmed ? pickCandidate(event) : null
     // 先问状态机收不收这根手指，再决定捕不捕。顺序反了会漏第二根手指进来：捕获是
     // **被忽略的手指也吃得下的副作用**——触摸指针在按下目标上有隐式捕获，组件不为
     // 它调 setPointerCapture，它的 pointerup / lostpointercapture 照样被重定向到 .board。
@@ -156,13 +233,29 @@ export function Board({ game, onMove, onUndo }: Props): JSX.Element {
       x: event.clientX,
       y: event.clientY,
     })
-    if (!direction) return
-    onMove(direction)
+    // 拾取候选与手势问的是两个问题（TilePick 的说明），所以这里两个都问：
+    // 划成了就先手势，轻点过才轮到拾取。位移够小的判定用指针 id 与位移各对一次，
+    // 于是第二根手指的松手既不会抹掉别人的候选，也不会被误当成一次点选
+    const candidate = pick.current
+    pick.current = null
+    if (direction) {
+      onMove(direction)
+      return
+    }
+    if (
+      candidate !== null &&
+      candidate.pointerId === event.pointerId &&
+      withinPickRadius(candidate.point, { x: event.clientX, y: event.clientY })
+    ) {
+      onSelectCell([candidate.row, candidate.col])
+    }
   }
 
-  // 取消（浏览器把手势收走、或被别的事件流打断）：手势作废，一次 Move 都不触发
+  // 取消（浏览器把手势收走、或被别的事件流打断）：手势作废，一次 Move 都不触发；
+  // 拾取候选一并作废，但它只认自己的那一次——擦掉别人的候选不是补救，是破坏
   const handlePointerCancel = (event: PointerEvent<HTMLDivElement>): void => {
     gesture.cancel(event.pointerId)
+    if (pick.current?.pointerId === event.pointerId) pick.current = null
   }
 
   // 捕获被释放也作废，但只作废自己的那一次：擦掉别人的起点不是补救，是破坏。
@@ -230,6 +323,13 @@ export function Board({ game, onMove, onUndo }: Props): JSX.Element {
                 row={rowIndex}
                 col={colIndex}
                 offset={layout.cellOffset(rowIndex, colIndex)}
+                selectable={swapArmed}
+                selected={
+                  swapSelection !== null &&
+                  swapSelection[0] === rowIndex &&
+                  swapSelection[1] === colIndex
+                }
+                onSelect={() => onSelectCell([rowIndex, colIndex])}
               />
             )
           })

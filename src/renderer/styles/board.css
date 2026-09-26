@@ -147,3 +147,18 @@
 .board__tile[data-digits='9'] {
   font-size: calc(var(--cell-size) * 0.2);
 }
+
+/* 交换拾取（T12）：拾取中的方块是可点的，光标要说出来。只在拾取态出现这个属性，
+   平时方块照旧不是交互目标。 */
+.board__tile[data-selectable='true'] {
+  cursor: pointer;
+}
+
+/* 被选中的那一枚：描一圈 --focus。复用焦点环那个色值，**不引入新颜色**——
+   它是 contrast.json 里已经记过的一对（--focus / 页面色 9.01），且环与方块本身
+   相邻也远高于 3:1，T14 的对比度闸门不必为它加新条目。换风格时跟着 tokens.css 走。
+   用 box-shadow 而不是 outline / border：不改盒子尺寸，T21 的 transform 与
+   格子的绝对定位都不受影响。 */
+.board__tile[data-selected='true'] {
+  box-shadow: 0 0 0 3px var(--focus);
+}
