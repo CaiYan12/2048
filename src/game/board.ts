@@ -50,6 +50,19 @@ export function isDeadlocked(state: GameState): boolean {
 }
 
 /**
+ * 棋盘上是否存在数值 ≥ value 的方块。
+ *
+ * 住在 board.ts 而不是 engine.ts：它是棋盘谓词，与 isDeadlocked / playableCells 同族；
+ * 引擎用它判「里程碑是否达成」，开局夹具（?board= 那条调试缝）也要用同一份判据，
+ * 免得「达标」这件事在仓库里出现两个实现。
+ */
+export function holdsAtLeast(board: Board, value: number): boolean {
+  return board.some((row) =>
+    row.some((cell) => cell !== null && cell !== 'wall' && cell.value >= value)
+  )
+}
+
+/**
  * 沿方向滑动并合并，不生成、不计分之外的一切规则都在这里。
  *
  * 算法（mode-contract §2）：把每条 lane 的方块向目标边压紧，再从目标边向内逐对扫描；

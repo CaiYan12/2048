@@ -92,6 +92,35 @@
   text-align: center;
 }
 
+/* 终局面板：盖在棋盘上的一层纸面。
+   它是外壳元素（ADR-0002 的棋盘 DOM 固定结构不动），所以颜色仍走主题 token，
+   换风格时跟着 tokens.css 整块变。用不透明底色而不是半透明：半透明会把棋盘上的
+   方块透出来，和已经结束的局面摆在一起只会让人以为还能动它。 */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  text-align: center;
+  border-radius: var(--board-radius);
+  background: var(--page);
+}
+
+.overlay__title {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.overlay__text {
+  max-width: 16rem;
+  color: var(--ink);
+  font-size: 0.875rem;
+}
+
 /* 棋盘区域是交互目标：可见焦点 + 不把光标当文本框 */
 .board {
   cursor: default;

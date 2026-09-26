@@ -22,12 +22,33 @@ export type Board = Cell[][]
 /** 随机源的可恢复进度。mulberry32 的 32 位计数器本身，所以 serialize/restore 无损 */
 export type RngState = number
 
+/**
+ * 运行阶段。mode-contract §3 的四个状态；只有 ended 是终局。
+ * won 只是里程碑面板（可以继续玩），stuck 是可恢复的死局面板（Undo / 交换）。
+ */
+export type RunPhase = 'playing' | 'won' | 'stuck' | 'ended'
+
+/**
+ * 为什么结束。deadlock = 死局后点「结束并记录」；abandoned = 活跃局或死局面板上点「新游戏」。
+ * timeout 是 T09 的第三个值：它只补这个联合与引擎行为，界面不预设它。
+ */
+export type EndReason = 'deadlock' | 'abandoned' | null
+
 export interface GameState {
   modeId: ModeId
   board: Board
   score: number
   /** 曾达到目标值的里程碑标志；可无限次进出，不是终局（mode-contract §3） */
   reachedTarget: boolean
+  /**
+   * 运行阶段（mode-contract §3 的四个状态；只有 ended 是终局）。
+   * 与 reachedTarget 问的不是同一个问题：reachedTarget 说「这局曾经达标」，只升不降，
+   * 给 T17 的记录与 T18 的成就读；phase 说「此刻在做什么」，会随面板开关变化。
+   * 两者故意并存，不收成一个。
+   */
+  phase: RunPhase
+  /** 结束原因；未结束前恒为 null。timeout 那一档归 T09 */
+  endReason: EndReason
   /** 下一个 Tile 身份的计数器，参与持久化（T16 要求身份可恢复） */
   nextTileId: number
   rngState: RngState
