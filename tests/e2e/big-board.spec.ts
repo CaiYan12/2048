@@ -154,7 +154,7 @@ const ONE_STEP_FROM_DEADLOCK: (number | null)[][] = [
   [8, 4, 2, 8, 4],
 ]
 
-test('开局界面能选大棋盘：三个模式一个不多，25 格与目标 4096 都切过去', async ({ page }) => {
+test('开局界面能选大棋盘：四个模式一个不多，25 格与目标 4096 都切过去', async ({ page }) => {
   const problems = watchProblems(page)
   await page.goto(SEED_URL)
 

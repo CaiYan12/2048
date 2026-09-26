@@ -3,7 +3,7 @@ import type { ModeId } from '../../src/shared/modes'
 import { createGame } from '../../src/game/engine'
 
 /** 一个格子的写法：数字 = 方块值，null = 空格，'wall' = 障碍块 */
-type CellSpec = number | null | 'wall'
+export type CellSpec = number | null | 'wall'
 
 /**
  * 用手铺局面造棋盘。

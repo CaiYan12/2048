@@ -408,7 +408,7 @@ test('一路走到死局：四格墙始终在原位，结束并记录后新游�
   expect(problems).toEqual([])
 })
 
-test('窄视口：棋盘不横向溢出，四格墙仍是声明的那个色值', async ({ page }) => {
+test('两种视口都不横向溢出：scrollWidth 不许超过视口，墙格仍是声明的色值', async ({ page }) => {
   const problems = watchProblems(page)
   await page.goto(
     startUrl([
@@ -429,14 +429,25 @@ test('窄视口：棋盘不横向溢出，四格墙仍是声明的那个色值',
       scrollWidth: document.documentElement.scrollWidth,
       // clientWidth 扣掉了滚动条：拿它比 scrollWidth 才不会因为竖向滚动条误判
       clientWidth: document.documentElement.clientWidth,
+      innerWidth: window.innerWidth,
       boardWidth: rect.width,
       boardLeft: rect.left,
       boardRight: rect.right,
     }
   })
 
-  // 障碍模式仍是 4×4，所以窄屏下与经典同规格：不横向溢出，棋盘完整落在内容区里
+  const viewport = page.viewportSize()
+  if (!viewport) throw new Error('拿不到视口尺寸')
+
+  // 1. 没有横向溢出：这是本用例的主判据，两个视口（桌面 1280、Pixel 5 393）各自成立
   expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth)
+  // 视口 sanity：测得的就是这个项目的视口，不是别的什么宽度。
+  // 少了这一条，桌面 1280 那次跑通只证明「宽屏不溢出」，窄屏根本没被证明
+  expect(metrics.clientWidth).toBeLessThanOrEqual(viewport.width)
+  // clientWidth 从不超过 innerWidth：竖向滚动条（若有）只吃 innerWidth 不吃 clientWidth
+  expect(metrics.clientWidth).toBeLessThanOrEqual(metrics.innerWidth)
+
+  // 2. 棋盘完整落在内容区里：障碍模式仍是 4×4，窄屏下与经典同规格
   expect(metrics.boardLeft).toBeGreaterThanOrEqual(16)
   expect(metrics.boardRight).toBeLessThanOrEqual(metrics.clientWidth - 16)
 

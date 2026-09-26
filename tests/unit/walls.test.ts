@@ -4,7 +4,7 @@ import { getMode } from '../../src/shared/modes'
 import type { Direction, GameState } from '../../src/shared/types'
 import { createBoard, isDeadlocked, playableCells } from '../../src/game/board'
 import { continueRun, createGame, move } from '../../src/game/engine'
-import { stateWithBoard, tilesOf, valueGrid } from './support'
+import { stateWithBoard, tilesOf, valueGrid, type CellSpec } from './support'
 
 /**
  * T07 的障碍切片：引擎一个字没改（T03 起它就吃 mode.walls / playableCells），
@@ -30,9 +30,6 @@ const MODE = getMode('walls')
  */
 const WALLS = MODE.walls
 
-/** 一个格子的写法：数字 = 方块值，null = 空格，'wall' = 障碍块（support.ts 的口径） */
-type CellSpec = number | null | 'wall'
-
 const ALL_DIRECTIONS: readonly Direction[] = ['up', 'down', 'left', 'right']
 
 /** 四个方向轮着按：一条 lane 走不完所有格，轮换才让生成铺开到全盘 */
@@ -42,6 +39,9 @@ const WALK_CYCLE: readonly Direction[] = ['left', 'up', 'right', 'down']
 function noDirectionMoves(state: GameState): boolean {
   return ALL_DIRECTIONS.every((direction) => !move(state, direction).changed)
 }
+
+/** 四个墙坐标的字符串集合：`playableCells` 的坐标拿来跟它做差集 */
+const WALL_CELLS: ReadonlySet<string> = new Set(WALLS.map(([row, col]) => `${row},${col}`))
 
 /** 四个墙坐标是否原样。逐步查它 = 「生成没落在墙上」+「墙没被滑动改写」 */
 function wallsIntact(state: GameState): boolean {
@@ -73,10 +73,15 @@ describe('模式声明：居中 2×2 障碍块', () => {
     for (const [row, col] of WALLS) {
       expect(board[row][col], `wall ${row},${col}`).toBe('wall')
     }
-    // 墙不进 playableCells：这是「生成永不落在墙上」的直接依据（spawn.ts 只从这里取格）
-    for (const [row, col] of playableCells(board)) {
-      expect(board[row][col], `可玩格 ${row},${col}`).not.toBe('wall')
-    }
+    // 墙不进 playableCells：这是「生成永不落在墙上」的直接依据（spawn.ts 只从这里取格）。
+    // 判据是坐标集合的差集，不是逐个问「这个格子是不是墙」——playableCells 本来就只回
+    // null 格，「取出来的格子不是墙」恒真，那种写法抓不到把 `cell === null` 写成
+    // `cell !== 'wall'` 的改法（那样墙也算可生成格，某一步生成就会覆盖它）。
+    const returned = playableCells(board).map(([row, col]) => `${row},${col}`)
+    const everyNonWall = board.flatMap((row, r) => row.map((_, c) => `${r},${c}`))
+    expect(new Set(returned)).toEqual(
+      new Set(everyNonWall.filter((at) => !WALL_CELLS.has(at)))
+    )
   })
 })
 
@@ -266,6 +271,66 @@ describe('四个方向在带墙棋盘上的完整结果', () => {
       [2, 4, 8, 4],
     ])
   })
+})
+
+describe('未被打断的 lane 也包括第 3 行与第 3 列', () => {
+  /**
+   * 上面那组只走了第 0 行 / 第 0 列，那只能证明 lane 的**起点**那一侧还在，证明不了
+   * 末侧：把 `lanesOf` 的循环写成 `line < size - 1`（整条丢掉第 3 行 / 第 3 列），
+   * 上面每一条照样全绿。这里让第 3 行与第 3 列各合一次，把 lane 的**终点**钉住。
+   *
+   * 形状与上面一致：12 个可玩格全铺满，合并恰好空出 (3,3) 一格，生成只能落进那一格，
+   * 于是期望值不含随机（生成值由钉死的 rngState=7 决定，低位 90% 抽 2）。
+   */
+  const cases = [
+    {
+      name: '左移：第 3 行尾部一对合并，第 0 行与跨墙的同值块都不合',
+      rows: [
+        [2, 4, 2, 4],
+        [8, 'wall', 'wall', 8],
+        [4, 'wall', 'wall', 4],
+        [2, 4, 2, 2],
+      ] as CellSpec[][],
+      direction: 'left' as const,
+      expected: [
+        [2, 4, 2, 4],
+        [8, 'W', 'W', 8],
+        [4, 'W', 'W', 4],
+        [2, 4, 4, 2],
+      ],
+    },
+    {
+      name: '上移：第 3 列一对合并，第 0 列与跨墙的同值块都不合',
+      rows: [
+        [2, 4, 2, 2],
+        [4, 'wall', 'wall', 2],
+        [2, 'wall', 'wall', 4],
+        [4, 2, 8, 2],
+      ] as CellSpec[][],
+      direction: 'up' as const,
+      expected: [
+        [2, 4, 2, 4],
+        [4, 'W', 'W', 4],
+        [2, 'W', 'W', 2],
+        [4, 2, 8, 2],
+      ],
+    },
+  ]
+
+  for (const { name, rows, direction, expected } of cases) {
+    test(name, () => {
+      const outcome = move(stateWithBoard(rows, 7, 'walls'), direction)
+
+      expect(outcome.changed).toBe(true)
+      expect(outcome.gained).toBe(4)
+      expect(outcome.state.score).toBe(4)
+      expect(outcome.state.moves).toBe(1)
+      // 合两个、生一个，12 个可玩格上总数不变
+      expect(tilesOf(outcome.state.board)).toHaveLength(contract.walls.playableCellCount)
+      expect(outcome.state.phase).toBe('playing')
+      expect(valueGrid(outcome.state.board)).toEqual(expected)
+    })
+  }
 })
 
 describe('墙把 lane 切断：跨墙不许滑过去', () => {
