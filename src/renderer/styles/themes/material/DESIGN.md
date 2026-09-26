@@ -148,7 +148,9 @@
 - **选中态**：被选中的那一枚在投影之上再描一圈 `--focus`（`board.css` 的
   `[data-selected='true']`），环与投影通过 `--tile-elevation` 合成，不会互相顶掉。
 - `prefers-reduced-motion: reduce` 下 `--tile-move-duration` / `--tile-spawn-duration`
-  归零，投影保留（投影不是动效，是层级）。SPEC §3.2。
+  归零，投影保留（投影不是动效，是层级）。位移以外的三个效果换成**静止记号**（board.css
+  的 reduced-motion 块）：生成与合并描一圈 `--focus`，胜利描粗一档且常驻。用 outline 而
+  不是 box-shadow，正是为了不与 elevation 与拾取环抢同一个属性。SPEC §3.2。
 - **本风格不用**：渐变、`filter`、扫描线、网格纹理、emoji 装饰、把方块做成 `<button>`。
 
 ## 7. 禁用的通用样式

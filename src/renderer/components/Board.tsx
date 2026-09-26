@@ -21,6 +21,7 @@ import {
   type BoardLayout,
 } from './BoardLayout'
 import { createGestureTracker, type GestureTracker } from './GestureTracker'
+import { diffTileMotion } from './TileMotion'
 import { withinPickRadius } from './TilePick'
 
 interface Props {
@@ -154,6 +155,19 @@ export function Board({
 
   const cellSize = useCellSize(mode.size)
   const layout: BoardLayout = createBoardLayout(mode.size, cellSize)
+
+  // 上一帧的局面（T21）。只用来回答「这一帧哪几枚该有动静」——它不呈现任何东西，
+  // 所以不进 state；render 里读、commit 之后的 effect 里才写。于是 StrictMode 的
+  // 二次渲染读到的还是同一个上一帧，diff 不会被算重；而一次与棋盘无关的重渲染
+  // （改视口、换风格）拿到的上一帧就是同一副棋盘，自然一个旗标都不亮。
+  // 推断本身在 TileMotion.ts：那是个纯函数，`src/game/` 与这个 ref 都碰不到它。
+  // 它**只喂三个 data-* 属性**，不动 rngState、不动分数、不动身份，也不拦任何输入
+  // ——动画是 CSS 的事，键盘按下的那一刻棋盘就已经是新状态了。
+  const previous = useRef<GameState | null>(null)
+  const motion = diffTileMotion(previous.current, game, mode.target)
+  useEffect(() => {
+    previous.current = game
+  }, [game])
 
   // 开局即把焦点给棋盘：否则玩家还得先点一下页面，方向键才有去处
   const rootRef = useRef<HTMLDivElement>(null)
@@ -325,7 +339,9 @@ export function Board({
         {game.board.map((row, rowIndex) =>
           row.map((cell, colIndex) => {
             if (cell === null || cell === 'wall') return null
-            // key 用 Tile.id：React 才会复用同一个 DOM 节点，T21 的位移动画才成立
+            // key 用 Tile.id：React 才会复用同一个 DOM 节点，T21 的位移动画才成立。
+            // **不许改成位置做 key**——那会让 React 卸载再重挂，方块跳而不是滑，
+            // 一次合并还会在同一格里出现两枚（T21 验收标准 1 禁的正是它）
             const rank = tileRank(ladder, cell.value)
             return (
               <TileView
@@ -336,6 +352,7 @@ export function Board({
                 offset={layout.cellOffset(rowIndex, colIndex)}
                 rank={rank}
                 slot={tileSlot(rank, ladder.length)}
+                motion={motion.get(cell.id)}
                 selectable={swapArmed}
                 selected={
                   swapSelection !== null &&

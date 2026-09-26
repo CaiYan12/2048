@@ -1,5 +1,6 @@
 import type { KeyboardEvent, JSX } from 'react'
 import type { Tile } from '../../shared/types'
+import { NO_TILE_MOTION, type TileMotion } from './TileMotion'
 import { tileDigits, tileLabel } from './TileLabel'
 
 // Props 保持局部：仓库里每个组件都只在自己文件里用，导出没有第二个消费者
@@ -13,6 +14,12 @@ interface Props {
   rank: number
   /** 按相对进度折进主题 11 个色档里的第几档（ValueLadder.tileSlot）。board.css 的配色键 */
   slot: number
+  /**
+   * 这一帧的动效旗标（T21）。只变成三个 data-* 属性：**这里不做任何动画**——
+   * 动画一律在 board.css 里由这三个属性驱动，组件连时长都不碰。理由与 T13 的配色键
+   * 同一条：CSS 管呈现，组件只管把事实说出去。
+   */
+  motion?: TileMotion
   /** 交换拾取中（T12）：这枚方块可以被选中 */
   selectable: boolean
   /** 它正是等第二枚的那一枚（T12） */
@@ -29,9 +36,10 @@ interface Props {
  * 也要上 DOM：board.css 的配色键是它，而它由 ValueLadder 的纯函数算出来——算式放进
  * .ts 是为了能单测，CSS 里写不出「ceil 之后再按算出的数索引一个静态 token 名」。
  *
- * 拾取态（T12）只加属性、不加节点：ADR-0002 的棋盘固定 DOM 结构不许因为一个
- * 交互多出一层。tabIndex 也只在拾取中给出——否则 4×4 / 5×5 的每一枚方块都变成
- * 一个常驻的 Tab 停靠点。
+ * T21 起再多三个属性：`data-spawn` / `data-merge` / `data-win`，各自是入场、
+ * 合并脉冲与胜利序列的开关。它们与拾取态那两条同一条规矩——**只加属性、不加节点**
+ * （ADR-0002 的棋盘固定 DOM 结构不许因为一个动效多出一层），且没动静的那一帧三个
+ * 属性都不出现，DOM 与 T21 之前逐字节一致。
  */
 export function TileView({
   tile,
@@ -40,6 +48,7 @@ export function TileView({
   offset,
   rank,
   slot,
+  motion = NO_TILE_MOTION,
   selectable,
   selected,
   onSelect,
@@ -60,6 +69,14 @@ export function TileView({
       data-rank={rank}
       data-bucket={slot}
       data-digits={tileDigits(tile.value)}
+      // 三个动效钩子，规则全在 board.css：没动静的那一帧三个属性都不出现，
+      // DOM 与 T21 之前逐字节一致（换风格与 T12 都不受影响）。
+      // `|| undefined` 是 React 删掉布尔属性的正规写法——写成 false 会渲染出
+      // data-spawn="false"，那个值同样命中 [data-spawn='true'] 之外的选择器，
+      // 于是「有没有这个属性」就不再是干净的开关了
+      data-spawn={motion.spawn || undefined}
+      data-merge={motion.merge || undefined}
+      data-win={motion.win || undefined}
       // 两个呈现钩子，规则在 board.css：没进拾取态时这两个属性都不出现，
       // DOM 与 T12 之前逐字节一致（换风格与 T21 都不受影响）
       data-selectable={selectable || undefined}
