@@ -176,16 +176,21 @@
 ## 9. 对比度与无障碍
 
 - 正文与小字按 4.5:1 走，非文字指示器（焦点环、选中环、障碍）按 3:1 走。
-  所有实际组合与实测比值列在 `contrast.json`，T14 的脚本照它校验
-  （**含下面那条为 T14 预留的条目**）。
+  所有实际组合与实测比值列在 `contrast.json`，T14 的 `npm run check:contrast` 照它校验。
+- **T14 给每一对补上三个字段**：`basis`（口径 regular / large / non-text，与 `minimum`
+  必须自洽）、`scene`（start / run / walls，这一对在哪个页面状态下量到）、`probe`（页面上
+  真正被量到的元素）。「哪一对靠大字豁免」因此是表上的一个字段；而浏览器那一层
+  （tests/e2e/contrast-computed.spec.ts）按 probe 读计算样式——声明对了不等于渲染对了，
+  选择器失效、漏了 data-style 这类事只有那一层抓得到。
 - 方块数值全部按 4.5:1 走，**没有**任何一档依赖大字 3:1 口径——包括一位数的第一档
-  （8.71:1）。Classic 的 8 号是唯一依赖大字口径的一档，本风格不需要这个例外，
+  （8.71:1）。Classic 的 8 号是唯一按大字口径走的一档，本风格不需要这个例外，
   所以「字号随位数变化」与本风格的对比度结论完全解耦。
-- **为 T14 预留的条目（Classic 欠的那一笔）**：选中方块的那一圈 `--focus` 描在空格底上，
-  这对是 `board.css` 的 `[data-selected='true']` 造成的，每一套风格都有，但 Classic 的
-  `contrast.json` 里没有它（那张表只有焦点环 vs **页面色**）。本风格实测
-  `#625b71` vs `#e6e0e9` = **4.98:1**，已写进 `contrast.json`。
-  T14 做统一闸门时**不必再推导**这一对，只需把它并进每一套风格的表。
+- **T14 复核时确认的两处 start / run 分野**：分组小标签同一个 `.panel__label` 既在 tonal
+  面板里（7.22:1）又在开局界面的纸面上（8.88:1），两对都在表内、各自一个 scene。
+- **选中环那一对（4.98:1）已并入闸门**：T13 把它补进 `contrast.json` 时留下「T14 做统一
+  闸门时不必再推导」的交接，T14 的闸门与浏览器那一层现在都按它验；Classic 的同名一对
+  （5.43:1）也一并补齐——两套风格的选中环都落在 `--cell-bg` 上（board.css 的
+  `[data-selected='true']`，带 spread 的 box-shadow 画在 border box 外侧）。
 - **焦点环用 `outline` 而不是 `box-shadow`**：Material 的层级语言就是投影，
   焦点环再叠一层投影会与 elevation 打架（读者分不清哪层是焦点、哪层是层级）。
   所以控件与板面的焦点都是 `outline: 3px solid var(--focus); outline-offset: 2px`，

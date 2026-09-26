@@ -231,6 +231,47 @@ test('同一副棋盘在两套风格下渲染出不同的方块色，且 Classic
   expect(problems).toEqual([])
 })
 
+test('换风格不重建棋盘：tile 的 DOM 节点还是同一批对象（引用相等，不是值相等）', async ({
+  page,
+}) => {
+  const problems = watchProblems(page)
+  await page.goto(SEED_URL)
+  await page.getByRole('button', { name: '开始游戏' }).click()
+  await expect(page.locator('[data-board]')).toBeVisible()
+
+  // T13 复核留下的规则：**深相等不能证明「什么都没变」**——把对象重建一遍、每个值都
+  // 还在，toEqual 照样过（上面几个用例正是这么断言的，它们断的是「值没变」）。所以这里
+  // 换成引用相等：DOM 节点是一次性对象，重建出来的节点不是同一个 node。把引用留在
+  // window 上，换完风格再逐个问「还在文档里吗」——被重建的节点会掉出文档，于是这里会响。
+  // 它同时钉住 Board 没有因为换风格重新挂载：重挂一次，整套 tile 节点全部换新，
+  // T21 的位移动画（靠 data-tile-id 复用同一个节点）会当场失效。
+  await page.evaluate(() => {
+    const bank = window as unknown as { __tiles: Element[] }
+    bank.__tiles = [...document.querySelectorAll('[data-tile-id]')]
+    expect(bank.__tiles.length).toBeGreaterThan(0)
+  })
+
+  await pickStyle(page, 'Material')
+  await expect(page.locator('main')).toHaveAttribute('data-style', 'material')
+
+  const identity = await page.evaluate(() => {
+    const bank = window as unknown as { __tiles: Element[] }
+    const live = document.querySelectorAll('[data-tile-id]')
+    return {
+      sameCount: bank.__tiles.length === live.length,
+      allAttached: bank.__tiles.every((node) => document.contains(node)),
+      sameIds: bank.__tiles.every(
+        (node, index) =>
+          node.getAttribute('data-tile-id') === live[index]?.getAttribute('data-tile-id')
+      ),
+    }
+  })
+
+  expect(identity).toEqual({ sameCount: true, allAttached: true, sameIds: true })
+
+  expect(problems).toEqual([])
+})
+
 test('data-rank 是阶梯位置、data-bucket 是色档：两套语义不混', async ({ page }) => {
   const problems = watchProblems(page)
 

@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "check:contrast": "node scripts/check-contrast.mjs"
   },
   "engines": {
     "node": ">=22.12.0"

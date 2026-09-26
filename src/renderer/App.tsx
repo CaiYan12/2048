@@ -1,4 +1,4 @@
-import type { JSX } from 'react'
+import { useEffect, useRef, type JSX } from 'react'
 import type { ModeId } from '../shared/modes'
 import { Board } from './components/Board'
 import { Countdown } from './components/Countdown'
@@ -9,6 +9,7 @@ import { StatusBar } from './components/StatusBar'
 import { StartScreen } from './components/StartScreen'
 import { StylePicker } from './components/StylePicker'
 import { WinPanel } from './components/WinPanel'
+import { recheckEffectiveFont } from './styles/fontState'
 import { useGameStore } from './stores/useGameStore'
 
 /**
@@ -26,8 +27,13 @@ import { useGameStore } from './stores/useGameStore'
  * tokens.css / styles.css 都把自己的规则挂在 `[data-style='<id>']` 之下，所以多套风格的
  * CSS 同时活在同一个产物里也不互相覆盖。它挂在外壳而不是 .board 上：ADR-0002 规定棋盘
  * DOM 固定，而外壳正是「可以换实现」的那一层（设计卡 §5）。
+ * T14 起在 styleId 变化时重跑字体状态机：换风格可能换了一套从没下载过的字体，
+ * 启动时那一次检测的结论不能永久锁住它（ADR-0005 最后一句）。
  */
 export default function App(): JSX.Element {
+  // 外壳元素本身。字体重探需要它：这一套风格的字体栈挂在 data-style 上，
+  // 只有这个元素算得出来（fontState.ts 的 effectiveFamilies）
+  const shellRef = useRef<HTMLElement>(null)
   const game = useGameStore((state) => state.game)
   const dailyDate = useGameStore((state) => state.dailyDate)
   const styleId = useGameStore((state) => state.styleId)
@@ -48,8 +54,16 @@ export default function App(): JSX.Element {
     startRun(modeId)
   }
 
+  // 字体状态机跟着风格走（T14）。写在 effect 里而不是 setStyle 里：store 是协调者，
+  // 不该伸手摸 document（SPEC §4）。同字族之间切换时不闪 loading 的那道判据在
+  // fontState 里——它按「正在观察的那一组变了没有」决定要不要重新观察
+  useEffect(() => {
+    recheckEffectiveFont(shellRef.current)
+  }, [styleId])
+
   return (
     <main
+      ref={shellRef}
       className="shell grid min-h-dvh place-items-center px-4 py-8"
       // 换肤机制唯一的钩子：每套风格的令牌与呈现规则都按这个属性选择
       data-style={styleId}
