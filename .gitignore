@@ -1,0 +1,41 @@
+# --- Agent / AI tooling workspaces (沿用 video-to-gif + windy-project-mgr 的清单) ---
+.claude/
+.codex/
+.zcode/
+.trae/
+.workbuddy/
+.superpowers/
+.qoder/
+.mimosa/
+.learnings/
+.playwright-cli/
+.design-flow.json
+
+# --- IDE local state ---
+.idea/
+.vscode/
+
+# --- Dependencies & build output ---
+node_modules/
+dist/
+out/
+build/
+release/
+
+# --- Test / verification artifacts ---
+coverage/
+test-results/
+playwright-report/
+.screenshots/
+
+# --- Env & logs ---
+.env
+.env.*
+!.env.example
+*.log
+npm-debug.log*
+
+# --- OS noise ---
+Thumbs.db
+desktop.ini
+.DS_Store
