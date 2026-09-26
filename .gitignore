@@ -9,7 +9,6 @@
 .mimosa/
 .learnings/
 .playwright-cli/
-.design-flow.json
 
 # --- IDE local state ---
 .idea/

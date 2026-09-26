@@ -259,8 +259,10 @@ React 19 + TypeScript + Vite 7 + Tailwind 3 + Zustand（单 store，无 slice / 
 | --- | --- | --- |
 | （待 P0 填写） | — | `docs/primal-setup-plan.md` P0 阶段写入 |
 
-六模式的规则声明在 `src/shared/modes.ts`，十二套风格在 `src/renderer/styles/themes/`。
-需求与执行蓝图见 `docs/primal-setup-plan.md`，术语见 `CONTEXT.md`。
+六模式的规则声明在 `src/shared/modes.ts`；本次只实现 `classic`、`material`、`claude`
+三套基准风格，放在 `src/renderer/styles/themes/`。其余特色风格见 `README.md` 的 TODO。
+当前实现范围与验收见 `docs/SPEC.md`，纵向任务见 `docs/tickets/`；原阶段蓝图见
+`docs/primal-setup-plan.md`，术语见 `CONTEXT.md`。
 
 
 
