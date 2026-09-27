@@ -1,0 +1,349 @@
+/**
+ * 棋盘 / 方块层（ADR-0002 · 全局约束 3）
+ *
+ * 这里**不用任何 Tailwind utility**，Tailwind 只修饰外壳。原因：这一层要能在
+ * 换风格时整块换掉呈现，而 Tailwind 的调色板色值写在 utility 类名里，风格文件夹
+ * 管不到它。所有颜色来自当前风格 tokens.css 的变量。
+ *
+ * 尺寸只有一份来源：`components/BoardLayout.ts`。它算出的 cell-size / gap / padding
+ * 以 CSS 变量贴到棋盘根元素上，这里只消费，不抄第二份数值。
+ *
+ * 方块按 [row][col] 绝对定位（transform 而非 top/left）：T21 的位移动画要靠
+ * transform 才能跑在合成层上，且 DOM 结构此后不再变。
+ *
+ * —— 配色键：data-bucket，不按数值按档位（T13）——
+ *
+ * 方块原先按 [data-value='N'] 取色，11 个选择器只覆盖 2 的幂到 2048。斐波那契模式的
+ * 17 个值一个都匹配不上，整块棋盘全掉进 --tile-beyond，进度在颜色上完全看不见。
+ * 现在改按「在本模式目标前的相对进度」分档：
+ *
+ *   · 方块同时带三个属性——data-value（数值，e2e 与规则语义用）、
+ *     data-rank（在模式价值阶梯里的 1-based 位置）、data-bucket（折进 11 个色档里的第几档）；
+ *   · data-bucket 由 components/ValueLadder.ts 的两个纯函数算出来，不进 CSS：
+ *     ceil 之后还要拿算出的数去索引一个**静态 token 名**，CSS 的自定义属性做不到
+ *     「按计算值做变量名查找」，属性选择器也接受不了表达式。算式放在 .ts 里的另一个好处
+ *     是它能被单测（见 tests/unit/value-ladder.test.ts）；
+ *   · 桶位 = ceil(rank / totalRanks × 11)，所以经典模式（11 秩）里桶位与秩恒等，
+ *     Classic 的渲染逐字节不变；斐波那契（17 秩）的 2584 落在第 11 档；
+ *   · --tile-beyond 是**超过本模式目标值**的兜底档，不再有「4096 起」这种只对
+ *     经典模式成立的口径。
+ *
+ * 每套主题必须声明 11 个色档 + beyond（--tile-1 … --tile-11、--tile-beyond），并且每个
+ * 色档连字色一起声明（--tile-N-ink）：深浅字的分界在哪一档是主题自己的决定，
+ * 不由这里替它猜。
+ */
+
+.board {
+  position: relative;
+  width: var(--board-size-px);
+  height: var(--board-size-px);
+  padding: var(--board-padding);
+  background: var(--board);
+  border-radius: var(--board-radius, 6px);
+  box-sizing: border-box;
+  /* 触摸手势要由自己吃掉：不设 touch-action 的话，一次纵向划动先被浏览器读成滚
+     页面，手势变成 pointercancel（阈值还没到就取消），玩家看到的是「滑了没反应」。
+     none 只作用于棋盘这块区域，页面其余地方照常可滚。 */
+  touch-action: none;
+}
+
+.board__cells,
+.board__tiles {
+  position: absolute;
+  inset: var(--board-padding);
+}
+
+/* 格子只是底板：没有交互、不朗读、不吸引焦点 */
+.board__cells {
+  pointer-events: none;
+}
+
+.board__cell {
+  position: absolute;
+  width: var(--cell-size);
+  height: var(--cell-size);
+  background: var(--cell-bg);
+  border-radius: var(--cell-radius, 6px);
+}
+
+/* 障碍（T07）：永不移动、永不合并、永不生成。
+   它与「可玩空格」必须分得开——那是「哪些格能放方块」在画面上的样子，这一对在
+   contrast.json 里按非文字指示器的 3:1 走。它与「数值方块」也必须分得开，判据有两条：
+   色值刻意落在方块阶梯的暖色/紫色之外（tokens.css 的 --wall-bg），以及**障碍不带数字**——
+   方块永远带数字，所以玩家不会朝障碍按方向键。 */
+.board__cell[data-cell='wall'] {
+  background: var(--wall-bg);
+}
+
+.board__tile {
+  /* 默认档：超过本模式目标值的方块。board.css 只写 11 条 [data-bucket] 规则，
+     折到 12 及以上的桶位一条都不命中，于是自然落在这里 */
+  --tile-bg: var(--tile-beyond);
+  --tile-ink: var(--tile-beyond-ink, var(--ink-bright));
+
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: var(--cell-size);
+  height: var(--cell-size);
+  background: var(--tile-bg);
+  color: var(--tile-ink);
+  border-radius: var(--cell-radius, 6px);
+  font-family: var(--tile-font-family, var(--font-body));
+  /* 字重与投影都是「带默认值的变量」：不声明就是 Classic 的样子
+     （--font-body / 700 / 无投影），声明了才轮到该风格说话。Material 因此能让方块有
+     elevation，而 Classic 的渲染与改动前逐字节相同——那个全透明的兜底投影画不出任何像素。
+     --tile-font-family 由 T15 引入：Claude 的方块数值用展示衬线（Playfair Display），
+     而字族这一行原先只读 --font-body，那是为「方块与正文同族」的 Classic / Material 定的口径。
+     默认值写成 var(--font-body) 而不是一个具体字体名，于是不声明它的两套风格渲染不变。 */
+  font-weight: var(--tile-font-weight, 700);
+  box-shadow: var(--tile-elevation, 0 0 #0000);
+  /* 等宽数字：合并前后位数变化时数字不横向抖动 */
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  user-select: none;
+  /* —— 位移（T21）——
+     一条 transform 过渡，不加 animation：方块的位置本来就写在 transform 里
+     （BoardLayout.cellOffset 算出 translate），身份与 [data-row]/[data-col] 都不变，
+     React 因 `key={cell.id}` 复用的又是同一个 DOM 节点——所以「从旧格走到新格」只需要
+     浏览器把两帧之间补出来，这一行就是它的全部实现。
+     opacity / scale 两条是**入场**用的（见下面 @starting-style）；合并与胜利的脉冲走
+     animation，不占 transition 的位置。 */
+  transition:
+    transform var(--tile-move-duration, 140ms) var(--tile-move-easing, ease-out),
+    opacity var(--tile-spawn-duration, 120ms) ease-out,
+    scale var(--tile-spawn-duration, 120ms) ease-out;
+}
+
+/* —— 生成入场（T21 · 验收标准 2）——
+   唯一一个用 @starting-style 的效果，理由是**只有它的语义正好是「这个元素刚被插进
+   DOM」**：新方块是新 key、新节点，其余三个效果全都发生在同一个节点上。
+   选择器必须带上 [data-spawn='true']：不带这一层的话，一次模式切换或开新局会把整块
+   棋盘重放一遍入场，而那不是「生成」。
+   反过来也成立——滑动用它会得到一张错的起始帧（新元素的第一帧），而方块根本没有重新
+   插入；合并用它更糟：产物与操作数是同一个节点，起始帧压根不会出现。 */
+@starting-style {
+  .board__tile[data-spawn='true'] {
+    opacity: var(--tile-enter-from-opacity, 0.6);
+    scale: var(--tile-enter-from-scale, 1);
+  }
+}
+
+/* —— 合并脉冲（T21）——
+   animation 而不是 transition：合并要的是一次性脉冲（放大再落回），「一次性」不是过渡
+   的语义。也**不是入场**：产物与两个操作数共用一个节点，@starting-style 的起始帧不会
+   出现，硬套进去只会得到一张静止的第一帧。
+   脉冲落在 scale 这个独立变换分量上、**不碰 transform**：方块的位置写在
+   `transform: translate(x, y)` 里，用它做缩放会连位移一起盖掉，那一枚会瞬移到棋盘
+   原点——那正是验收标准 1 要禁的「瞬移」。缩放的中点取 45% 而不是 50%：脉冲该在
+   「落回去」上留更多时间，读起来是弹一下，不是呼吸一下。
+   时长借位移那一个变量：两个操作数与产物在同一帧里走完，观众不会分别计时，也不必为
+   同一件事准备第二个常量（TILE_EFFECT_DURATIONS 的 merge 一条写的就是这个理由）。 */
+@keyframes tile-merge-pulse {
+  0% {
+    scale: 1;
+  }
+  45% {
+    scale: var(--tile-merge-scale, 1.08);
+  }
+  100% {
+    scale: 1;
+  }
+}
+
+/* —— 胜利序列（T21）——
+   同样是一次性 animation，且收敛：一次呼吸就完，**不做循环庆祝**——到达目标是里程碑，
+   宣布它是 T04 面板的事，方块只是被点到名的那一枚。1.5s 是四个效果里唯一一个长的，
+   它能长的原因见 TILE_EFFECT_DURATIONS.win：那一刻引擎不接受任何移动，动画不可能
+   有输入排队。
+   `:not([data-win='true'])` 写在合并脉冲上而不是靠两条规则的书写顺序：合出目标块的
+   那一次同时是一次合并，两个效果会撞同一个 animation 属性。顺序在打包产物里不是可
+   依赖的东西，显式让胜利吞掉合并才是可依赖的——语义上也对，那一刻该看的是「你到了」，
+   不是「这里合并过」。 */
+@keyframes tile-win-breath {
+  0%,
+  100% {
+    scale: 1;
+  }
+  50% {
+    scale: var(--tile-win-scale, 1.06);
+  }
+}
+
+.board__tile[data-merge='true']:not([data-win='true']) {
+  animation: tile-merge-pulse var(--tile-move-duration, 140ms) ease-out;
+}
+
+.board__tile[data-win='true'] {
+  animation: tile-win-breath var(--tile-win-duration, 1500ms) ease-in-out 1;
+}
+
+/* 色档 → 底色。属性选择器把变量贴到具体方块上，.board__tile 的声明保持不变，
+   所以风格只换色值、棋盘层的规则一行都不用动（加新风格 = 加一个文件夹，ADR-0002）。
+   档位是相对进度：同一档在不同模式里装的是不同数值（第 11 档：经典 2048 /
+   斐波那契 2584 / 大棋盘 4096）。 */
+.board__tile[data-bucket='1'] {
+  --tile-bg: var(--tile-1);
+  --tile-ink: var(--tile-1-ink);
+}
+.board__tile[data-bucket='2'] {
+  --tile-bg: var(--tile-2);
+  --tile-ink: var(--tile-2-ink);
+}
+.board__tile[data-bucket='3'] {
+  --tile-bg: var(--tile-3);
+  --tile-ink: var(--tile-3-ink);
+}
+.board__tile[data-bucket='4'] {
+  --tile-bg: var(--tile-4);
+  --tile-ink: var(--tile-4-ink);
+}
+.board__tile[data-bucket='5'] {
+  --tile-bg: var(--tile-5);
+  --tile-ink: var(--tile-5-ink);
+}
+.board__tile[data-bucket='6'] {
+  --tile-bg: var(--tile-6);
+  --tile-ink: var(--tile-6-ink);
+}
+.board__tile[data-bucket='7'] {
+  --tile-bg: var(--tile-7);
+  --tile-ink: var(--tile-7-ink);
+}
+.board__tile[data-bucket='8'] {
+  --tile-bg: var(--tile-8);
+  --tile-ink: var(--tile-8-ink);
+}
+.board__tile[data-bucket='9'] {
+  --tile-bg: var(--tile-9);
+  --tile-ink: var(--tile-9-ink);
+}
+.board__tile[data-bucket='10'] {
+  --tile-bg: var(--tile-10);
+  --tile-ink: var(--tile-10-ink);
+}
+.board__tile[data-bucket='11'] {
+  --tile-bg: var(--tile-11);
+  --tile-ink: var(--tile-11-ink);
+}
+
+/* 位数越多字号越小。字号跟着格子边长等比缩，不设硬下限：超过目标的长数值
+   允许缩到 24px 以下，因为它们全部落在 ≥ 4.56:1 的深色档上（Classic 的口径，见
+   设计卡 §9；Material 每一档都 ≥ 5.00:1，不依赖这个例外），按普通文字也算过线
+   （唯一依赖大字口径的是 Classic 的 8 号，而它永远是一位数、字号最大）。见设计卡 §9 */
+.board__tile {
+  font-size: calc(var(--cell-size) * 0.45);
+}
+.board__tile[data-digits='2'] {
+  font-size: calc(var(--cell-size) * 0.4);
+}
+.board__tile[data-digits='3'] {
+  font-size: calc(var(--cell-size) * 0.32);
+}
+.board__tile[data-digits='4'] {
+  font-size: calc(var(--cell-size) * 0.27);
+}
+.board__tile[data-digits='5'] {
+  font-size: calc(var(--cell-size) * 0.23);
+}
+
+/* 末档不写死「正好 6 位」，而是 6～9 位共用：斐波那契合并表的项数上限卡在操作数之和上
+   （见 src/game/merge.ts 的 FIBONACCI_CEILING），最后进表的是 F42+F43 → 701408733，
+   九位数封顶。七位往上（1346269 起，TileLabel.ts 里记着这个阈值）在超长对局里真能落
+   到盘面上，只认 6 位的话这些方块会掉回上面 1 位档的 0.45 倍格边长、溢出格子。
+   上限哪天动，这一档要跟着加位数。 */
+.board__tile[data-digits='6'],
+.board__tile[data-digits='7'],
+.board__tile[data-digits='8'],
+.board__tile[data-digits='9'] {
+  font-size: calc(var(--cell-size) * 0.2);
+}
+
+/* 交换拾取（T12）：拾取中的方块是可点的，光标要说出来。只在拾取态出现这个属性，
+   平时方块照旧不是交互目标。 */
+.board__tile[data-selectable='true'] {
+  cursor: pointer;
+}
+
+/* 被选中的那一枚：描一圈 --focus。复用焦点环那个色值，**不引入新颜色**——
+   换风格时跟着 tokens.css 走。
+   用 box-shadow 而不是 outline / border：不改盒子尺寸，T21 的 transform 与
+   格子的绝对定位都不受影响。带 spread 的 box-shadow 画在 border box **外侧**，
+   而 BOARD_GAP = 12（BoardLayout.ts:9）远宽于这 3px 的环，所以环不与方块本身
+   相邻、也不与隔壁方块相邻——它落在 --cell-bg 上。这一对（--focus / --cell-bg）
+   实测 Classic 5.43:1、Material 4.98:1，都远高于 3:1；T14 已把它补进两套风格的
+   contrast.json（basis: non-text，探针见那两张表的 probe 字段），不再是缺口。
+   环与主题自己的 elevation 合成（第二个 shadow 层），不是互相顶掉：否则 Material
+   选中的那一枚会突然失去投影，读者会以为层级变了。 */
+.board__tile[data-selected='true'] {
+  box-shadow:
+    0 0 0 3px var(--focus),
+    var(--tile-elevation, 0 0 #0000);
+}
+
+/* —— 拾取中的方块的焦点环（T22 验收标准 1）——
+   交换拾取里的方块带 tabIndex（TileView 的 `tabIndex={selectable ? 0 : undefined}`），
+   于是它是**真的**焦点目标。真的焦点目标就必须有一个看得见的环：拾取态下 Tab 到一枚
+   方块却没有环，键盘玩家看不见焦点在哪，只能靠猜——这正是本票要堵的那个洞。
+   环为什么用 outline 而不是 box-shadow：box-shadow 那一位已经被占着了——拾取环
+   （[data-selected]）用它，Material 的 --tile-elevation 也用它，再叠一层会互相顶掉
+   （board.css 上面那段记着这个代价）。reduced-motion 的两个静态记号用的是同一个机制、
+   同一条理由。
+   色值仍然只有 --focus 一个，不引入第二种颜色；环画在方块**外侧**（outline-offset 给
+   正值），于是它落在 --cell-bg 上——那一对 T14 已经为拾取环量过：Classic 5.43:1、
+   Material 4.98:1、Claude 3.34:1，都过 3:1 的非文字指示器口径。3px + 2px 外移全在
+   BOARD_GAP = 12 的间距内，蹭不到隔壁那一枚。
+   与拾取环同时出现时不打架：拾取环画在 border box 外侧、零偏移，焦点环外移 2px，
+   两圈同心——被聚焦又被拾取的那一枚读作「它有焦点、它也被选了」，两个事实都还在。
+   与 reduced-motion 的静态记号可能同时出现（那一枚既是焦点目标又是新生成的）：两条
+   特异性相同，而媒体查询那块在文件后面，于是记号那一条赢，环显示成 2px。仍然看得见，
+   而且是同一个 --focus、同一个 offset——那一枚同时说着「它是新的」和「它有焦点」。 */
+.board__tile:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* —— reduced-motion（SPEC §3.2 · 用户故事 24）——
+   系统设置优先于这里的一切默认值，但降级**不是把动效关掉了事**。上面四个效果每一个
+   都说清自己「在图什么」，这里给的是不动而同样说得清的那一半；T20 对音频的做法
+   （收成一个单音，不是静音）是同一条精神——信息密度可以降一档，通道不能关。玩家仍然
+   看得见每一枚方块、仍然走得动、分数照旧更新。逐项映射见 TileMotion.ts 的
+   EFFECT_REDUCED_MOTION，这里只落地。
+
+   入场的两个起点值在这里改成与终点相同：@starting-style 于是拿不出任何差异，一个
+   把过渡整个关掉的浏览器也不会把新方块卡在半透明上。变量**直接声明在 .board__tile
+   上**而不是靠继承——直接声明永远压过主题 tokens.css 里的同名声明，于是三套风格在
+   这里表现一致，与打包顺序无关。 */
+@media (prefers-reduced-motion: reduce) {
+  .board__tile {
+    transition: none;
+    --tile-enter-from-opacity: 1;
+    --tile-enter-from-scale: 1;
+  }
+
+  /* 脉冲与呼吸都停：它们是动效，静止替代物是下面那两圈描边 */
+  .board__tile[data-merge='true']:not([data-win='true']),
+  .board__tile[data-win='true'] {
+    animation: none;
+  }
+
+  /* 生成与合并的静态标记：一圈 --focus。色值与 [data-selected] 的拾取环同一个，
+     **不引入新颜色**（换风格时跟着 tokens.css 走）。
+     画在方块**外侧**（offset 给正值）：于是环落在 --cell-bg 上，那一对 T14 已经量过
+     （拾取环就是它）。给负值画到方块自己身上时，环要压在 12 个色档上，那是一批没量过
+     的组合。环只有 2px，远在 BOARD_GAP = 12 的间距内，蹭不到隔壁那一枚。
+     用 outline 而不是 box-shadow：拾取环与 Material 的 --tile-elevation 都占着
+     box-shadow，再叠一层会互相顶掉（拾取那一枚会突然失去投影）。 */
+  .board__tile[data-spawn='true'],
+  .board__tile[data-merge='true']:not([data-win='true']) {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  /* 胜利的静态标记：同色、粗一档、**常驻**。它说的是「这一局到过了」，与「上一次移动
+     变了什么」不是一件事，粗细是这两件事唯一的分辨手段，所以不能共用一条规则。 */
+  .board__tile[data-win='true'] {
+    outline: 3px solid var(--focus);
+    outline-offset: 3px;
+  }
+}

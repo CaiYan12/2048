@@ -1,0 +1,193 @@
+/**
+ * Classic 的呈现规则
+ *
+ * 只管两件事：外壳（纸面、标注、按钮、提示）与棋盘层的装饰参数。棋盘与方块的**结构**
+ * 在 board.css，颜色在 tokens.css——这里不重复它们，也不出现 Tailwind utility：
+ * 这一层与棋盘层一样，都要能整块换掉。
+ *
+ * 每一条规则都挂在 [data-style='classic'] 之下：T13 起两套风格的 styles.css 同时打进
+ * 同一个产物，不按 data-style 隔开就会互相覆盖（而覆盖顺序该由设计决定，不由打包决定）。
+ * 圆角与动效时长原本在 :root 上声明，现已移进 tokens.css——「值」集中在一处。
+ */
+
+/* 外壳：纸面 + 无衬线正文 */
+.shell[data-style='classic'] {
+  min-height: 100dvh;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-body);
+}
+
+/* 标题。字体走 @theme inline 映射出来的 font-display（见 index.css） */
+.shell[data-style='classic'] .shell__title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* 卡片式标注：分数 / 目标 / 最高方块 */
+[data-style='classic'] .panel {
+  background: var(--control-bg);
+  color: var(--ink-bright);
+  border-radius: var(--cell-radius);
+  padding: 0.5rem 0.875rem;
+  text-align: center;
+}
+
+/* 小标签。T15 起不再用 opacity：半透明前景是另一个颜色值，不是「打了折的同一个颜色」，
+   而 getComputedStyle().color 拿到的是合成前那个本色（T14 的闸门只能从 style.opacity
+   回头补算）。所以这里显式声明次要色，纸面上用 --ink-variant。
+   这个类既有中文也有西文，大写与字距照旧（同 Material 的口径：真正的识别度落在字重与字距）。 */
+[data-style='classic'] .panel__label {
+  color: var(--ink-variant);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* 同一个类落在面板里时换第二个次要色：面板是深底，「淡一档」要往亮的那一边走。
+   特异性（0,2,0）高于上面那条（0,1,0），所以不依赖书写顺序——两套风格的样式表同时打进
+   同一个产物，谁在前谁在后由打包结果决定，不能拿它当设计。 */
+[data-style='classic'] .panel .panel__label {
+  color: var(--ink-bright-variant);
+}
+
+[data-style='classic'] .panel__value {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+/* 控件：按钮。焦点用「页面色垫圈 + 深色描边」双环，深色环永远只与页面色相邻 */
+[data-style='classic'] .control {
+  background: var(--control-bg);
+  color: var(--ink-bright);
+  border: 0;
+  border-radius: var(--cell-radius);
+  padding: 0.625rem 1.25rem;
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+[data-style='classic'] .control:hover {
+  background: var(--control-bg-hover);
+}
+
+[data-style='classic'] .control:focus-visible {
+  outline: 0;
+  box-shadow:
+    0 0 0 2px var(--page),
+    0 0 0 4px var(--focus);
+}
+
+/* 已选项：同一族里用更深的底表示「选中」，不引入新颜色 */
+[data-style='classic'] .control[aria-pressed='true'] {
+  background: var(--control-bg-selected);
+}
+
+/* 操作提示：纸面上最弱的一层字 */
+[data-style='classic'] .hint {
+  color: var(--ink);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+/* 方向按钮（T10 · SPEC 用户故事 13）
+   按**输入设备**显隐，不按视口宽度：宽屏也可能接着触屏，窄屏也可能是鼠标，
+   pointer: coarse 描述的正是「主指针不精确」（手指），它就是该不该给屏幕方向的判据。
+   默认 display:none：桌面端不是「看不见」而是**不在布局里**——flex/gap 都不给
+   display:none 的盒子留缝，「非触摸设备不占用布局」由这一行直接兑现。
+   单排四个而不是九宫格：九宫格高 160px，会把「新游戏」推到手机视口外；单排只占
+   48px，棋盘加方向按钮在 393×727 的 Pixel 5 上一屏放得下。 */
+[data-style='classic'] .dpad {
+  display: none;
+  grid-template-columns: repeat(4, 3rem);
+  gap: 0.5rem;
+}
+
+/* 键面复用 .control 的配色与焦点环，只把形状改成 48px 的方块（触控目标下限） */
+[data-style='classic'] .dpad__key {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  padding: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+/* 触摸版的移动键提示：默认不占位 */
+[data-style='classic'] .hint__touch {
+  display: none;
+}
+
+/* 触摸设备：方向按钮进场，键盘那一版提示让位。
+   判据与上面同一条——描述输入设备，不描述视口宽度。 */
+@media (pointer: coarse) {
+  [data-style='classic'] .dpad {
+    display: grid;
+  }
+
+  [data-style='classic'] .hint__pointer {
+    display: none;
+  }
+
+  [data-style='classic'] .hint__touch {
+    display: inline;
+  }
+}
+
+/* 终局面板：盖在棋盘上的一层纸面。
+   它是外壳元素（ADR-0002 的棋盘 DOM 固定结构不动），所以颜色仍走主题 token，
+   换风格时跟着 tokens.css 整块变。用不透明底色而不是半透明：半透明会把棋盘上的
+   方块透出来，和已经结束的局面摆在一起只会让人以为还能动它。 */
+[data-style='classic'] .overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  text-align: center;
+  border-radius: var(--board-radius);
+  background: var(--page);
+}
+
+[data-style='classic'] .overlay__title {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+[data-style='classic'] .overlay__text {
+  max-width: 16rem;
+  color: var(--ink);
+  font-size: 0.875rem;
+}
+
+/* 棋盘区域是交互目标：可见焦点 + 不把光标当文本框。
+   Classic 全扁平，所以这里只有光标与焦点环，没有投影（投影是 Material 的层级语言）。 */
+[data-style='classic'] .board {
+  cursor: default;
+}
+
+[data-style='classic'] .board:focus-visible {
+  outline: 0;
+  box-shadow:
+    0 0 0 2px var(--page),
+    0 0 0 4px var(--focus);
+}
+
+/* reduced-motion：动效全部退化为静态（SPEC §3.2） */
+@media (prefers-reduced-motion: reduce) {
+  [data-style='classic'] {
+    --tile-move-duration: 0ms;
+    --tile-spawn-duration: 0ms;
+  }
+}

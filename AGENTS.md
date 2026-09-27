@@ -236,7 +236,7 @@ A tiny 2048 game built in web.
 
 ## Techstack Info:
 
-React 19 + TypeScript + Vite 7 + Tailwind 3 + Zustand（单 store，无 slice / 无中间件）。
+React 19 + TypeScript + Vite 8 + Tailwind 4 + Zustand（单 store，无 slice / 无中间件）。
 测试：Vitest（纯逻辑，`tests/unit/`，**不用** `@testing-library/react`）+ Playwright（UI，`tests/e2e/`）。
 无 eslint / prettier。
 
@@ -251,18 +251,55 @@ React 19 + TypeScript + Vite 7 + Tailwind 3 + Zustand（单 store，无 slice / 
    加一套风格不动引擎。棋盘 / 方块层**不用** Tailwind utility，独立 `board.css`；
    Tailwind 只用于外壳。
 
-版本沿用 `opia-rss-reader` 已验证组合并钉死在下方「版本钉死表」，升级前先查理由。
+依赖版本在 T02 按当前主线钉死并记录在下方「版本钉死表」（未沿用 `opia-rss-reader` 的旧基线，
+理由见表下），升级前先查理由。
 
 ### 版本钉死表
 
 | 依赖 | 版本 | 钉死理由 |
 | --- | --- | --- |
-| （待 P0 填写） | — | `docs/primal-setup-plan.md` P0 阶段写入 |
+| vite | 8.3.1 | 当前主版本；T02 核过 plugin-react 6、vitest 5 的 peer 均指向 Vite 8 |
+| @vitejs/plugin-react | 6.1.1 | peer 要求 `vite ^8.0.0`，与上表同时定 |
+| vitest | 5.0.2 | peer 接受 `vite ^6 \|\| ^7 \|\| ^8`；与 Vite 8 验证过可共装 |
+| tailwindcss + @tailwindcss/vite | 4.3.3 | CSS-first 无 `tailwind.config.js`，`@theme` 原生自定义属性，与各风格 `tokens.css` 直接组合 |
+| react / react-dom | 19.3.0 | 当前 minor；`@types/react` 对齐 |
+| typescript | 7.0.2 | `tsc --noEmit` 已通过；strict 全开 |
+| @playwright/test | 1.63.0 | e2e 用构建预览跑，版本跟随当前 |
+| @types/node | 26.6.3 | 配置文件与 Node API 类型 |
+| zustand | 5.0.15 | T03 引入单 store（SPEC §4：无 slice、无中间件）；v5 的 TS 类型要求 `create<T>()(...)` 双调用形式，钉死以免误升到破坏类型接口的大版本 |
+
+回退基线：`tailwindcss@3.4.19`（npm `v3-lts`）+ Vite 7 + Vitest 4 + plugin-react 5，理由见
+SDD ledger 的「依赖版本走当前」裁决。Node 需 `>=22.12.0`（`engines`）。
+
+关于 lockfile 的 registry：`package-lock.json` 里每条 `resolved` 都指向
+`registry.npmmirror.com`，因为这台机器在国内网络，走官方源装不动。**这是有意的**，
+不是谁手滑写进镜像——所以别去「修正」回 npmjs。也不要因此给仓库加 `.npmrc` 去 pin 镜像源：
+`npm ci` 严格按 lockfile 安装，pin 了既无效、又只会拖慢 ubuntu runner。
 
 六模式的规则声明在 `src/shared/modes.ts`；本次只实现 `classic`、`material`、`claude`
 三套基准风格，放在 `src/renderer/styles/themes/`。其余特色风格见 `README.md` 的 TODO。
 当前实现范围与验收见 `docs/SPEC.md`，纵向任务见 `docs/tickets/`；原阶段蓝图见
 `docs/primal-setup-plan.md`，术语见 `CONTEXT.md`。
+
+**Playwright 只准在后台跑，且一律 headless。** 项目所有者会在自己的机器上同时做别的事，
+弹出的浏览器窗口会抢走键盘焦点，前台任务会被打断。具体要求：
+
+- `npx playwright test` 用后台方式执行（`run_in_background: true`），不要前台阻塞并刷屏；
+  轮询结果时用有界等待，不要长时间静默占用前台。
+- 永不使用 `--headed`、`--debug`、`--ui`，不打开 trace viewer、HTML report 或 `codegen`。
+- 需要看渲染结果时读回 DOM（computed style、`data-*`、文本内容），不开可见窗口。
+- `playwright.config.ts` 里 `headless: true` 是显式约定，不是默认值巧合。
+- **禁参数列表不够。** `chrome-devtools-mcp` 一类驱动真实浏览器的 MCP **默认开可见窗口**，
+  而且能在一个被叮嘱过「保持 headless」的 agent 里跑起来。所以每条派发指令都要另写一句：
+  不许用任何驱动真实浏览器的 MCP / Puppeteer / 会开真实窗口的东西；**如果你认为需要浏览器，
+  先问，不要自己开。**
+
+**派出去的每个子代理都要被持续监督，频率自定但必须固定。** 本项目默认每 5 分钟一次：跑
+`node scripts/subagent-watch.mjs --since-minutes 10`，配合 `ListAgents` 看已跑时长。
+**判据是落盘活动，不是墙钟**——一个 40 分钟的票是正当的，13 分钟只写了一个临时脚本则不是。
+阈值与处置、以及「先诊断再重派」（是派发令太宽、是你给了无解任务、还是它真卡在代码上）
+见 `docs/agents/subagent-supervision.md`。监督是控制人的职责，不是使用者的：本次会话里
+「T07 卡住」就是使用者发现的，而那类信号本该由这套机制先抓到。
 
 
 

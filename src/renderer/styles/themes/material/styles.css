@@ -1,0 +1,194 @@
+/**
+ * Material 的呈现规则
+ *
+ * 只管两件事：外壳（表面色、控件、面板、提示）与棋盘层的装饰参数（圆角、层级、动效时长）。
+ * 棋盘与方块的**结构**在 board.css，颜色在 tokens.css——这里不重复它们，
+ * 也不出现 Tailwind utility：这一层与棋盘层一样，都要能整块换掉。
+ *
+ * 每一条规则都挂在 [data-style='material'] 之下：两套风格的 styles.css 同时打进同一个
+ * 产物，不按 data-style 隔开就会互相覆盖，而覆盖顺序由打包结果决定、不由设计决定。
+ * 外壳骨架（grid / gap / px-4 那些 Tailwind utility）不在这里——那是 App.tsx 的布局，
+ * 见 DESIGN.md §5。
+ */
+
+/* 外壳：Material 3 浅色基线表面 */
+.shell[data-style='material'] {
+  min-height: 100dvh;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-body);
+}
+
+/* 标题：Roboto Flex Medium + 收紧字距（Classic 是 Inter Bold） */
+.shell[data-style='material'] .shell__title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+/* 卡片式标注：分数 / 目标 / 最高方块。
+   平的、不上投影——全屏唯一被抬起的是棋盘板面（见本节末尾），层级靠这一条分出来。 */
+[data-style='material'] .panel {
+  background: var(--control-bg);
+  color: var(--control-ink);
+  border-radius: var(--cell-radius);
+  padding: 0.75rem 1rem;
+  text-align: center;
+}
+
+/* 小标签：Material 2 的 label 口径——字重 500、0.12em 字距。
+   刻意不用 opacity：半透明会让对比度按比例打折，而 getComputedStyle().color 读不到合成结果
+   （Classic 的 .panel__label 当年正是用 opacity .85 才成形的，T14 量过、T15 换成显式声明的
+   --ink-variant / --ink-bright-variant：面板底上 4.59:1、纸面上 4.71:1，都过 4.5，但已贴线）。
+   这里改成次要正文色，是因为同一个类既在 tonal 面板里（分数 / 目标 / 最高方块）又在页面上
+   （开局界面的分组标签）——一个色值要同时压住两种底，实测 7.22:1 与 8.88:1，都过 4.5。 */
+[data-style='material'] .panel__label {
+  color: var(--ink-variant);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* 面板数值：M3 title-large 22px / Medium，数字等宽 */
+[data-style='material'] .panel__value {
+  font-family: var(--font-display);
+  font-size: 1.375rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  line-height: 1.2;
+}
+
+/* 控件：tonal 按钮，全圆角（Material 的按钮形状识别度就在这里——Classic 用 6px 方角） */
+[data-style='material'] .control {
+  background: var(--control-bg);
+  color: var(--control-ink);
+  border: 0;
+  border-radius: 999px;
+  padding: 0.625rem 1.5rem;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+[data-style='material'] .control:hover {
+  background: var(--control-bg-hover);
+}
+
+/* 焦点用 outline 而不是投影：本风格的层级语言就是投影，焦点再叠一层投影会让读者
+   分不清哪层是焦点、哪层是 elevation。环只与页面色相邻（6.13:1）。 */
+[data-style='material'] .control:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* 已选项：翻成 filled primary（M3 的选中态就是「从 tonal 升到 filled」） */
+[data-style='material'] .control[aria-pressed='true'] {
+  background: var(--control-bg-selected);
+  color: var(--ink-bright);
+}
+
+/* 操作提示：次要文字色，不用半透明 */
+[data-style='material'] .hint {
+  color: var(--ink-variant);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+/* 方向按钮（T10 · SPEC 用户故事 13）
+   按**输入设备**显隐，不按视口宽度：宽屏也可能接着触屏，窄屏也可能是鼠标。
+   单排四个而不是九宫格（同 Classic 的理由：九宫格高 160px，会把「新游戏」推到手机视口外）。 */
+[data-style='material'] .dpad {
+  display: none;
+  grid-template-columns: repeat(4, 3rem);
+  gap: 0.5rem;
+}
+
+/* 键面复用 .control 的配色与焦点环，形状改成 48px 的方圆（触控目标下限）。
+   圆角要显式覆盖：.control 是全圆角，四个胶囊排一排读起来不像方向键。 */
+[data-style='material'] .dpad__key {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  padding: 0;
+  border-radius: var(--cell-radius);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+/* 触摸版的移动键提示：默认不占位 */
+[data-style='material'] .hint__touch {
+  display: none;
+}
+
+/* 触摸设备：方向按钮进场，键盘那一版提示让位（判据同 Classic） */
+@media (pointer: coarse) {
+  [data-style='material'] .dpad {
+    display: grid;
+  }
+
+  [data-style='material'] .hint__pointer {
+    display: none;
+  }
+
+  [data-style='material'] .hint__touch {
+    display: inline;
+  }
+}
+
+/* 终局面板：盖在棋盘上的一层表面色。
+   它是外壳元素（ADR-0002 的棋盘 DOM 固定结构不动），所以颜色仍走主题 token。
+   用不透明底色而不是半透明：半透明会把棋盘上的方块透出来，和已经结束的局面摆在一起
+   只会让人以为还能动它。 */
+[data-style='material'] .overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 0.75rem;
+  padding: 1.5rem;
+  text-align: center;
+  border-radius: var(--board-radius);
+  background: var(--page);
+}
+
+[data-style='material'] .overlay__title {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--ink);
+}
+
+[data-style='material'] .overlay__text {
+  max-width: 16rem;
+  color: var(--ink-variant);
+  font-size: 0.875rem;
+}
+
+/* 棋盘区域：交互目标 + **全屏唯一被抬起的一张卡**。
+   elevation 3dp 级（ tokens.css 的 --board-radius 形状），所以「板面 vs 页面」的关系
+   不是靠明度硬撑，而是靠投影；空格 vs 板面 1.30:1 只是装饰层级。 */
+[data-style='material'] .board {
+  cursor: default;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.12),
+    0 4px 8px 3px rgba(0, 0, 0, 0.1);
+}
+
+[data-style='material'] .board:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* reduced-motion：动效全部退化为静态（SPEC §3.2）。投影保留——它是层级不是动效。 */
+@media (prefers-reduced-motion: reduce) {
+  [data-style='material'] {
+    --tile-move-duration: 0ms;
+    --tile-spawn-duration: 0ms;
+  }
+}

@@ -1,0 +1,213 @@
+/**
+ * Claude 的呈现规则
+ *
+ * 只管两件事：外壳（纸面、细线分栏的标注、描边按钮、提示）与棋盘层的装饰参数（圆角、
+ * 板面外那一圈线、动效时长）。棋盘与方块的**结构**在 board.css，颜色在 tokens.css——
+ * 这里不重复它们，也不出现 Tailwind utility：这一层与棋盘层一样，都要能整块换掉。
+ *
+ * 每一条规则都挂在 [data-style='claude'] 之下：三套风格的 styles.css 同时打进同一个产物，
+ * 不按 data-style 隔开就会互相覆盖，而覆盖顺序由打包结果决定、不由设计决定。
+ * 外壳骨架（grid / gap / px-4 那些 Tailwind utility）不在这里——那是 App.tsx 的布局，
+ * 见 DESIGN.md §5。
+ */
+
+/* 外壳：奶油纸面 + 近黑暖墨。层级全靠明度与细线，没有一处投影 */
+.shell[data-style='claude'] {
+  min-height: 100dvh;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-body);
+}
+
+/* 标题：Playfair Display Semibold + 收紧字距（Classic 是 Inter Bold、Material 是
+   Roboto Flex Medium——三套标题在字族与字重上都分得开，落到回退栈也在同一类别内）。
+   600 而不是 700：大字号下 700 的 didone 会过分强硬；700 留给方块数字（见 tokens.css）。 */
+.shell[data-style='claude'] .shell__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* 卡片式标注：分数 / 目标 / 最高方块。
+   **不填色**，只在上方压一条 1px 细线——读起来是同一张纸上的三栏，不是三张卡片。
+   这是本套与另两套在外壳上最直接的分岔：Classic 填深棕、Material 填 tonal 紫。 */
+[data-style='claude'] .panel {
+  color: var(--ink);
+  border-top: 1px solid var(--rule);
+  padding: 0.875rem 1.5rem 0.75rem;
+  text-align: center;
+}
+
+/* 小标签：次要正文色，不用 opacity 调明度（半透明前景是另一个颜色值，
+   getComputedStyle().color 读不到合成结果——Classic 的 .panel__label 当年正是那么做的）。
+   面板不填色，所以这一个色值在纸面上与在面板里都成立，不需要第二个方向。 */
+[data-style='claude'] .panel__label {
+  color: var(--ink-variant);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+/* 面板数值：Playfair Semibold，全屏除标题与方块数字之外唯一的衬线 */
+[data-style='claude'] .panel__value {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+/* 控件：描边按钮。底就是纸面（不填色），边界由 outline 说。
+   用 outline 而不是 border 有两条理由：border 会让按钮盒子大一像素，而 .control 在模式 /
+   风格选择器里按 flex-auto 排位，尺寸漂移会在三套风格之间造成不可见的排列差；outline 不进
+   布局，而且闸门的 ring 探针读得到它（那一对因此能入 contrast.json，见 DESIGN.md §9）。 */
+[data-style='claude'] .control {
+  background: var(--control-bg);
+  color: var(--control-ink);
+  border: 0;
+  border-radius: 3px;
+  padding: 0.75rem 1.75rem;
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  cursor: pointer;
+  outline: 1px solid var(--control-border);
+  outline-offset: -1px;
+}
+
+/* 悬停：纸面深一档。仍是暖灰，不是暖色——暖色是稀缺品（见 tokens.css 的 --control-bg-selected） */
+[data-style='claude'] .control:hover {
+  background: var(--control-bg-hover);
+}
+
+/* 焦点：换成暖色的、更粗的一圈，并且挪到盒子外面——它与「静止态描边」在粗细、颜色、
+   位置上三样都不同，读者不会把两者混起来。环落在纸面上（4.98:1，非文字口径）。 */
+[data-style='claude'] .control:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* 已选项：全壳唯一一处暖色填充（M3 的 filled 升级在这套语言里就是「点亮」） */
+[data-style='claude'] .control[aria-pressed='true'] {
+  background: var(--control-bg-selected);
+  color: var(--ink-bright);
+}
+
+/* 操作提示：次要正文色，不用半透明 */
+[data-style='claude'] .hint {
+  color: var(--ink-variant);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+/* 方向按钮（T10 · SPEC 用户故事 13）
+   按**输入设备**显隐，不按视口宽度：宽屏也可能接着触屏，窄屏也可能是鼠标。
+   单排四个而不是九宫格（同 Classic 的理由：九宫格高 160px，会把「新游戏」推到手机视口外）。 */
+[data-style='claude'] .dpad {
+  display: none;
+  grid-template-columns: repeat(4, 3rem);
+  gap: 0.5rem;
+}
+
+/* 键面复用 .control 的配色与焦点环，形状改成 48px 的方圆（触控目标下限）。
+   圆角要显式覆盖：.control 是 3px，四个方角键排一排读起来不像方向键。 */
+[data-style='claude'] .dpad__key {
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  padding: 0;
+  border-radius: var(--cell-radius);
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+/* 触摸版的移动键提示：默认不占位 */
+[data-style='claude'] .hint__touch {
+  display: none;
+}
+
+/* 触摸设备：方向按钮进场，键盘那一版提示让位（判据同 Classic） */
+@media (pointer: coarse) {
+  [data-style='claude'] .dpad {
+    display: grid;
+  }
+
+  [data-style='claude'] .hint__pointer {
+    display: none;
+  }
+
+  [data-style='claude'] .hint__touch {
+    display: inline;
+  }
+}
+
+/* 终局面板：盖在棋盘上的一层纸。
+   它是外壳元素（ADR-0002 的棋盘 DOM 固定结构不动），所以颜色仍走主题 token。
+   用不透明底色而不是半透明：半透明会把棋盘上的方块透出来，和已经结束的局面摆在一起
+   只会让人以为还能动它。 */
+[data-style='claude'] .overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 0.75rem;
+  padding: 1.75rem;
+  text-align: center;
+  border-radius: var(--board-radius);
+  background: var(--page);
+}
+
+[data-style='claude'] .overlay__title {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+[data-style='claude'] .overlay__text {
+  max-width: 16rem;
+  color: var(--ink-variant);
+  font-size: 0.875rem;
+}
+
+/* 棋盘区域是交互目标：可见焦点 + 不把光标当文本框。
+   板面外那一圈细线是这套风格唯一的静态装饰——**用 outline 而不是 border**：
+   border 会让棋盘盒子大一像素，而 .board__cells 按 padding 盒绝对定位
+   （board.css 用棋盘内边距做 inset），多一像素边框会把格子层整体推移 1px，
+   Classic 的逐字节比对就多出 2px 漂移。outline 画在 border box 之外，不进布局，
+   也不影响 touch-action 与指针捕获。
+   这一圈不承载信息：板面与页面只差 1.09 的明度，但「棋盘在哪里」由格子层自己说清。 */
+[data-style='claude'] .board {
+  cursor: default;
+  outline: 1px solid var(--rule);
+}
+
+/* 焦点环换成暖色 3px + 外移 2px：与静止态那一圈在粗细、颜色、位置上都不同 */
+[data-style='claude'] .board:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* 方块数字锁**齐线**（T23：设计卡 §3 的承诺落地）。
+   board.css 的 font-variant-numeric 只请求 tabular-nums，而 Playfair 的 subset 不带
+   tnum（同一个探针看过：只有 lnum / zero / case / frac），所以那一行对 Claude 从来
+   是空转。子集真正带的是 lnum——didone 家族默认交付的多是旧式数字，3/4/5/7/9 下落、
+   6/8 上升，一列方块会高低不齐，正是设计卡 §3 说「方块上最不能让步」的那件事。
+   这里按 data-style 隔开补一条 .board__tile 规则，请求子集确实有的那个特性；
+   tabular-nums 照旧留在声明里（对回退栈 Georgia / Times 之类真带 tnum 的字体仍然有效，
+   所以这条规则不是「换掉」而是「补上」）。另两套不声明：它们的 tabular-nums 是真的
+   生效的（Inter / Roboto Flex 都带 tnum），且 board.css 那一行就够。
+   特异性 (0,2,0) 高于 board.css 的 .board__tile（(0,1,0)），不依赖打包顺序。 */
+[data-style='claude'] .board__tile {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
+/* reduced-motion：动效全部退化为静态（SPEC §3.2）。
+   本风格没有投影、没有缩放、没有呼吸，所以退化的只有位移与淡入两个时长。 */
+@media (prefers-reduced-motion: reduce) {
+  [data-style='claude'] {
+    --tile-move-duration: 0ms;
+    --tile-spawn-duration: 0ms;
+  }
+}

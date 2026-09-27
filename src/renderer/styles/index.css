@@ -1,0 +1,47 @@
+/**
+ * 样式入口（Tailwind 4 · CSS-first）
+ *
+ * 四条规则，改动前先读懂：
+ *
+ * 1. Tailwind 4 没有 tailwind.config.js，也没有带 tailwindcss 插件的
+ *    postcss.config.js。接入靠 vite.config.ts 里的 @tailwindcss/vite 插件，
+ *    这里只用 @import 把 Tailwind 运行时拉进来。
+ *
+ * 2. 语义类 → CSS 变量映射写在 @theme 里，且必须用 inline：
+ *    --font-display / --font-body 本身由 fonts.css 在 :root 上声明，每套风格
+ *    在自己的 tokens.css 里覆盖。@theme inline 让生成的 utility 直接引用那个
+ *    变量；不用 inline 的话 Tailwind 会把当前值拷一份到 :root，覆盖顺序不可控，
+ *    切风格就可能换不掉字体。
+ *
+ *    --font-mono 故意不在这里映射：它是 Tailwind 自带主题的同名变量，alias 它
+ *    只会让 Tailwind 往 @layer theme 里多吐一条 `--font-mono: var(--font-mono)`
+ *    自引用声明（实测存在），纯属重复造表——出了层 @layer theme 之后，fonts.css
+ *    那条**不在任何 layer 里**的 `:root{--font-mono:"JetBrains Mono",…}` 在级联中
+ *    稳定压过层内声明（未分层声明的优先级高于 @layer，这是规范行为不是巧合），
+ *    所以字体始终是 fonts.css 的值，不会坏。而 Tailwind 的 font-mono utility
+ *    本身就是 `font-family: var(--font-mono)`，天然解析到 fonts.css 的值，
+ *    无需再映射一次。等宽类由后续 ticket 按需再加。
+ *
+ * 3. 棋盘与方块层不用 Tailwind utility（ADR-0002、全局约束 3），那份样式在
+ *    board.css，由后续 ticket 建立；Tailwind 只修饰外壳。
+ *
+ * 4. 声明之间必须有分号。仓库的「无分号」是 Prettier semi:false 那套风格：
+ *    块内最后一条声明靠 } 收尾所以不写分号，其余必须写。少了分号不会「吞掉」后一条，
+ *    而是更糟——浏览器直接判定非法并**丢弃**（已在 Chromium 实测）：
+ *      · 普通规则块内：该声明连同它后面的每一条声明一起失效，
+ *        但块内前面的声明照常生效（`.a{color:red;font-size:12px background:blue}`
+ *        只剩 color 一条）。
+ *      · @font-face 整个规则被扔出 CSSOM，一条都不剩。
+ *    fonts.css 就踩过这个坑：13 条 @font-face 全部凭空消失，不报错、不警告，
+ *    页面只是安静地用回退字体。`:root` 里的回退变量当时没受影响（它们本来就带分号），
+ *    不必去复查。@import 同理——它没有块，分号是唯一收尾。
+ *
+ * fonts.css 不在这里 @import，原因见 main.tsx 的注释（会被双份内联）。
+ */
+
+@import 'tailwindcss';
+
+@theme inline {
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+}

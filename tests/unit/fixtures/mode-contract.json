@@ -1,0 +1,99 @@
+{
+  "$comment": "T01 frozen mode contract, machine-readable. Values were decided by the project owner on 2026-09-26 and recorded in docs/mode-contract.md. Downstream tests read these; do not re-derive.",
+  "walls": {
+    "$comment": "Zero-based [row][col] coordinates of the centred 2x2 block.",
+    "blocked": [[1, 1], [1, 2], [2, 1], [2, 2]],
+    "boardSize": 4,
+    "playableCellCount": 12,
+    "initialTiles": 2,
+    "initialTilesMustBeDistinctCells": true
+  },
+  "spawnWeights": {
+    "$comment": "Every mode: 90% low value, 10% high value. Modes differ only in board and merge table.",
+    "default": { "values": [2, 4], "weights": [0.9, 0.1] },
+    "fibonacci": { "values": [1, 2], "weights": [0.9, 0.1] }
+  },
+  "fibonacci": {
+    "mergeTable": {
+      "1+1": 2,
+      "1+2": 3,
+      "2+3": 5,
+      "3+5": 8,
+      "5+8": 13
+    },
+    "targetTile": 2584,
+    "rule": "Compact toward the move direction, then scan pairs from the target edge inward. A merge fires when the table matches. A merge product cannot merge again in the same move. Score increases by the product value.",
+    "examples": [
+      {
+        "input": [1, 2, 3],
+        "direction": "left",
+        "expected": [3, 3],
+        "scoreDelta": 3,
+        "why": "Scan from the left edge: 1+2=3 is the product; the remaining 3 falls in."
+      },
+      {
+        "input": [1, 2, 3],
+        "direction": "right",
+        "expected": [1, 5],
+        "scoreDelta": 5,
+        "why": "Scan from the right edge: 2+3=5 is the product; the remaining 1 stays left."
+      },
+      {
+        "input": [1, 1, 2],
+        "direction": "left",
+        "expected": [2, 2],
+        "scoreDelta": 2,
+        "why": "1+1=2 is a product, so it cannot merge again with the trailing 2."
+      },
+      {
+        "input": [1, 1, 1, 1],
+        "direction": "left",
+        "expected": [2, 2],
+        "scoreDelta": 4,
+        "why": "Two independent pairs merge; neither product merges again."
+      },
+      {
+        "input": [2, 3, 5],
+        "direction": "left",
+        "expected": [5, 5],
+        "scoreDelta": 5,
+        "why": "Scan from the left edge: 2+3=5 is the product; the trailing 5 falls in."
+      },
+      {
+        "input": [2, 3, 5],
+        "direction": "right",
+        "expected": [2, 8],
+        "scoreDelta": 8,
+        "why": "Scan from the right edge: 3+5=8 is the product; the 2 stays left."
+      }
+    ]
+  },
+  "settlement": {
+    "$comment": "Reaching the target is a milestone, not an end. Only 'ended' writes a record, exactly once, to the style active at settlement.",
+    "states": ["playing", "won", "stuck", "ended"],
+    "wonIsTerminal": false,
+    "stuckIsTerminal": false,
+    "stuckRecoveryMoves": ["undo", "swap"],
+    "abandonViaNewGameFromActive": true,
+    "abandonWritesRecord": false,
+    "timeAttackForcedSettleAtDeadline": true,
+    "undoDisabledAfterEnded": true,
+    "swapDisabledAfterEnded": true,
+    "settlementCountPerRun": 1,
+    "recordStyleIsStyleAtSettlement": true
+  },
+  "storage": {
+    "undoCap": null,
+    "silentHistoryDiscardForbidden": true,
+    "firstImplementation": "full prior-state snapshots",
+    "measurement": {
+      "mode": "5x5",
+      "operationCounts": [1000, 10000],
+      "metrics": ["undoStackMemoryBytes", "serializedWriteBytes", "refreshRestoreMs"],
+      "preferredStore": "indexeddb",
+      "degradationPath": "replayable operation log plus checkpoints, preserving undo-to-start",
+      "onWriteFailure": "keep in-page undo, warn that a refresh may not resume",
+      "testScaleIsNotCapacityGuarantee": true
+    }
+  }
+}

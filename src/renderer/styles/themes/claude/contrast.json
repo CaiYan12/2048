@@ -1,0 +1,244 @@
+{
+  "$comment": "Claude 风格实际使用的文字 / 控件 / 焦点前景背景组合。ratio 是按 WCAG 2.x 相对亮度公式算出来的实测值（不是拍出来的目标值）；`npm run check:contrast` 从 tokens.css 重新取色再算一遍，两边不一致、低于 minimum、或引用了 tokens.css 没声明的色值即报错。三字段沿用 T14 的口径：`basis`（regular 4.5 / large 3 / non-text 3，SPEC §3.2）、`scene`（start / run / walls）、`probe`（浏览器那一层 tests/e2e/contrast-computed.spec.ts 按它读**计算样式**的地址）。本表三个特点：① **没有任何一对依赖大字口径**——连一位数的第一档也是 14.11:1（设计卡 §9），所以「字号随位数变化」与对比度结论完全解耦；② **没有一对走半透明合成**（`from`）——次要文字用显式声明的 --ink-variant，这正是 T15 换掉 Classic 那处 opacity 的同一件事；③ 有几对色值重复（纸面上的标题与面板数值都是 --ink on --page），这是**故意的**：它们验的是不同 DOM 子树里的不同元素，探针是地址，色值相同不代表该合并。空格（--cell-bg）与板面（--board）、板面与纸面（1.63 / 1.09）不在表内：那是装饰性的明度层级，真正承载信息的是「方块 vs 空格」（由数字承担）与「障碍 vs 可玩空格」（表内，3:1 口径）。区块暖色填充只有三处：选中控件、焦点环、目标档方块（--tile-11），它们各自是一对。",
+  "styleId": "claude",
+  "pairs": [
+    {
+      "usage": "标题「2048」与外壳正文（--ink on --page，探针取开局界面的 .shell__title）",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#f0eee6",
+      "minimum": 4.5,
+      "ratio": 13.35,
+      "scene": "start",
+      "probe": { "selector": ".shell__title", "background": ".shell" }
+    },
+    {
+      "usage": "得分 / 目标 / 最高方块面板的数值与新游戏按钮文字（--ink on --page，探针取局中的 .panel__value。与上一条同色不同元素：面板数值是全屏第二大的衬线，漏了它等于没验）",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#f0eee6",
+      "minimum": 4.5,
+      "ratio": 13.35,
+      "scene": "run",
+      "probe": { "selector": ".panel__value", "background": ".shell" }
+    },
+    {
+      "usage": "次要正文：操作提示、终局面板说明（--ink-variant on --page，探针取局中的 .hint）",
+      "basis": "regular",
+      "foreground": "#5d584e",
+      "background": "#f0eee6",
+      "minimum": 4.5,
+      "ratio": 6.08,
+      "scene": "run",
+      "probe": { "selector": ".hint", "background": ".shell" }
+    },
+    {
+      "usage": "面板小标签（得分 / 目标 / 最高方块上面那一行，以及开局界面的模式 / 风格分组标签）。**本套的面板不填色**，所以一个色值在纸面上与在面板里都成立——Classic 因此需要两个方向的次要色，Claude 不需要。与上一条同色不同元素：它紧贴在大号数值上方，是最容易被子孙元素继承色带偏的一处",
+      "basis": "regular",
+      "foreground": "#5d584e",
+      "background": "#f0eee6",
+      "minimum": 4.5,
+      "ratio": 6.08,
+      "scene": "run",
+      "probe": { "selector": ".panel__label", "background": ".shell" }
+    },
+    {
+      "usage": "按钮文字（描边按钮底就是纸面，所以这一对与外壳正文同色——入表是因为它验的是 .control 自己身上的 color，不是外壳那一个）",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#f0eee6",
+      "minimum": 4.5,
+      "ratio": 13.35,
+      "scene": "run",
+      "probe": { "selector": ".control" }
+    },
+    {
+      "usage": "按钮文字（悬停态，纸面深一档）",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#e3dccc",
+      "minimum": 4.5,
+      "ratio": 11.35,
+      "scene": "run",
+      "probe": { "selector": ".control", "hover": true }
+    },
+    {
+      "usage": "已选中的风格按钮文字（**全壳唯一一处暖色填充**，选中的那一块陶土色）",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#a8482b",
+      "minimum": 4.5,
+      "ratio": 5.5,
+      "scene": "run",
+      "probe": { "selector": ".control[aria-pressed='true']" }
+    },
+    {
+      "usage": "控件那一圈 1px 描边 vs 纸面。本套控件不填色，「这里有个按钮」由这一圈说，所以按 1.4.11 的非文字指示器口径量。**用 outline 画而不是 border**（border 会改盒子尺寸，见 DESIGN.md §5 / §7），于是闸门的 ring 探针读得到它；探针不带 :focus-visible——静止态才读它，Tab 之后同一边会变成焦点环（e2e 据此把环分成「静止态 / 焦点态」两步读）",
+      "basis": "non-text",
+      "foreground": "#857c6d",
+      "background": "#f0eee6",
+      "minimum": 3,
+      "ratio": 3.54,
+      "scene": "run",
+      "probe": { "selector": ".control", "read": "ring" }
+    },
+    {
+      "usage": "键盘焦点环（outline 3px 陶土色，外移 2px，落在纸面上；探针取 Tab 聚焦后的那个按钮）。暖色是稀缺品：焦点与被选中是全壳唯一两处",
+      "basis": "non-text",
+      "foreground": "#a8482b",
+      "background": "#f0eee6",
+      "minimum": 3,
+      "ratio": 4.98,
+      "scene": "run",
+      "probe": { "selector": ".control:focus-visible", "read": "ring", "background": ".shell" }
+    },
+    {
+      "usage": "选中方块的那一圈描边 vs 空格底（board.css 的 [data-selected='true']，带 spread 的 box-shadow 画在 border box 外侧，落在 --cell-bg 上）。与焦点环共用同一块陶土色，不引入第二种暖色",
+      "basis": "non-text",
+      "foreground": "#a8482b",
+      "background": "#cec4ae",
+      "minimum": 3,
+      "ratio": 3.34,
+      "scene": "run",
+      "probe": {
+        "selector": ".board__tile[data-selected='true']",
+        "read": "ring",
+        "background": ".board__cell[data-cell='empty']"
+      }
+    },
+    {
+      "usage": "障碍格 vs 可玩空格（Walls 模式的四格固定障碍；玩家靠它认出「哪些格不能放方块」）",
+      "basis": "non-text",
+      "foreground": "#3b4750",
+      "background": "#cec4ae",
+      "minimum": 3,
+      "ratio": 5.51,
+      "scene": "walls",
+      "probe": {
+        "selector": ".board__cell[data-cell='wall']",
+        "read": "background",
+        "background": ".board__cell[data-cell='empty']"
+      }
+    },
+    {
+      "usage": "第 1 档方块上的数值（经典 2 / 斐波那契 1 / 大棋盘 2）。一位数、字号最大，但**不靠大字口径**：14.11:1 远超 regular 门槛",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#f7f4ec",
+      "minimum": 4.5,
+      "ratio": 14.11,
+      "scene": "run",
+      "probe": { "selector": ".board__tile[data-bucket='1']" }
+    },
+    {
+      "usage": "第 2 档方块上的数值（经典 4 / 斐波那契 2、3）",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#efe9db",
+      "minimum": 4.5,
+      "ratio": 12.81,
+      "scene": "run",
+      "probe": { "selector": ".board__tile[data-bucket='2']" }
+    },
+    {
+      "usage": "第 3 档方块上的数值（经典 8 / 斐波那契 5）",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#e3dac6",
+      "minimum": 4.5,
+      "ratio": 11.16,
+      "scene": "run",
+      "probe": { "selector": ".board__tile[data-bucket='3']" }
+    },
+    {
+      "usage": "第 4 档方块上的数值（经典 16 / 斐波那契 8）",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#d3c8ae",
+      "minimum": 4.5,
+      "ratio": 9.33,
+      "scene": "run",
+      "probe": { "selector": ".board__tile[data-bucket='4']" }
+    },
+    {
+      "usage": "第 5 档方块上的数值（经典 32 / 斐波那契 13）",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#c1b694",
+      "minimum": 4.5,
+      "ratio": 7.67,
+      "scene": "run",
+      "probe": { "selector": ".board__tile[data-bucket='5']" }
+    },
+    {
+      "usage": "第 6 档方块上的数值（经典 64 / 斐波那契 21、34）。**浅字这一侧的最后一条**：再暗一档就落进两种字色都过不了 4.5:1 的死区（相对亮度 0.174～0.254）",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#a89e8d",
+      "minimum": 4.5,
+      "ratio": 5.86,
+      "scene": "run",
+      "probe": { "selector": ".board__tile[data-bucket='6']" }
+    },
+    {
+      "usage": "第 7 档方块上的数值（经典 128 / 斐波那契 55、89）。**12 档里最紧的一档，复核先看它**——它是深字那一侧的第一条，离死区只差 0.66 的余量",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#74685a",
+      "minimum": 4.5,
+      "ratio": 5.16,
+      "scene": "run",
+      "probe": { "selector": ".board__tile[data-bucket='7']" }
+    },
+    {
+      "usage": "第 8 档方块上的数值（经典 256 / 斐波那契 144、233）",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#5c534a",
+      "minimum": 4.5,
+      "ratio": 7.15,
+      "scene": "run",
+      "probe": { "selector": ".board__tile[data-bucket='8']" }
+    },
+    {
+      "usage": "第 9 档方块上的数值（经典 512 / 斐波那契 377、610）",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#463e37",
+      "minimum": 4.5,
+      "ratio": 9.96,
+      "scene": "run",
+      "probe": { "selector": ".board__tile[data-bucket='9']" }
+    },
+    {
+      "usage": "第 10 档方块上的数值（经典 1024 / 斐波那契 987、1597）",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#2e2925",
+      "minimum": 4.5,
+      "ratio": 13.67,
+      "scene": "run",
+      "probe": { "selector": ".board__tile[data-bucket='10']" }
+    },
+    {
+      "usage": "第 11 档方块上的数值（经典 2048 / 斐波那契 2584 / 大棋盘 4096）。**全阶梯唯一一次变亮、唯一一处暖色方块底色**：它不是「更暗的一档」，是「到了」。超过目标值之后回到墨色",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#a8482b",
+      "minimum": 4.5,
+      "ratio": 5.5,
+      "scene": "run",
+      "probe": { "selector": ".board__tile[data-bucket='11']" }
+    },
+    {
+      "usage": "超出本模式目标值的方块（顶档之后）",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#1d1a17",
+      "minimum": 4.5,
+      "ratio": 16.46,
+      "scene": "run",
+      "probe": { "selector": ".board__tile[data-bucket='12']" }
+    }
+  ]
+}

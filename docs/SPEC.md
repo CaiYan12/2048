@@ -75,7 +75,7 @@ Font assets are self-hosted. Each distributed family retains its own license and
 
 `settings` stores selected mode, selected style, and mute. `session` stores the current mode and style, board, score, progress, random-generator state, full undo path, win state, and deadline where applicable. `records[mode][style]` stores best score and highest Tile; a run contributes only to the style active when that run settles. A new-game action abandons an unfinished run without creating a record. `stats` stores total runs, wins, time played, and achievement unlocks. Storage needs a version; invalid or unwritable state must be surfaced without pretending restoration or persistence succeeded.
 
-This release includes the nine mode-axis achievements and the `风格旅行者` style-switch achievement from the plan appendix. `全风格征服` and `复古大师` require future styles and remain in README TODO. Win-related records use the style at settlement, including a run that reached the target and continued. `风格旅行者` counts actual switch events. Sound is synthesized with WebAudio and no audio files; AudioContext is created only after a user gesture, and mute persists.
+This release includes the seven implemented mode-axis achievements and the `风格旅行者` style-switch achievement from the plan appendix (ten are listed there; `完美一局` and `无作弊通关` stay deferred, see ADR-0003). `全风格征服` and `复古大师` require future styles and remain in README TODO. Win-related records use the style at settlement, including a run that reached the target and continued. `风格旅行者` counts actual switch events: only real switches inside one live run, and the count survives a refresh and an undo. Sound is synthesized with WebAudio and no audio files; AudioContext is created only after a user gesture, and mute persists.
 
 ### 3.4 Accessibility and publication
 
@@ -87,16 +87,39 @@ Keyboard operation covers mode/style choice, Move, Undo, swap, new run, panels, 
 
 Test the rule engine through its public `createGame`, `move`, `swap`, `undo`, and `tick` behavior with fixed seeds and time values. Test user paths through the rendered app in Playwright using deterministic fixtures where a particular merge or outcome is asserted. Do not test private helpers merely to mirror implementation. The final browser matrix visits all **18 mode/style combinations** on desktop and mobile-sized viewports; human visual review uses representative states and each of the three design cards. `check:contrast` validates declared pairs, with browser computed-style checks to catch declarations that differ from rendered CSS. CI runs typecheck, real unit tests, build, and applicable e2e checks; Pages is verified after deployment.
 
-## 5. Decisions that must be fixed before their implementation ticket
+## 5. Rules frozen by the mode-contract ticket
 
-The source plan intentionally does not supply these exact values or behaviors. Do not invent them during coding:
+The four items below were left open by the source plan on purpose. They are now **decided
+and frozen** by [`docs/mode-contract.md`](mode-contract.md), with machine-readable fixtures
+in [`tests/unit/fixtures/mode-contract.json`](../tests/unit/fixtures/mode-contract.json).
+Downstream tickets write deterministic tests from those; **do not re-derive or invent values.**
 
-1. The four Walls coordinates, initial-board rules, and non-Classic spawn weights (including Fibonacci's 1/2 and other modes' 2/4) must be recorded as fixtures in the mode-contract ticket before mode implementation.
-2. The precise order of Fibonacci merges when more than two eligible Tiles line up must be written as examples and tests before implementing that mode.
-3. The behavior of Undo and cheat swap after a run has visibly ended, and the exact instant at which a run settles, must be fixed before those controls and record writing are implemented. The current sources establish that a settled run has a single record style; they do not settle post-end recovery.
-4. Long-run storage limits must be measured before choosing a persistence representation. The product promise is no deliberate undo truncation; a storage failure requires a visible notice.
+1. **Walls and spawn.** Walls occupies `(1,1)`, `(1,2)`, `(2,1)`, `(2,2)` zero-based, a
+   centred 2×2 block; the other 12 cells are playable. A Walls run spawns two Tiles in
+   distinct playable cells. Spawn weights are 90% low value / 10% high value in **every**
+   mode — `2/4` outside Fibonacci, `1/2` in Fibonacci — so mode differences come from the
+   board and merge table only.
+2. **Fibonacci merge order.** Compact toward the move direction, then scan pairs from the
+   target edge inward; a merge fires when the table matches, and a merge product cannot
+   merge again in the same move. Score increases by the product's value.
+   Examples: `[1,2,3]` left → `[3,3]` (+3); `[1,2,3]` right → `[1,5]` (+5).
+3. **Endgame and settlement.** Reaching the target is a win milestone, not an end.
+   A deadlock first shows a recoverable panel allowing Undo or cheat swap; the run settles
+   only on "结束并记录" or a "新游戏" from that panel. "新游戏" from an active run abandons
+   it. Time Attack settles immediately at the deadline, after which Undo and swap are
+   disabled. Settlement executes exactly once and the record goes to the style active at
+   settlement. The state diagram is in `docs/mode-contract.md`.
+4. **Long-run storage.** No product-imposed undo cap and no silent history discard.
+   First implementation keeps full prior-state snapshots and measures, in the 5×5 mode,
+   memory, serialized write volume, and refresh-restore time at **1,000** and **10,000**
+   effective operations; IndexedDB is the preferred store. If measurement shows the cost
+   is too high, switch to a replayable operation log plus checkpoints while preserving
+   undo-to-start. On write failure, in-page Undo stays available and the UI must warn that
+   a refresh may not resume. Test scale is a measurement reference point, **not** a
+   browser-capacity guarantee.
 
-These are explicit ticket gates, not permission to silently choose semantics in downstream implementation.
+Any change to these values is an owner decision, recorded as a new ruling — not an
+implementation choice made mid-ticket.
 
 ## 6. Out of scope
 
