@@ -148,6 +148,7 @@
    只会让人以为还能动它。 */
 [data-style='claude'] .overlay {
   position: absolute;
+  z-index: 3;
   inset: 0;
   display: grid;
   place-items: center;
@@ -203,8 +204,7 @@
   font-variant-numeric: lining-nums tabular-nums;
 }
 
-/* reduced-motion：动效全部退化为静态（SPEC §3.2）。
-   本风格没有投影、没有缩放、没有呼吸，所以退化的只有位移与淡入两个时长。 */
+/* reduced-motion：动效全部退化为静态（SPEC §3.2）；标题只保留透明度反馈。 */
 @media (prefers-reduced-motion: reduce) {
   [data-style='claude'] {
     --tile-move-duration: 0ms;

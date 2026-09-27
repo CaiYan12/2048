@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
+import { move } from '../../src/game/engine'
 import {
   EFFECT_DURATION_TOKEN,
   EFFECT_MECHANISM,
@@ -7,9 +8,11 @@ import {
   NO_TILE_MOTION,
   TILE_EFFECTS,
   TILE_EFFECT_DURATIONS,
+  TILE_MERGE_PULSE_STEP_MS,
+  diffMergeSources,
   diffTileMotion,
 } from '../../src/renderer/components/TileMotion'
-import type { Board, Cell, GameState } from '../../src/shared/types'
+import type { Board, Cell, Direction, GameState } from '../../src/shared/types'
 import { stateWithBoard, type CellSpec } from './support'
 
 /**
@@ -37,6 +40,10 @@ function stripComments(css: string): string {
 const boardCss = (): string =>
   stripComments(
     readFileSync(new URL('../../src/renderer/styles/board.css', import.meta.url), 'utf8')
+  )
+const shellCss = (): string =>
+  stripComments(
+    readFileSync(new URL('../../src/renderer/styles/index.css', import.meta.url), 'utf8')
   )
 
 /**
@@ -134,25 +141,42 @@ describe('四个效果的裁决表是完整的', () => {
 
 describe('裁决表与 board.css 逐项对得上', () => {
   test('每个效果的时长钩子都在 CSS 里，兜底值与契约一致', () => {
-    const css = motionCss()
     for (const effect of TILE_EFFECTS) {
       const token = EFFECT_DURATION_TOKEN[effect]
-      expect(css, `${effect} 的时长钩子`).toContain(`${token}, ${TILE_EFFECT_DURATIONS[effect]}ms`)
+      const css = effect === 'win' ? shellCss() : motionCss()
+      const hook = `var(${token}, ${TILE_EFFECT_DURATIONS[effect]}ms)`
+      expect(css, `${effect} 的时长钩子`).toContain(hook)
     }
   })
 
-  test('合并借位移的时长，不另起一个变量', () => {
-    // 两个操作数与产物在同一帧里走完，观众不会分别计时——所以「为同一件事准备第二个
-    // 常量」只会多一处漂移。三套设计卡的合并时长都与各自位移时长相同，这里钉住默认值
-    expect(EFFECT_DURATION_TOKEN.merge).toBe(EFFECT_DURATION_TOKEN.move)
-    expect(motionCss()).not.toContain('--tile-merge-duration')
+  test('合并脉冲有独立时长，且不覆盖方块位移通道', () => {
+    const css = motionCss()
+    expect(EFFECT_DURATION_TOKEN.merge).not.toBe(EFFECT_DURATION_TOKEN.move)
+    expect(EFFECT_DURATION_TOKEN.merge).toBe('--tile-merge-duration')
+    expect(TILE_MERGE_PULSE_STEP_MS * 2).toBe(TILE_EFFECT_DURATIONS.merge)
+    expect(css).toContain(".board__tile[data-merge-pulse='up']")
+    expect(css).toContain(".board__tile[data-merge-pulse='down']")
+    expect(css).toContain('transition-property: translate, scale')
+    expect(css).toContain(".board__tile[data-merge-pulse='down'] {\n  scale: none;")
+    expect(ruleBlock(css, ".board__tile[data-merge='true']")).toContain('z-index: 2')
+    expect(ruleBlock(css, '.board__tile[data-merge-source-id]')).toContain('z-index: 1')
+    expect(css).toContain(
+      `calc(var(${EFFECT_DURATION_TOKEN.merge}, ${TILE_EFFECT_DURATIONS.merge}ms) / 2)`
+    )
+    expect(EFFECT_MECHANISM.merge).toBe('transition')
+    const sourceRule = ruleBlock(css, '.board__tile[data-merge-source-id]')
+    expect(sourceRule).toContain('transition:')
+    expect(sourceRule).not.toContain('opacity')
+    expect(sourceRule).not.toContain('scale')
+    expect(sourceRule).not.toContain('animation:')
+    expect(css).not.toContain('@keyframes tile-merge-source-exit')
   })
 
-  test('位移是 transform 过渡，不是 animation、不是 @starting-style', () => {
+  test('位移是 translate 过渡，不是 animation、不是 @starting-style', () => {
     const base = ruleBlock(motionCss(), '.board__tile {')
     expect(base).toContain('transition:')
-    expect(base).toContain(`transform var(--tile-move-duration, ${TILE_EFFECT_DURATIONS.move}ms)`)
-    // animation 是留给脉冲与呼吸的，基规则上一个都不能有
+    expect(base).toContain(`translate var(--tile-move-duration, ${TILE_EFFECT_DURATIONS.move}ms)`)
+    // animation 是留给不适合 transition 的效果，基规则上一个都不能有
     expect(base).not.toContain('animation')
   })
 
@@ -169,26 +193,25 @@ describe('裁决表与 board.css 逐项对得上', () => {
     expect(entry).not.toContain('data-win')
   })
 
-  test('合并与胜利是一次性 animation，且都不碰 transform', () => {
-    const mergeSelector = ".board__tile[data-merge='true']:not([data-win='true'])"
-    const winSelector = ".board__tile[data-win='true']"
-    for (const selector of [mergeSelector, winSelector]) {
-      expect(ruleBlock(motionCss(), selector)).toContain('animation:')
-      // 一次性：庆祝循环不在这一票的范围里（胜利面板已经说了那件事）
-      expect(ruleBlock(motionCss(), selector)).not.toContain('infinite')
-    }
-    // 胜利吞掉合并，且靠 :not 而不是书写顺序——顺序在打包产物里不是可依赖的东西
-    expect(motionCss()).toContain(`${mergeSelector} {`)
-    expect(ruleBlock(motionCss(), winSelector)).toContain(
-      `var(--tile-win-duration, ${TILE_EFFECT_DURATIONS.win}ms) ease-in-out 1`
+  test('合并走 scale transition，胜利标题用一次性动画在外壳入场', () => {
+    const shell = shellCss()
+    expect(motionCss()).toContain(".board__tile[data-merge-pulse='up']")
+    expect(motionCss()).toContain(".board__tile[data-merge-pulse='down']")
+    expect(motionCss()).toContain('scale: var(--tile-merge-scale, 1.08)')
+    expect(motionCss()).not.toContain('animation: tile-merge-pulse')
+    expect(shell).toContain('@keyframes win-panel-title-enter')
+    expect(shell).toContain(
+      'animation: win-panel-title-enter var(--win-title-duration, 180ms) ease-out 1 both'
     )
-
-    // **这是本票最硬的一条**：方块的位置写在 `transform: translate(x, y)` 里，
-    // 脉冲若也用 transform 做缩放，会连位移一起盖掉，那一枚瞬移回棋盘原点。
-    // 所以脉冲落在独立的 scale 分量上——「统一用 transform 写更简洁」正好是那种
-    // 会带来静默损坏的简化
-    expect(atRuleBlock(motionCss(), '@keyframes tile-merge-pulse')).not.toContain('transform')
-    expect(atRuleBlock(motionCss(), '@keyframes tile-win-breath')).not.toContain('transform')
+    expect(shell).toContain(
+      'animation: win-panel-title-fade var(--win-title-duration, 180ms) ease-out 1 both'
+    )
+    expect(ruleBlock(shell, "[data-panel='win'] .overlay__title")).toContain('opacity: 1')
+    expect(ruleBlock(shell, "[data-panel='win'] .overlay__title")).toContain('scale: 1')
+    expect(shell).toContain('@keyframes win-panel-title-fade')
+    expect(boardCss()).not.toContain('.overlay__title')
+    expect(EFFECT_DURATION_TOKEN.win).toBe('--win-title-duration')
+    expect(EFFECT_MECHANISM.win).toBe('animation')
   })
 })
 
@@ -337,6 +360,32 @@ describe('diffTileMotion：哪一枚在这一帧有动静', () => {
     expect(after.rngState).toBe(before.rngState)
     expect(after.nextTileId).toBe(before.nextTileId)
   })
+})
+
+describe('diffMergeSources：被吞操作数飞向正确的合并格', () => {
+  const cases: {
+    direction: Direction
+    rows: CellSpec[][]
+    from: readonly [number, number]
+    to: readonly [number, number]
+    sourceId: number
+  }[] = [
+    { direction: 'left', rows: [[2, 2, null, null]], from: [0, 1], to: [0, 0], sourceId: 2 },
+    { direction: 'right', rows: [[2, 2, null, null]], from: [0, 0], to: [0, 3], sourceId: 1 },
+    { direction: 'up', rows: [[2, null, null, null], [2, null, null, null]], from: [1, 0], to: [0, 0], sourceId: 2 },
+    { direction: 'down', rows: [[2, null, null, null], [2, null, null, null]], from: [0, 0], to: [3, 0], sourceId: 1 },
+  ]
+
+  for (const example of cases) {
+    test(example.direction, () => {
+      const before = stateWithBoard(board(example.rows), 7, 'classic')
+      const result = move(before, example.direction)
+      expect(result.changed).toBe(true)
+      expect(diffMergeSources(before, result.state, example.direction, 9)).toMatchObject([
+        { key: `9:${example.sourceId}`, from: example.from, to: example.to },
+      ])
+    })
+  }
 })
 
 describe('Tile key 的身份基准是 Tile.id', () => {

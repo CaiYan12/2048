@@ -8,8 +8,8 @@
  * 尺寸只有一份来源：`components/BoardLayout.ts`。它算出的 cell-size / gap / padding
  * 以 CSS 变量贴到棋盘根元素上，这里只消费，不抄第二份数值。
  *
- * 方块按 [row][col] 绝对定位（transform 而非 top/left）：T21 的位移动画要靠
- * transform 才能跑在合成层上，且 DOM 结构此后不再变。
+ * 方块按 [row][col] 绝对定位（translate 而非 top/left）：T21 的位移动画靠独立位移属性
+ * 跑在合成层上，也不让 scale 脉冲缩放方块的位置偏移；DOM 结构此后不再变。
  *
  * —— 配色键：data-bucket，不按数值按档位（T13）——
  *
@@ -103,25 +103,18 @@
   line-height: 1;
   user-select: none;
   /* —— 位移（T21）——
-     一条 transform 过渡，不加 animation：方块的位置本来就写在 transform 里
-     （BoardLayout.cellOffset 算出 translate），身份与 [data-row]/[data-col] 都不变，
+     一条 translate 过渡，不加 animation：方块的位置写在独立的 translate 属性里
+     （BoardLayout.cellOffset 算出 x / y），身份与 [data-row]/[data-col] 都不变，
      React 因 `key={cell.id}` 复用的又是同一个 DOM 节点——所以「从旧格走到新格」只需要
      浏览器把两帧之间补出来，这一行就是它的全部实现。
-     opacity / scale 两条是**入场**用的（见下面 @starting-style）；合并与胜利的脉冲走
-     animation，不占 transition 的位置。 */
+     opacity / scale 两条用于入场；合并脉冲保留 translate 通道并单独过渡 scale。 */
   transition:
-    transform var(--tile-move-duration, 140ms) var(--tile-move-easing, ease-out),
+    translate var(--tile-move-duration, 150ms) var(--tile-move-easing, ease-out),
     opacity var(--tile-spawn-duration, 120ms) ease-out,
     scale var(--tile-spawn-duration, 120ms) ease-out;
 }
 
-/* —— 生成入场（T21 · 验收标准 2）——
-   唯一一个用 @starting-style 的效果，理由是**只有它的语义正好是「这个元素刚被插进
-   DOM」**：新方块是新 key、新节点，其余三个效果全都发生在同一个节点上。
-   选择器必须带上 [data-spawn='true']：不带这一层的话，一次模式切换或开新局会把整块
-   棋盘重放一遍入场，而那不是「生成」。
-   反过来也成立——滑动用它会得到一张错的起始帧（新元素的第一帧），而方块根本没有重新
-   插入；合并用它更糟：产物与操作数是同一个节点，起始帧压根不会出现。 */
+/* @starting-style 只用于刚插入棋盘层的新方块；Tile 位移与合并都复用现有节点。 */
 @starting-style {
   .board__tile[data-spawn='true'] {
     opacity: var(--tile-enter-from-opacity, 0.6);
@@ -129,53 +122,46 @@
   }
 }
 
-/* —— 合并脉冲（T21）——
-   animation 而不是 transition：合并要的是一次性脉冲（放大再落回），「一次性」不是过渡
-   的语义。也**不是入场**：产物与两个操作数共用一个节点，@starting-style 的起始帧不会
-   出现，硬套进去只会得到一张静止的第一帧。
-   脉冲落在 scale 这个独立变换分量上、**不碰 transform**：方块的位置写在
-   `transform: translate(x, y)` 里，用它做缩放会连位移一起盖掉，那一枚会瞬移到棋盘
-   原点——那正是验收标准 1 要禁的「瞬移」。缩放的中点取 45% 而不是 50%：脉冲该在
-   「落回去」上留更多时间，读起来是弹一下，不是呼吸一下。
-   时长借位移那一个变量：两个操作数与产物在同一帧里走完，观众不会分别计时，也不必为
-   同一件事准备第二个常量（TILE_EFFECT_DURATIONS 的 merge 一条写的就是这个理由）。 */
-@keyframes tile-merge-pulse {
-  0% {
-    scale: 1;
-  }
-  45% {
-    scale: var(--tile-merge-scale, 1.08);
-  }
-  100% {
-    scale: 1;
-  }
+/* 被吞的操作数保持实心，沿 translate 飞到目标并落在产物下面；到位后再移除，避免半透明
+   的尾迹从产物边缘露出来。它只占用既有方块层，不进入规则状态。 */
+.board__tile[data-merge-source-id] {
+  z-index: 1;
+  pointer-events: none;
+  translate: var(--merge-source-from);
+  transition: translate var(--tile-move-duration, 150ms) var(--tile-move-easing, ease-out);
 }
 
-/* —— 胜利序列（T21）——
-   同样是一次性 animation，且收敛：一次呼吸就完，**不做循环庆祝**——到达目标是里程碑，
-   宣布它是 T04 面板的事，方块只是被点到名的那一枚。1.5s 是四个效果里唯一一个长的，
-   它能长的原因见 TILE_EFFECT_DURATIONS.win：那一刻引擎不接受任何移动，动画不可能
-   有输入排队。
-   `:not([data-win='true'])` 写在合并脉冲上而不是靠两条规则的书写顺序：合出目标块的
-   那一次同时是一次合并，两个效果会撞同一个 animation 属性。顺序在打包产物里不是可
-   依赖的东西，显式让胜利吞掉合并才是可依赖的——语义上也对，那一刻该看的是「你到了」，
-   不是「这里合并过」。 */
-@keyframes tile-win-breath {
-  0%,
-  100% {
-    scale: 1;
-  }
-  50% {
-    scale: var(--tile-win-scale, 1.06);
-  }
+.board__tile[data-merge-source-id][data-leaving='true'] {
+  translate: var(--merge-source-to);
 }
 
-.board__tile[data-merge='true']:not([data-win='true']) {
-  animation: tile-merge-pulse var(--tile-move-duration, 140ms) ease-out;
+/* 结果 Tile 在飞行来源上方，来源靠近目标时不会盖住新数值。 */
+.board__tile[data-merge='true'] {
+  z-index: 2;
 }
 
-.board__tile[data-win='true'] {
-  animation: tile-win-breath var(--tile-win-duration, 1500ms) ease-in-out 1;
+/* 合并脉冲在方块接近落点时开始。两个属性分开过渡，脉冲期间新的方向仍可重定向 translate。 */
+.board__tile[data-merge-pulse='up'],
+.board__tile[data-merge-pulse='down'] {
+  transition-property: translate, scale;
+  transition-duration:
+    var(--tile-move-duration, 150ms),
+    calc(var(--tile-merge-duration, 80ms) / 2);
+  transition-timing-function: var(--tile-move-easing, ease-out), ease-out;
+}
+
+.board__tile[data-merge-pulse='up'] {
+  scale: var(--tile-merge-scale, 1.08);
+}
+
+.board__tile[data-merge-pulse='down'] {
+  scale: none;
+}
+
+/* 没有有效单步方向却打断当前位移时才直接落在目标格；正常快速转向保留可中断的
+   translate transition，从当前画面平滑续走。 */
+.board[data-skip-tile-transition='true'] .board__tile:not([data-merge-pulse='up']):not([data-merge-pulse='down']) {
+  transition: none;
 }
 
 /* 色档 → 底色。属性选择器把变量贴到具体方块上，.board__tile 的声明保持不变，
@@ -267,7 +253,7 @@
 
 /* 被选中的那一枚：描一圈 --focus。复用焦点环那个色值，**不引入新颜色**——
    换风格时跟着 tokens.css 走。
-   用 box-shadow 而不是 outline / border：不改盒子尺寸，T21 的 transform 与
+   用 box-shadow 而不是 outline / border：不改盒子尺寸，T21 的 translate 与
    格子的绝对定位都不受影响。带 spread 的 box-shadow 画在 border box **外侧**，
    而 BOARD_GAP = 12（BoardLayout.ts:9）远宽于这 3px 的环，所以环不与方块本身
    相邻、也不与隔壁方块相邻——它落在 --cell-bg 上。这一对（--focus / --cell-bg）
@@ -321,10 +307,21 @@
     --tile-enter-from-scale: 1;
   }
 
-  /* 脉冲与呼吸都停：它们是动效，静止替代物是下面那两圈描边 */
+  /* 脉冲停下：静态替代物是下面那两圈描边 */
   .board__tile[data-merge='true']:not([data-win='true']),
-  .board__tile[data-win='true'] {
+  .board__tile[data-win='true'],
+  .board__tile[data-merge-source-id] {
     animation: none;
+  }
+
+  .board__tile[data-merge-pulse] {
+    transition: none;
+    scale: 1;
+  }
+
+  .board__tile[data-merge-source-id] {
+    transition: none;
+    display: none;
   }
 
   /* 生成与合并的静态标记：一圈 --focus。色值与 [data-selected] 的拾取环同一个，
@@ -346,4 +343,5 @@
     outline: 3px solid var(--focus);
     outline-offset: 3px;
   }
+
 }

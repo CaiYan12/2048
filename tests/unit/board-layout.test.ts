@@ -6,6 +6,7 @@ import {
   BOARD_SIDE_MARGIN,
   createBoardLayout,
   fitCellSize,
+  translateCss,
 } from '../../src/renderer/components/BoardLayout'
 
 /**
@@ -27,6 +28,14 @@ const available = (viewport: number): number => viewport - BOARD_SIDE_MARGIN * 2
 
 /** 给定格边长时整块棋盘多宽（含内边距与间距） */
 const boardWidth = (size: number, cell: number): number => createBoardLayout(size, cell).pixelSize
+
+describe('translateCss：位移向量始终保留两个轴', () => {
+  test('零轴使用不可见的 epsilon，避免 CSSOM 折叠分量后中断跨轴过渡', () => {
+    expect(translateCss({ x: 112, y: 0 })).toBe('112px 0.001px')
+    expect(translateCss({ x: 0, y: 224 })).toBe('0.001px 224px')
+    expect(translateCss({ x: 0, y: 0 })).toBe('0.001px 0.001px')
+  })
+})
 
 describe('fitCellSize：宽屏取上限', () => {
   // 桌面视口远大于棋盘，一格都不该缩：缩了就是白扔屏幕

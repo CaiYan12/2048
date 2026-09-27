@@ -75,15 +75,14 @@
      风格想换观感只改这一处，不必动棋盘层。 */
   --board-radius: 6px;
   --cell-radius: 6px;
-  --tile-move-duration: 140ms;
+  --tile-move-duration: 150ms;
   --tile-spawn-duration: 120ms;
-  /* 生成的入场：从 0.85 倍放大回来（DESIGN.md §6「轻微放大」）。
-     board.css 的兜底值是 1（不缩放），另两套风格就站那个兜底——Material 与 Claude
-     的设计卡都写明「只淡入不缩放」，所以它们**不声明**这一条。
-     淡入的起点不透明度不声明：0.6 是 board.css 的兜底，三套风格共用。 */
-  --tile-enter-from-scale: 0.85;
-  /* --tile-move-easing / --tile-elevation / --tile-font-weight 刻意不声明：
-     board.css 的默认值（ease-out / 无投影 / 700）就是 Classic 本来的样子 */
+  --win-title-duration: 180ms;
+  /* 生成的入场：从 0.94 倍放大回来，保留轻微的出现反馈。 */
+  --tile-enter-from-scale: 0.94;
+  --tile-move-easing: ease-out;
+  /* --tile-elevation / --tile-font-weight 刻意不声明：board.css 的兜底值
+     （无投影 / 700）就是 Classic 本来的样子 */
 
   --font-display: 'Inter', var(--fallback-grotesk);
   --font-body: 'Inter', var(--fallback-grotesk);

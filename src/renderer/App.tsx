@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ModeId } from '../shared/modes'
+import type { Direction } from '../shared/types'
 import { AchievementNotice } from './components/AchievementNotice'
 import { Board } from './components/Board'
 import { Countdown } from './components/Countdown'
@@ -58,7 +59,7 @@ export default function App(): JSX.Element {
   const restoring = useGameStore((state) => state.restoring)
   const hydrate = useGameStore((state) => state.hydrate)
   const startRun = useGameStore((state) => state.startRun)
-  const move = useGameStore((state) => state.move)
+  const storeMove = useGameStore((state) => state.move)
   const undo = useGameStore((state) => state.undo)
   const continueRun = useGameStore((state) => state.continueRun)
   const settle = useGameStore((state) => state.settle)
@@ -72,6 +73,14 @@ export default function App(): JSX.Element {
   const stats = useGameStore((state) => state.stats)
   const achievementNotice = useGameStore((state) => state.achievementNotice)
   const dismissAchievementNotice = useGameStore((state) => state.dismissAchievementNotice)
+  const moveSequence = useRef(0)
+  const boardRef = useRef<HTMLDivElement>(null)
+  const moveContext = useRef<{
+    direction: Direction
+    id: number
+    steps: number
+    startPositions: ReadonlyMap<number, string>
+  } | null>(null)
 
   // 战绩面板的开合。住在 App 而不是 store：它只被这一处用到，而 store 里的每个
   // 字段都会被 hydrate / setState 的字段表牵着走（T16 的形状判据就是这么变复杂的）
@@ -84,6 +93,34 @@ export default function App(): JSX.Element {
 
   const handleStart = (modeId: ModeId): void => {
     startRun(modeId)
+  }
+
+  const move = (direction: Direction): void => {
+    const before = useGameStore.getState().game
+    const previousMove = moveContext.current
+    const startPositions = new Map<number, string>()
+    boardRef.current?.querySelectorAll<HTMLElement>('[data-tile-id]').forEach((tile) => {
+      startPositions.set(Number(tile.dataset.tileId), getComputedStyle(tile).translate)
+    })
+    const move = {
+      direction,
+      id: moveSequence.current + 1,
+      steps: (previousMove?.steps ?? 0) + 1,
+      startPositions,
+    }
+    moveContext.current = move
+    storeMove(direction)
+    const after = useGameStore.getState().game
+    if (
+      before !== null &&
+      after !== null &&
+      after.board !== before.board &&
+      after.moves === before.moves + 1
+    ) {
+      moveSequence.current = move.id
+    } else if (moveContext.current === move) {
+      moveContext.current = previousMove
+    }
   }
 
   // 字体状态机跟着风格走（T14）。写在 effect 里而不是 setStyle 里：store 是协调者，
@@ -184,7 +221,9 @@ export default function App(): JSX.Element {
           <div className="relative w-fit">
             <Board
               game={game}
+              boardRef={boardRef}
               styleId={styleId}
+              moveContext={moveContext}
               onMove={move}
               onUndo={undo}
               swapArmed={swapArmed}

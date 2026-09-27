@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -21,11 +22,29 @@ import {
   type BoardLayout,
 } from './BoardLayout'
 import { createGestureTracker, type GestureTracker } from './GestureTracker'
-import { diffTileMotion } from './TileMotion'
+import { MergeSourceView } from './MergeSourceView'
+import {
+  diffMergeSources,
+  diffTileMotion,
+  TILE_EFFECT_DURATIONS,
+  type MergeSourceMotion,
+  type TileMotion,
+  type TileMotionMap,
+} from './TileMotion'
 import { withinPickRadius } from './TilePick'
 
 interface Props {
   game: GameState
+  boardRef: { current: HTMLDivElement | null }
+  /** App 统一记录键盘、滑动和屏幕方向按钮的最近方向，供合并来源确定飞行终点 */
+  moveContext: {
+    current: {
+      direction: Direction
+      id: number
+      steps: number
+      startPositions: ReadonlyMap<number, string>
+    } | null
+  }
   /** 当前风格（T13）：只决定两个装饰插槽取哪一套的配置。data-style 挂在外壳上 */
   styleId: StyleId
   onMove(direction: Direction): void
@@ -36,6 +55,42 @@ interface Props {
   swapSelection: Coordinate | null
   onSelectCell(coordinate: Coordinate): void
   onExitSwap(): void
+}
+
+type MergePulsePhase = 'pending' | 'up' | 'down'
+
+const MERGE_PULSE_RECOVERY_GRACE_MS = 80
+
+interface ActiveMotion {
+  game: GameState
+  motion: TileMotionMap
+  mergePulses: ReadonlyMap<number, MergePulsePhase>
+  /** 中间格没有呈现时直接落格；已提交动画被打断时仍由 translate 从当前画面续走 */
+  skipTileTransition: boolean
+}
+
+function keepFinalTileMotion(motion: TileMotionMap): TileMotionMap {
+  const finalMotion = new Map<number, TileMotion>()
+  motion.forEach((tileMotion, id) => {
+    if (tileMotion.merge || tileMotion.win) {
+      finalMotion.set(id, { spawn: false, merge: tileMotion.merge, win: tileMotion.win })
+    }
+  })
+  return finalMotion
+}
+
+function settleMergePulse(current: ActiveMotion, id: number): ActiveMotion | null {
+  const mergePulses = new Map(current.mergePulses)
+  const motion = new Map(current.motion)
+  mergePulses.delete(id)
+  const tileMotion = motion.get(id)
+  if (tileMotion !== undefined) {
+    const settled: TileMotion = { ...tileMotion, spawn: false, merge: false }
+    if (settled.win) motion.set(id, settled)
+    else motion.delete(id)
+  }
+  if (motion.size === 0 && mergePulses.size === 0) return null
+  return { ...current, motion, mergePulses }
 }
 
 /**
@@ -123,6 +178,14 @@ function useCellSize(size: number): number {
   return cellSize
 }
 
+/** 读当前风格的 CSS 时长，供动效标记在实际动画完成后清理 */
+function durationMs(value: string, fallback: number): number {
+  const match = /^([\d.]+)(ms|s)$/.exec(value.trim())
+  if (match === null) return fallback
+  const amount = Number(match[1])
+  return match[2] === 's' ? amount * 1000 : amount
+}
+
 /**
  * 棋盘（ADR-0002 的固定 DOM 结构 + 两个装饰插槽）
  *
@@ -135,6 +198,8 @@ function useCellSize(size: number): number {
  */
 export function Board({
   game,
+  boardRef,
+  moveContext,
   styleId,
   onMove,
   onUndo,
@@ -156,21 +221,336 @@ export function Board({
   const cellSize = useCellSize(mode.size)
   const layout: BoardLayout = createBoardLayout(mode.size, cellSize)
 
+  const rootRef = boardRef
   // 上一帧的局面（T21）。只用来回答「这一帧哪几枚该有动静」——它不呈现任何东西，
   // 所以不进 state；render 里读、commit 之后的 effect 里才写。于是 StrictMode 的
   // 二次渲染读到的还是同一个上一帧，diff 不会被算重；而一次与棋盘无关的重渲染
   // （改视口、换风格）拿到的上一帧就是同一副棋盘，自然一个旗标都不亮。
   // 推断本身在 TileMotion.ts：那是个纯函数，`src/game/` 与这个 ref 都碰不到它。
-  // 它**只喂三个 data-* 属性**，不动 rngState、不动分数、不动身份，也不拦任何输入
-  // ——动画是 CSS 的事，键盘按下的那一刻棋盘就已经是新状态了。
+  // diff 只喂三个 data-* 属性，不动 rngState、不动分数、不动身份，也不拦任何输入；
+  // 被合并吞掉的来源另由下方短暂视觉载体表现，规则棋盘仍在按键时立即更新。
   const previous = useRef<GameState | null>(null)
-  const motion = diffTileMotion(previous.current, game, mode.target)
-  useEffect(() => {
+  // 只用来识别过期的合并来源起点；tile 的 translate transition 会从当前画面平滑重定向。
+  const moveTransitionEndsAt = useRef(0)
+  // 合并反馈要等方块接近落点再开始，但快速下一步不能把这只计时器一起清掉。
+  const pendingMergePulseTimers = useRef(new Map<number, number>())
+  // transitioncancel 不会补发 transitionend；这条兜底保证 scale 最终能回到 1。
+  const mergePulseRecoveryTimers = useRef(new Map<number, number>())
+  const [activeMotion, setActiveMotion] = useState<ActiveMotion | null>(null)
+  const [mergeSources, setMergeSources] = useState<readonly MergeSourceMotion[]>([])
+  const scheduleMergePulseRecovery = (id: number): void => {
+    const previousTimer = mergePulseRecoveryTimers.current.get(id)
+    if (previousTimer !== undefined) window.clearTimeout(previousTimer)
+    const timer = window.setTimeout(() => {
+      if (mergePulseRecoveryTimers.current.get(id) !== timer) return
+      mergePulseRecoveryTimers.current.delete(id)
+      setActiveMotion((current) => {
+        if (current === null) return current
+        const phase = current.mergePulses.get(id)
+        if (phase === undefined || phase === 'pending') return current
+        return settleMergePulse(current, id)
+      })
+    }, TILE_EFFECT_DURATIONS.merge + MERGE_PULSE_RECOVERY_GRACE_MS)
+    mergePulseRecoveryTimers.current.set(id, timer)
+  }
+  const beforeRender = previous.current
+  const moveForRender = moveContext.current
+  const sameRunBoardChange =
+    beforeRender !== null &&
+    beforeRender.modeId === game.modeId &&
+    beforeRender.initialSeed === game.initialSeed &&
+    beforeRender.board !== game.board
+  const batchedMove =
+    sameRunBoardChange &&
+    moveForRender !== null &&
+    (moveForRender.steps > 1 || game.moves !== beforeRender.moves + 1)
+  const moveTransitionInterrupted =
+    sameRunBoardChange &&
+    moveForRender !== null &&
+    (batchedMove || performance.now() < moveTransitionEndsAt.current)
+  const snapMoveTransition =
+    sameRunBoardChange &&
+    moveForRender === null &&
+    performance.now() < moveTransitionEndsAt.current
+  const rewindsHistory =
+    beforeRender !== null &&
+    beforeRender.modeId === game.modeId &&
+    beforeRender.initialSeed === game.initialSeed &&
+    game.moves < beforeRender.moves
+  const detectedMotion = diffTileMotion(beforeRender, game, mode.target)
+  const renderMotion =
+    batchedMove || snapMoveTransition ? keepFinalTileMotion(detectedMotion) : detectedMotion
+  const motion = activeMotion?.game === game ? activeMotion.motion : renderMotion
+  const skipTileTransition =
+    activeMotion?.game === game
+      ? activeMotion.skipTileTransition
+      : snapMoveTransition
+  const pulseCanContinue =
+    activeMotion !== null &&
+    activeMotion.game.modeId === game.modeId &&
+    activeMotion.game.initialSeed === game.initialSeed &&
+    !rewindsHistory &&
+    (activeMotion.game === game ||
+      (moveForRender !== null && game.moves >= activeMotion.game.moves))
+
+  // 被吞的操作数在规则棋盘里已经消失；把它们作为短暂视觉载体留在同一方块层，飞到产物格。
+  // 新一步会中断上一步的来源载体；快速重定向时不再使用逻辑旧格伪造来源轨迹。
+  // 同一份快照也保留 data-* 旗标，避免 layout effect 触发的重渲染提前取消合并反馈。
+  useLayoutEffect(() => {
+    const before = previous.current
+    const move = moveContext.current
+    const sameRunBoardChange =
+      before !== null &&
+      before.modeId === game.modeId &&
+      before.initialSeed === game.initialSeed &&
+      before.board !== game.board
+    const batchedMove =
+      sameRunBoardChange &&
+      move !== null &&
+      (move.steps > 1 || game.moves !== before.moves + 1)
+    const moveTransitionInterrupted =
+      sameRunBoardChange &&
+      move !== null &&
+      (batchedMove || performance.now() < moveTransitionEndsAt.current)
+    const skipTransitions =
+      sameRunBoardChange &&
+      move === null &&
+      performance.now() < moveTransitionEndsAt.current
+    const detected = diffTileMotion(before, game, mode.target)
+    const nextMotion =
+      batchedMove || skipTransitions ? keepFinalTileMotion(detected) : detected
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const startsNewRun =
+      before === null || before.modeId !== game.modeId || before.initialSeed !== game.initialSeed
+    const discardsPulseState =
+      startsNewRun ||
+      reducedMotion ||
+      (sameRunBoardChange && move === null) ||
+      (before !== null && before.modeId === game.modeId && before.initialSeed === game.initialSeed && game.moves < before.moves)
+    const tileIds = new Set<number>()
+    game.board.forEach((row) =>
+      row.forEach((cell) => {
+        if (cell !== null && cell !== 'wall') tileIds.add(cell.id)
+      })
+    )
+    pendingMergePulseTimers.current.forEach((timer, id) => {
+      if (discardsPulseState || !tileIds.has(id) || nextMotion.get(id)?.win) {
+        window.clearTimeout(timer)
+        pendingMergePulseTimers.current.delete(id)
+      }
+    })
+    mergePulseRecoveryTimers.current.forEach((timer, id) => {
+      if (discardsPulseState || !tileIds.has(id) || nextMotion.get(id)?.win) {
+        window.clearTimeout(timer)
+        mergePulseRecoveryTimers.current.delete(id)
+      }
+    })
+    const root = rootRef.current
+    const computed = root === null ? null : getComputedStyle(root)
+    const moveMs = durationMs(
+      computed?.getPropertyValue('--tile-move-duration') ?? '',
+      TILE_EFFECT_DURATIONS.move
+    )
+    const stagedTranslateFrames: { element: HTMLElement; start: string; target: string; frames: number[] }[] = []
+    const needsRowReconciliation = move?.direction === 'up' || move?.direction === 'down'
+    if (
+      needsRowReconciliation &&
+      !reducedMotion &&
+      !skipTransitions &&
+      before?.board !== game.board
+    ) {
+      root?.querySelectorAll<HTMLElement>('.board__tile[data-tile-id]').forEach((tile) => {
+        const id = Number(tile.dataset.tileId)
+        const start = move.startPositions.get(id)
+        const target = tile.style.translate
+        if (start === undefined || start === target) return
+        const current = getComputedStyle(tile).translate
+        const visualStart = current !== target ? current : start
+        tile.style.transition = 'none'
+        tile.style.translate = visualStart
+        void tile.getBoundingClientRect()
+        stagedTranslateFrames.push({ element: tile, start: visualStart, target, frames: [] })
+      })
+    }
+    const sources =
+      move === null || reducedMotion || skipTransitions || moveTransitionInterrupted
+        ? []
+        : diffMergeSources(before, game, move.direction, move.id)
+    const pulseIds =
+      reducedMotion || skipTransitions
+        ? []
+        : [...nextMotion].flatMap(([id, tileMotion]) =>
+            tileMotion.merge && !tileMotion.win ? [id] : []
+          )
+    const mergePulses = new Map<number, MergePulsePhase>()
+    if (!discardsPulseState) {
+      activeMotion?.mergePulses.forEach((phase, id) => {
+        if (tileIds.has(id) && !nextMotion.get(id)?.win) mergePulses.set(id, phase)
+      })
+    }
+    const newPulseIds: number[] = []
+    const restartedPulseIds: number[] = []
+    pulseIds.forEach((id) => {
+      const phase = mergePulses.get(id)
+      if (phase === undefined) {
+        mergePulses.set(id, 'pending')
+        newPulseIds.push(id)
+      } else if (phase === 'down') {
+        mergePulses.set(id, 'up')
+        restartedPulseIds.push(id)
+      }
+    })
     previous.current = game
-  }, [game])
+    if (moveContext.current === move) moveContext.current = null
+    setActiveMotion(
+      nextMotion.size === 0 && mergePulses.size === 0 && !skipTransitions
+        ? null
+        : {
+            game,
+            motion: nextMotion,
+            mergePulses,
+            skipTileTransition: skipTransitions,
+          }
+    )
+    if (before !== null && before.board !== game.board) {
+      setMergeSources(sources)
+    }
+    stagedTranslateFrames.forEach((staged) => {
+      const { element, start, target } = staged
+      staged.frames.push(window.requestAnimationFrame(() => {
+        if (!element.isConnected) return
+        element.style.transition = ''
+        staged.frames.push(window.requestAnimationFrame(() => {
+          if (!element.isConnected) return
+          element.style.translate = target
+          moveTransitionEndsAt.current = performance.now() + moveMs
+        }))
+      }))
+    })
+    const cleanupStagedTranslate = (): void => {
+      stagedTranslateFrames.forEach(({ element, frames }) => {
+        frames.forEach((frame) => window.cancelAnimationFrame(frame))
+        if (!element.isConnected) return
+        element.style.transition = ''
+      })
+    }
+
+    if (before === null || before.modeId !== game.modeId || before.initialSeed !== game.initialSeed) {
+      moveTransitionEndsAt.current = 0
+    } else if (before.board !== game.board) {
+      moveTransitionEndsAt.current =
+        move !== null && !skipTransitions
+          ? performance.now() + moveMs + (stagedTranslateFrames.length > 0 ? 32 : 0)
+          : performance.now()
+    }
+    if (nextMotion.size === 0) return cleanupStagedTranslate
+    const spawnMs = durationMs(
+      computed?.getPropertyValue('--tile-spawn-duration') ?? '',
+      TILE_EFFECT_DURATIONS.spawn
+    )
+    const winMs = durationMs(
+      computed?.getPropertyValue('--win-title-duration') ?? '',
+      TILE_EFFECT_DURATIONS.win
+    )
+    const hasWin = [...nextMotion.values()].some((tileMotion) => tileMotion.win)
+    const timers: number[] = []
+    const clearMotionFlags = (
+      clearSpawn: boolean,
+      clearMerge: boolean,
+      keepWins = false,
+      clearWin = false
+    ): void => {
+      setActiveMotion((current) => {
+        if (current?.game !== game) return current
+        const motion = new Map<number, TileMotion>()
+        current.motion.forEach((tileMotion, id) => {
+          if (keepWins && tileMotion.win) {
+            motion.set(id, { spawn: false, merge: false, win: true })
+            return
+          }
+          const settled = {
+            ...tileMotion,
+            spawn: clearSpawn ? false : tileMotion.spawn,
+            merge: clearMerge ? false : tileMotion.merge,
+            win: clearWin ? false : tileMotion.win,
+          }
+          if (settled.spawn || settled.merge || settled.win) motion.set(id, settled)
+        })
+        if (motion.size === 0 && current.mergePulses.size === 0) return null
+        return {
+          ...current,
+          motion,
+        }
+      })
+    }
+    if ([...nextMotion.values()].some((tileMotion) => tileMotion.spawn)) {
+      timers.push(window.setTimeout(() => clearMotionFlags(true, false), spawnMs))
+    }
+    if (pulseIds.length > 0) {
+      timers.push(
+        window.setTimeout(
+          () => clearMotionFlags(false, true),
+          moveMs + (stagedTranslateFrames.length > 0 ? 32 : 0)
+        )
+      )
+    }
+    if (newPulseIds.length > 0) {
+      const pulseDelay = Math.max(0, moveMs - TILE_EFFECT_DURATIONS.merge) +
+        (stagedTranslateFrames.length > 0 ? 32 : 0)
+      newPulseIds.forEach((id) => {
+        const timer = window.setTimeout(() => {
+          if (pendingMergePulseTimers.current.get(id) !== timer) return
+          pendingMergePulseTimers.current.delete(id)
+          setActiveMotion((current) => {
+            if (current === null || current.mergePulses.get(id) !== 'pending') return current
+            const mergePulses = new Map(current.mergePulses)
+            mergePulses.set(id, 'up')
+            return { ...current, mergePulses }
+          })
+          scheduleMergePulseRecovery(id)
+        }, pulseDelay)
+        pendingMergePulseTimers.current.set(id, timer)
+      })
+    }
+    restartedPulseIds.forEach(scheduleMergePulseRecovery)
+    if (hasWin) {
+      timers.push(window.setTimeout(() => {
+        if (reducedMotion) clearMotionFlags(true, true, true)
+        else clearMotionFlags(true, true, false, true)
+      }, moveMs + winMs))
+    }
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer))
+      cleanupStagedTranslate()
+    }
+  }, [game, mode.target, moveContext])
+
+  useEffect(() => {
+    return () => {
+      pendingMergePulseTimers.current.forEach((timer) => window.clearTimeout(timer))
+      pendingMergePulseTimers.current.clear()
+      mergePulseRecoveryTimers.current.forEach((timer) => window.clearTimeout(timer))
+      mergePulseRecoveryTimers.current.clear()
+    }
+  }, [])
+
+  const finishMergeSource = (key: string): void => {
+    setMergeSources((current) => current.filter((source) => source.key !== key))
+  }
+
+  const finishMergePulse = (id: number, phase: MergePulsePhase): void => {
+    setActiveMotion((current) => {
+      if (current?.game !== game || current.mergePulses.get(id) !== phase) return current
+      if (phase === 'up') {
+        const mergePulses = new Map(current.mergePulses)
+        mergePulses.set(id, 'down')
+        return { ...current, mergePulses }
+      }
+      return settleMergePulse(current, id)
+    })
+  }
 
   // 开局即把焦点给棋盘：否则玩家还得先点一下页面，方向键才有去处
-  const rootRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     rootRef.current?.focus({ preventScroll: true })
   }, [])
@@ -317,6 +697,7 @@ export function Board({
       className="board"
       data-board
       data-mode={mode.id}
+      data-skip-tile-transition={skipTileTransition || undefined}
       tabIndex={0}
       // application：方向键要交给游戏本身处理，而不是被读屏软件的浏览模式吃掉
       role="application"
@@ -348,13 +729,12 @@ export function Board({
       </div>
 
       <div className="board__tiles">
-        {game.board.map((row, rowIndex) =>
+        {game.board.flatMap((row, rowIndex) =>
           row.map((cell, colIndex) => {
             if (cell === null || cell === 'wall') return null
-            // key 用 Tile.id：React 才会复用同一个 DOM 节点，T21 的位移动画才成立。
-            // **不许改成位置做 key**——那会让 React 卸载再重挂，方块跳而不是滑，
-            // 一次合并还会在同一格里出现两枚（T21 验收标准 1 禁的正是它）
+            // 键必须在整个方块层里唯一；跨行移动也要复用同一个 DOM 节点才能触发位移过渡。
             const rank = tileRank(ladder, cell.value)
+            const pulse = pulseCanContinue ? activeMotion?.mergePulses.get(cell.id) : undefined
             return (
               <TileView
                 key={cell.id}
@@ -365,6 +745,8 @@ export function Board({
                 rank={rank}
                 slot={tileSlot(rank, ladder.length)}
                 motion={motion.get(cell.id)}
+                mergePulse={pulse === 'up' || pulse === 'down' ? pulse : undefined}
+                onMergePulseTransitionEnd={(phase) => finishMergePulse(cell.id, phase)}
                 selectable={swapArmed}
                 selected={
                   swapSelection !== null &&
@@ -376,6 +758,20 @@ export function Board({
             )
           })
         )}
+        {mergeSources.map((source) => {
+          const rank = tileRank(ladder, source.tile.value)
+          return (
+            <MergeSourceView
+              key={source.key}
+              source={source}
+              fromOffset={layout.cellOffset(source.from[0], source.from[1])}
+              toOffset={layout.cellOffset(source.to[0], source.to[1])}
+              rank={rank}
+              slot={tileSlot(rank, ladder.length)}
+              onExitComplete={finishMergeSource}
+            />
+          )
+        })}
       </div>
 
       <BoardOverlay />

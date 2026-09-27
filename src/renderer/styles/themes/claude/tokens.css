@@ -90,10 +90,11 @@
   /* --tile-elevation 刻意不声明：board.css 的兜底值是全透明的，等于本风格不要投影。
      Classic 也不声明它，Material 才声明自己的 elevation。 */
 
-  /* 动效：位移取两套之间的中值，真正说话的是那条更柔的减速曲线（DESIGN.md §6） */
-  --tile-move-duration: 180ms;
-  --tile-move-easing: cubic-bezier(0.22, 1, 0.36, 1);
+  /* 位移节奏与其他风格一致，安静感由字体、色彩与无投影层级表达。 */
+  --tile-move-duration: 150ms;
+  --tile-move-easing: ease-out;
   --tile-spawn-duration: 140ms;
+  --win-title-duration: 180ms;
 
   --font-display: 'Playfair Display', var(--fallback-display-serif);
   --font-body: 'Source Sans 3', var(--fallback-humanist);

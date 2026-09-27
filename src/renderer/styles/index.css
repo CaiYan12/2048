@@ -45,3 +45,37 @@
   --font-display: var(--font-display);
   --font-body: var(--font-body);
 }
+
+@keyframes win-panel-title-enter {
+  from {
+    opacity: 0;
+    scale: 0.96;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@keyframes win-panel-title-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+[data-panel='win'] .overlay__title {
+  /* 动画失效时标题仍然可见；动画附着后由 both 填充关键帧起点与终点。 */
+  opacity: 1;
+  scale: 1;
+  animation: win-panel-title-enter var(--win-title-duration, 180ms) ease-out 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-panel='win'] .overlay__title {
+    scale: 1;
+    animation: win-panel-title-fade var(--win-title-duration, 180ms) ease-out 1 both;
+  }
+}

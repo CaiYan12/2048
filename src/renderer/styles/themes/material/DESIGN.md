@@ -141,10 +141,11 @@
   方块 2dp 级（`--tile-elevation`）。Classic 禁 `box-shadow`，这正是两套风格在
   `board.css` 上分歧最大的一处：棋盘层给方块留了 `--tile-elevation` 这个**带透明默认值的
   变量**，Classic 不声明它（渲染与改动前逐字节相同），Material 声明自己的投影。
-- **位移动效**：`--tile-move-duration: 220ms`（Classic 140ms）+ emphasized 减速曲线
-  `cubic-bezier(0.2, 0, 0, 1)`（`--tile-move-easing`，默认值 `ease-out` 即 Classic 现值）。
+- **位移动效**：`--tile-move-duration: 150ms` + `ease-out`，与其他风格共用，避免长时长和
+  前段突跳打断连续游玩。
 - **生成动效**：`--tile-spawn-duration: 160ms`（Classic 120ms），只淡入不缩放
-  （T21 才加缩放，届时两套风格各自声明自己的时长与曲线）。
+  （本风格继续保持这条约定）。
+- **合并与胜利**：两段 CSS scale 过渡合计 80ms，在接近落点时启动；React 提交回落阶段时增加的帧间隔会延长浏览器观察到的总时长。不透明胜利面板盖住棋盘，标题轻微淡入。
 - **选中态**：被选中的那一枚在投影之上再描一圈 `--focus`（`board.css` 的
   `[data-selected='true']`），环与投影通过 `--tile-elevation` 合成，不会互相顶掉。
 - `prefers-reduced-motion: reduce` 下 `--tile-move-duration` / `--tile-spawn-duration`

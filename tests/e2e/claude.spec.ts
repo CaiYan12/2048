@@ -284,7 +284,7 @@ test('reduced-motion：位移与淡入归零，方块直接到位', async ({ bro
       })
     // 过渡整个关掉（board.css 的 reduced-motion 块），于是浏览器把列表收成一条 0s
     for (const duration of tile.durations) expect(parseFloat(duration)).toBe(0)
-    // 脉冲与呼吸同样一个都不剩
+    // 脉冲与方块动画同样一个都不剩
     expect(tile.animation).toBe('none')
     expect(tile.visible).toBe(true)
   } finally {

@@ -9,6 +9,15 @@ export const BOARD_CELL_SIZE = 100
 export const BOARD_GAP = 12
 export const BOARD_PADDING = 12
 
+// CSSOM 会把 translate 的零 y / x 分量折叠成单轴值；跨轴更新时这会让过渡变成离散跳转。
+const ZERO_TRANSLATE_EPSILON = 0.001
+
+export function translateCss(offset: { x: number; y: number }): string {
+  const x = offset.x === 0 ? ZERO_TRANSLATE_EPSILON : offset.x
+  const y = offset.y === 0 ? ZERO_TRANSLATE_EPSILON : offset.y
+  return `${x}px ${y}px`
+}
+
 /**
  * 棋盘两侧留给页面的留白（px）：窄屏按它反算格子能有多大。
  *
@@ -43,7 +52,7 @@ export interface BoardLayout {
   size: number
   /** 含内边距与间距的整块棋盘边长（px） */
   pixelSize: number
-  /** 格子 [row][col] 相对棋盘坐标系左上角的偏移（px），transform 用它定位 */
+  /** 格子 [row][col] 相对棋盘坐标系左上角的偏移（px），translate 用它定位 */
   cellOffset(row: number, col: number): { x: number; y: number }
 }
 

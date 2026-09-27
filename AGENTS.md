@@ -316,3 +316,11 @@ The five canonical defaults — `needs-triage`, `needs-info`, `ready-for-agent`,
 ### Domain docs
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### T21 motion status (2026-09-27)
+
+- T21 implementation and local acceptance are complete; evidence and accepted tradeoffs are recorded in `docs/tickets/21-tile-motion.md`.
+- Keep the win-title keyframe attached on its first render. Do not add a `requestAnimationFrame` state gate: the title's visible fallback can paint before the animation and flash.
+- The merge value of 80ms is the total CSS scale-transition budget (40ms up + 40ms down). Browser wall-clock measurements were 130–160ms because React commits the second phase after `transitionend`; do not describe 80ms as end-to-end duration.
+- Shared `150ms ease-out` motion across Classic, Material, and Claude is an accepted stability decision. Revisit it only with fresh frame-level evidence.
+- Final verification: 738 unit tests, typecheck, production build, the full tile-motion Playwright suite, and the final targeted desktop/mobile preview cases passed. Playwright remains headless as required above.

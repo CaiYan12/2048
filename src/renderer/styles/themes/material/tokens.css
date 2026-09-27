@@ -71,11 +71,11 @@
   /* elevation。board.css 的 [data-selected] 会把它和焦点环合成，不互相顶掉 */
   --tile-elevation: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
 
-  /* 动效：emphasized 减速曲线。board.css 里这两个变量都有「Classic 现值」的默认值，
-     不声明就是 Classic 的样子，声明了才轮到本风格说话。 */
-  --tile-move-duration: 220ms;
-  --tile-move-easing: cubic-bezier(0.2, 0, 0, 1);
+  /* 位移节奏与其他风格一致，避免长时长和前段突跳打断连续游玩。 */
+  --tile-move-duration: 150ms;
+  --tile-move-easing: ease-out;
   --tile-spawn-duration: 160ms;
+  --win-title-duration: 180ms;
   /* 方块数值的字重：Roboto Medium，与 Classic 的 Bold 分开 */
   --tile-font-weight: 500;
 

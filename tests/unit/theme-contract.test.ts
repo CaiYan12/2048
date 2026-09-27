@@ -54,6 +54,11 @@ const themeCss = (styleId: string, file: string): string =>
   )
 const boardCss = (): string =>
   readFileSync(new URL('../../src/renderer/styles/board.css', import.meta.url), 'utf8')
+const shellCss = (): string =>
+  readFileSync(new URL('../../src/renderer/styles/index.css', import.meta.url), 'utf8').replace(
+    /\/\*[\s\S]*?\*\//g,
+    ''
+  )
 
 /**
  * 一份 CSS 里所有 `var(--x)` / `var(--x, fallback)` 读取。
@@ -106,10 +111,16 @@ function declaredNames(css: string): string[] {
 }
 
 /**
- * Board.tsx 用内联 style 贴到棋盘根元素上的运行时尺寸（BoardLayout 算出来的）。
+ * 组件内联 style 注入的运行时尺寸与逐方块坐标。
  * 它们不是主题要交的令牌——漏了也不该在这里报。
  */
-const RUNTIME_INJECTED: readonly string[] = ['--board-size-px', '--board-padding', '--cell-size']
+const RUNTIME_INJECTED: readonly string[] = [
+  '--board-size-px',
+  '--board-padding',
+  '--cell-size',
+  '--merge-source-from',
+  '--merge-source-to',
+]
 
 /**
  * board.css 给 beyond 档的字色留了兜底（`var(--tile-beyond-ink, var(--ink-bright))`），
@@ -119,8 +130,8 @@ const RUNTIME_INJECTED: readonly string[] = ['--board-size-px', '--board-padding
 const ALSO_REQUIRED: readonly string[] = ['--tile-beyond-ink']
 
 /**
- * 一套风格必须交齐的令牌：board.css 读的 + 它自己 styles.css 读的，去掉本层私有与
- * 运行时注入，再补上手写的那一条。
+ * 一套风格必须交齐的令牌：board.css、shell CSS 与它自己的 styles.css 读的，去掉本层
+ * 私有与运行时注入，再补上手写的那一条。
  */
 function requiredTokens(styleId: string): readonly string[] {
   const fromBoard = new Set(
@@ -137,7 +148,12 @@ function requiredTokens(styleId: string): readonly string[] {
     .filter((read) => !read.hasDefault)
     .map((read) => read.name)
     .filter((name) => !declaredNames(styles).includes(name))
-  return [...new Set([...fromBoard, ...fromStyles, ...ALSO_REQUIRED])].sort()
+  const shell = shellCss()
+  const fromShell = varReads(shell)
+    .filter((read) => !read.hasDefault)
+    .map((read) => read.name)
+    .filter((name) => !declaredNames(shell).includes(name))
+  return [...new Set([...fromBoard, ...fromStyles, ...fromShell, ...ALSO_REQUIRED])].sort()
 }
 
 /** board.css 里 11 条 [data-bucket] 规则的样子 */
@@ -186,8 +202,8 @@ describe('board.css 的配色键是 data-bucket', () => {
     // 于是不声明它的 Classic / Material 渲染与改动前逐字节相同，而 Claude 可以把自己
     // 的展示衬线贴上方块数字（见 material 声明 --tile-font-weight 的同一条路子）
     expect(css).toContain('var(--tile-font-family, var(--font-body))')
-    // 时长钩子同样有默认值：140ms / 120ms 就是 Classic 现值
-    expect(css).toContain('var(--tile-move-duration, 140ms)')
+    // 时长钩子同样有默认值：150ms / 120ms 是当前三套风格的公共基线
+    expect(css).toContain('var(--tile-move-duration, 150ms)')
     expect(css).toContain('var(--tile-spawn-duration, 120ms)')
   })
 })

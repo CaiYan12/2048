@@ -10,8 +10,8 @@ import './styles.css'
  *
  * id / label 供注册表与开局界面用；两个插槽交给 Board 渲染（ADR-0002）。
  * T03 两个插槽都是空的：需要插槽的是 Aero 的 gloss、Terminal 的扫描线那类
- * **结构**装饰（ADR-0002 举的例子），而 Classic 设计卡 §6 只保留合并微动效与目标块
- * 呼吸——那是 CSS transition，不占 DOM。等某套风格真需要挂件时，换掉这里的返回值即可，
+ * **结构**装饰（ADR-0002 举的例子），而 Classic 设计卡 §6 只保留合并微动效与胜利面板
+ * 标题的进入反馈——那是 CSS animation，不占 DOM。等某套风格真需要挂件时，换掉这里的返回值即可，
  * 棋盘与引擎都不动。
  */
 export const classicStyleId: StyleId = 'classic'

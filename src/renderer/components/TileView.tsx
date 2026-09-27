@@ -1,6 +1,7 @@
-import type { KeyboardEvent, JSX } from 'react'
+import type { KeyboardEvent, JSX, TransitionEvent } from 'react'
 import type { Tile } from '../../shared/types'
 import { NO_TILE_MOTION, type TileMotion } from './TileMotion'
+import { translateCss } from './BoardLayout'
 import { tileDigits, tileLabel } from './TileLabel'
 
 // Props 保持局部：仓库里每个组件都只在自己文件里用，导出没有第二个消费者
@@ -8,18 +9,20 @@ interface Props {
   tile: Tile
   row: number
   col: number
-  /** transform 定位，来自 BoardLayout.cellOffset——宽高由 board.css 用同一个变量算 */
+  /** translate 定位，来自 BoardLayout.cellOffset——宽高由 board.css 用同一个变量算 */
   offset: { x: number; y: number }
   /** 数值在本模式价值阶梯里的 1-based 位置（ValueLadder.tileRank）。阶梯外 = 超过目标 */
   rank: number
   /** 按相对进度折进主题 11 个色档里的第几档（ValueLadder.tileSlot）。board.css 的配色键 */
   slot: number
   /**
-   * 这一帧的动效旗标（T21）。只变成三个 data-* 属性：**这里不做任何动画**——
-   * 动画一律在 board.css 里由这三个属性驱动，组件连时长都不碰。理由与 T13 的配色键
-   * 同一条：CSS 管呈现，组件只管把事实说出去。
+   * 这一帧的动效旗标（T21）。这里只传递 data-* 属性，不执行动画，也不持有时长。
+   * CSS 管呈现，组件只管把事实与合并脉冲阶段说出去。
    */
   motion?: TileMotion
+  /** 靠近落点时开始的 scale transition 阶段；新输入可以随时重定向它 */
+  mergePulse?: 'up' | 'down'
+  onMergePulseTransitionEnd(phase: 'up' | 'down'): void
   /** 交换拾取中（T12）：这枚方块可以被选中 */
   selectable: boolean
   /** 它正是等第二枚的那一枚（T12） */
@@ -37,7 +40,7 @@ interface Props {
  * .ts 是为了能单测，CSS 里写不出「ceil 之后再按算出的数索引一个静态 token 名」。
  *
  * T21 起再多三个属性：`data-spawn` / `data-merge` / `data-win`，各自是入场、
- * 合并脉冲与胜利序列的开关。它们与拾取态那两条同一条规矩——**只加属性、不加节点**
+ * 合并脉冲与达标方块的标记。它们与拾取态那两条同一条规矩——**只加属性、不加节点**
  * （ADR-0002 的棋盘固定 DOM 结构不许因为一个动效多出一层），且没动静的那一帧三个
  * 属性都不出现，DOM 与 T21 之前逐字节一致。
  */
@@ -49,6 +52,8 @@ export function TileView({
   rank,
   slot,
   motion = NO_TILE_MOTION,
+  mergePulse,
+  onMergePulseTransitionEnd,
   selectable,
   selected,
   onSelect,
@@ -59,6 +64,16 @@ export function TileView({
     // Space 默认会滚页面：这一层是游戏界面，按下它就是「选择这枚方块」
     event.preventDefault()
     onSelect()
+  }
+
+  const handleTransitionEnd = (event: TransitionEvent<HTMLDivElement>): void => {
+    if (
+      event.target === event.currentTarget &&
+      event.propertyName === 'scale' &&
+      mergePulse !== undefined
+    ) {
+      onMergePulseTransitionEnd(mergePulse)
+    }
   }
 
   return (
@@ -77,13 +92,14 @@ export function TileView({
       data-spawn={motion.spawn || undefined}
       data-merge={motion.merge || undefined}
       data-win={motion.win || undefined}
+      data-merge-pulse={mergePulse}
       // 两个呈现钩子，规则在 board.css：没进拾取态时这两个属性都不出现，
       // DOM 与 T12 之前逐字节一致（换风格与 T21 都不受影响）
       data-selectable={selectable || undefined}
       data-selected={selected || undefined}
       data-row={row}
       data-col={col}
-      style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
+      style={{ translate: translateCss(offset) }}
       tabIndex={selectable ? 0 : undefined}
       // role=button 而不是真 <button>：真按钮会被 Board 的 isInteractiveTarget
       // 认成「交互控件」而整键放行，方向键在它上面就失灵了——那道守卫是给面板按钮
@@ -96,6 +112,7 @@ export function TileView({
           : undefined
       }
       onKeyDown={selectable ? handleActivate : undefined}
+      onTransitionEnd={handleTransitionEnd}
     >
       {tileLabel(tile.value)}
     </div>

@@ -1,24 +1,27 @@
-import type { Board, GameState, Tile } from '../../shared/types'
+import type { Coordinate } from '../../game/board'
+import { slideBoard } from '../../game/board'
+import { getMode } from '../../shared/modes'
+import type { Direction, Board, GameState, Tile } from '../../shared/types'
 
 /**
- * 方块动效的裁决（T21）
+ * 棋盘动效的裁决（T21）
  *
- * 这里只放**决定**，不放任何 DOM 与 CSS：哪一枚方块在这一帧该有哪个效果、四个效果
- * 各自靠什么 CSS 机制实现、reduced-motion 下各自退化成什么。决定住在 .ts 里的理由是
+ * 这里只放**决定**，不放任何 DOM 与 CSS：哪一枚方块在这一帧该有哪个效果、胜利时面板
+ * 如何给出反馈、各效果靠什么 CSS 机制实现、reduced-motion 下各自退化成什么。决定住在 .ts 里的理由是
  * 它们得能在 node 环境里被单测——CSS 里的规则没法断言「合并没有用 @starting-style」，
  * 而这张表能。
  *
  * 与 CSS 的边界（ADR-0001 的同一条精神，只是方向相反）：**这里不写时长、不写颜色、
  * 不写选择器**，只写「哪个效果归哪个机制、时长由哪个变量驱动」。CSS 是这些决定的
- * 消费者，tests/unit/tile-motion.test.ts 负责把两边钉在一起——primal-setup-plan
- * P9 要的「JS/CSS 时长契约」就是那一组断言。
+ * 消费者，tests/unit/tile-motion.test.ts 负责把棋盘层与外壳的 CSS 钩子钉在一起——
+ * primal-setup-plan P9 要的「JS/CSS 时长契约」就是那一组断言。
  */
 
 /**
  * 四个效果（SPEC 用户故事 24、27 · 验收标准 1）
  *
- * 顺序即它们在一次移动里的发生顺序：方块先走，走到位的两枚合成一枚，合出的那一枚
- * 脉冲，达到目标时冒一次呼吸。
+ * 方块沿空间路径滑动；合并来源落到产物下面，产物接近落点时脉冲；达标时面板标题给出
+ * 一次短促的进入反馈。
  */
 export type TileEffect = 'move' | 'spawn' | 'merge' | 'win'
 
@@ -29,41 +32,39 @@ export const TILE_EFFECTS: readonly TileEffect[] = ['move', 'spawn', 'merge', 'w
  * 时长契约（ms）
  *
  * **必须与 board.css 里同名变量的兜底值保持一致**——测试逐项对着 CSS 文本核，改一边
- * 不改另一边当场炸。这里存的是**默认值**（也就是 Classic 现值）：Material / Claude 在
- * 自己的 tokens.css 里覆盖，那是风格自己的事，不进这张表。
+ * 不改另一边当场炸。当前三套风格都声明相同的位移节奏，以免同一局游戏换肤后物理感突变。
  *
  * 取值理由（T21 派发令要求「选时长并说明为什么」）：
  *
- *   · move 140ms：方块跨越整个 5×5 一行是 4×(100+12)=448px，140ms 走完约 3200px/s，
- *     读起来是「滑过去」而不是「闪过去」；同时它小于一个快玩家的按键间隔，不会出现
- *     「上一次还没走完，下一次已经排上」——那种堆积会让棋盘对自己的状态撒谎。
+ *   · move 150ms：方块跨越整个 5×5 一行是 448px，走完约 3000px/s；统一的 ease-out 曲线
+ *     让移动从按键后第一帧起步并在落点收束，下一步仍从当前画面重定向。
  *   · spawn 120ms：比 move 短一截。新方块与滑动同帧发生，它该先静下来，观众的目光
  *     才落在终点而不是落在半路上。
- *   · merge 140ms：**与 move 同一个值**。两个操作数与产物在同一帧里走完，观众不会
- *     分别计时，所以也不必准备第二个常量（三套设计卡的合并时长都与各自位移时长相同）。
- *   · win 1500ms：唯一一个可以长的。它长不起来坏事——合出目标块的那一刻 phase 转到
- *     won，引擎不接受任何移动（engine.ts 的 `phase !== 'playing'` 早退），所以不可能
- *     有输入在这个动画里排队。反过来，一次性的 1.5s 呼吸读作「里程碑」而不是「庆祝
- *     循环」。
+ *   · merge 80ms CSS 过渡预算：40ms 放大、40ms 回落。回落阶段需在 transitionend 后经 React 提交，
+ *     所以浏览器观察到的总墙钟时长还包含帧间隔；80ms 指两段 scale transition 的时长之和。
+ *     脉冲在位移接近结束时启动，新的方向仍可重定向位置。
+ *   · win 180ms：胜利面板标题做一次淡入和轻微缩放；棋盘仍在面板下方。
  */
 export const TILE_EFFECT_DURATIONS: Readonly<Record<TileEffect, number>> = {
-  move: 140,
+  move: 150,
   spawn: 120,
-  merge: 140,
-  win: 1500,
+  merge: 80,
+  win: 180,
 }
+
+/** 合并脉冲的上升与回落各占一半；transition 可在下一次输入到来时平滑中断 */
+export const TILE_MERGE_PULSE_STEP_MS = TILE_EFFECT_DURATIONS.merge / 2
 
 /**
  * 驱动每个效果时长的 CSS 变量名
  *
- * 合并那一条指向位移的变量而不是自己有一个：理由见 TILE_EFFECT_DURATIONS.merge。
- * 表里出现两次同名不是重复——它记录的是「这两个效果共用一个时长」这个决定。
+ * 合并有独立的脉冲时长；它在位移接近结束时开始，不与 move 共用计时。
  */
 export const EFFECT_DURATION_TOKEN: Readonly<Record<TileEffect, string>> = {
   move: '--tile-move-duration',
   spawn: '--tile-spawn-duration',
-  merge: '--tile-move-duration',
-  win: '--tile-win-duration',
+  merge: '--tile-merge-duration',
+  win: '--win-title-duration',
 }
 
 /**
@@ -74,14 +75,14 @@ export const EFFECT_DURATION_TOKEN: Readonly<Record<TileEffect, string>> = {
  *   · move    — transition。它要的是「从 A 到 B」。
  *   · spawn   — @starting-style。它要的正是「这个元素刚被插进 DOM」，而四个效果里
  *               只有生成会插入新元素（新 key → 新节点）。
- *   · merge   — animation。它要的是一次性脉冲；且**不能**重新入场——产物与两个操作数
- *               是同一个节点，起始帧根本不会出现。
- *   · win     — animation。同上，且更克制。
+ *   · merge   — transition。上升 / 回落两段各是一次 scale 状态变化，下一步输入能从
+ *               当前比例平滑重定向，不会重播一条过时的关键帧。
+ *   · win     — animation。胜利面板标题入场一次，方块自身保留目标状态标记。
  */
 export const EFFECT_MECHANISM: Readonly<Record<TileEffect, string>> = {
   move: 'transition',
   spawn: '@starting-style',
-  merge: 'animation',
+  merge: 'transition',
   win: 'animation',
 }
 
@@ -96,16 +97,15 @@ export const EFFECT_MECHANISM: Readonly<Record<TileEffect, string>> = {
  *              data-row / data-col 上，棋盘不会撒谎，只是不再表演过程。
  *   · spawn   图「这一枚是新的，不是挪过来的」→ 不动就分不出来，换成**记号**：
  *              data-spawn 的那一枚描一圈 --focus，下一次移动时记号跟着新的一批走。
- *   · merge   图「这一枚是两枚合出来的」→ 同样换成记号。被吞掉的那一枚已经不在 DOM
- *              里，能指出的只剩产物（这正是不做留存节点的原因，见 Board.tsx）。
- *   · win     图「你到目标了」→ 记号**常驻**：这是本局的事实，不该跟着下一次移动消失
- *              （T04 的面板只在那一刻说话）。
+ *   · merge   图「这一枚是两枚合出来的」→ 同样换成记号。reduced-motion 不渲染飞行载体，
+ *              只给规则棋盘里的合并产物描边。
+ *   · win     图「你到目标了」→ 标题只淡入，不缩放；胜利面板保持不透明。
  */
 export const EFFECT_REDUCED_MOTION: Readonly<Record<TileEffect, string>> = {
   move: 'transition: none，方块直接落在新格',
   spawn: 'data-spawn 的静止描边',
   merge: 'data-merge 的静止描边',
-  win: 'data-win 的常驻描边',
+  win: '面板标题只淡入，棋盘保持覆盖',
 }
 
 /** 单枚方块在这一帧该带的动效旗标。三个互不排斥，但 spawn 与 merge 实际不会同时为真 */
@@ -134,6 +134,104 @@ function tilesById(board: Board): Map<number, Tile> {
     }
   }
   return found
+}
+
+/** 一次移动里因合并而离盘的操作数，以及它飞向的合并格 */
+export interface MergeSourceMotion {
+  key: string
+  tile: Tile
+  from: Coordinate
+  to: Coordinate
+}
+
+/** 按障碍切分移动通道，与规则内核的 lane 边界保持一致 */
+function motionLanes(board: Board, direction: Direction): Coordinate[][] {
+  const size = board.length
+  const alongRow = direction === 'left' || direction === 'right'
+  const lanes: Coordinate[][] = []
+
+  for (let line = 0; line < size; line += 1) {
+    let run: Coordinate[] = []
+    for (let index = 0; index <= size; index += 1) {
+      if (index === size) {
+        if (run.length > 0) lanes.push(run)
+        run = []
+        continue
+      }
+      const coordinate: Coordinate = alongRow ? [line, index] : [index, line]
+      if (board[coordinate[0]][coordinate[1]] === 'wall') {
+        if (run.length > 0) lanes.push(run)
+        run = []
+      } else {
+        run.push(coordinate)
+      }
+    }
+  }
+  return lanes
+}
+
+/**
+ * 找出本次有效移动中被合并吞掉的方块，并按规则内核的实际结果配对到产物。
+ *
+ * 这里只返回渲染层要用的起点、终点和稳定 key；合并规则仍由 slideBoard 唯一决定。
+ */
+export function diffMergeSources(
+  before: GameState | null,
+  after: GameState,
+  direction: Direction,
+  transitionId: number
+): readonly MergeSourceMotion[] {
+  if (
+    before === null ||
+    before.modeId !== after.modeId ||
+    before.initialSeed !== after.initialSeed ||
+    after.moves !== before.moves + 1
+  ) {
+    return []
+  }
+
+  const slidBoard = slideBoard(before.board, direction, getMode(before.modeId).mergeFamily).board
+  const beforeTiles = tilesById(before.board)
+  const slidTiles = tilesById(slidBoard)
+  const removedIds = new Set([...beforeTiles.keys()].filter((id) => !slidTiles.has(id)))
+  const mergedIds = new Set(
+    [...slidTiles].flatMap(([id, tile]) => {
+      const earlier = beforeTiles.get(id)
+      return earlier !== undefined && tile.value > earlier.value ? [id] : []
+    })
+  )
+  const reverse = direction === 'right' || direction === 'down'
+  const sources: MergeSourceMotion[] = []
+
+  for (const lane of motionLanes(before.board, direction)) {
+    const orderedLane = reverse ? [...lane].reverse() : lane
+    const removed = orderedLane.flatMap((coordinate) => {
+      const tile = before.board[coordinate[0]][coordinate[1]]
+      return tile !== null && tile !== 'wall' && removedIds.has(tile.id)
+        ? [{ tile, coordinate }]
+        : []
+    })
+    const products = orderedLane.flatMap((coordinate) => {
+      const tile = slidBoard[coordinate[0]][coordinate[1]]
+      return tile !== null && tile !== 'wall' && mergedIds.has(tile.id)
+        ? [{ tile, coordinate }]
+        : []
+    })
+
+    for (let index = 0; index < Math.min(removed.length, products.length); index += 1) {
+      const source = removed[index]
+      const product = products[index]
+      if (source === undefined || product === undefined) continue
+      sources.push({
+        key: `${transitionId}:${source.tile.id}`,
+        tile: source.tile,
+        from: source.coordinate,
+        to: product.coordinate,
+      })
+    }
+  }
+
+  return sources
 }
 
 /**
