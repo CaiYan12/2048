@@ -189,6 +189,20 @@
   outline-offset: 2px;
 }
 
+/* 方块数字锁**齐线**（T23：设计卡 §3 的承诺落地）。
+   board.css 的 font-variant-numeric 只请求 tabular-nums，而 Playfair 的 subset 不带
+   tnum（同一个探针看过：只有 lnum / zero / case / frac），所以那一行对 Claude 从来
+   是空转。子集真正带的是 lnum——didone 家族默认交付的多是旧式数字，3/4/5/7/9 下落、
+   6/8 上升，一列方块会高低不齐，正是设计卡 §3 说「方块上最不能让步」的那件事。
+   这里按 data-style 隔开补一条 .board__tile 规则，请求子集确实有的那个特性；
+   tabular-nums 照旧留在声明里（对回退栈 Georgia / Times 之类真带 tnum 的字体仍然有效，
+   所以这条规则不是「换掉」而是「补上」）。另两套不声明：它们的 tabular-nums 是真的
+   生效的（Inter / Roboto Flex 都带 tnum），且 board.css 那一行就够。
+   特异性 (0,2,0) 高于 board.css 的 .board__tile（(0,1,0)），不依赖打包顺序。 */
+[data-style='claude'] .board__tile {
+  font-variant-numeric: lining-nums tabular-nums;
+}
+
 /* reduced-motion：动效全部退化为静态（SPEC §3.2）。
    本风格没有投影、没有缩放、没有呼吸，所以退化的只有位移与淡入两个时长。 */
 @media (prefers-reduced-motion: reduce) {

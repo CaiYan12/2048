@@ -111,7 +111,13 @@
 ## 7. 禁用的通用样式
 
 - 禁 Tailwind 调色板色值出现在棋盘与方块层（连 `bg-slate-100` 都不行）。
-- 禁 `box-shadow`（焦点环用 `outline`，不用投影伪造）。
+- 禁 `box-shadow` 充当投影或伪立体（这一套全扁平，Elevation 是 Material 的语言）。
+  **唯一例外是§9 那一对焦点双环**：`box-shadow: 0 0 0 2px var(--page), 0 0 0 4px var(--focus)`
+  画在控件与棋盘上，实现见 `styles.css:81` 与 `:180`。它不是投影伪造——投影会让人以
+  为那一层被抬起，双环说的是「焦点在这里」。也不用 `outline` 实现：outline 只能画一
+  圈，「页面色垫圈 + 深色描边」需要两个同心圆，而垫上去的第二条 border 会改盒子尺寸
+  （Claude 设计卡 §5 记着同一条代价）。T13 曾把这条禁项写成「焦点环用 outline」，与
+  §9、`contrast.json` 的 ring 探针相互矛盾；**T23 更正为上面这句**，实现一个字节没动。
 - 禁渐变背景、禁 `filter`、禁 emoji 当装饰。
 - 禁把方块做成 `<button>`：方块是状态不是控件，交互归棋盘根元素。
 - **T15 起禁用 `opacity` 调文字明度**：半透明前景是另一个颜色值，`getComputedStyle().color`

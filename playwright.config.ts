@@ -22,6 +22,10 @@ const WEB_SERVER_COMMAND =
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
+  // 并行 worker 上限 4（T23 派发令钉死的数字）：矩阵是 18 组合 × 2 视口，而机器上
+  // 同时有前台工作。这是上限不是目标——单 worker 也能跑完，只是慢；把它写进配置
+  // 而不是留给命令行，是为了「绝不超过 4」不依赖谁记得加参数。
+  workers: 4,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: 'line',

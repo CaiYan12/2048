@@ -59,11 +59,22 @@ export function GameOverPanel({
         ) : (
           <>
             {/* 撤销摆在最前：死局是给玩家反悔的，不是给玩家认命的。
-                交换摆在它旁边：契约把两者并列为恢复动作（stuckRecoveryMoves） */}
+                交换摆在它旁边：契约把两者并列为恢复动作（stuckRecoveryMoves）。
+                可访问名要与 StatusBar 那一枚分开：stuck 阶段两枚同时在画面上，都叫
+                「交换」的话读屏玩家会连着听到两个同名控件，分不清哪一个在手边
+                （T22 记录、T23 修）。可见文字不动，aria-label 只补上「在哪里」——
+                它与可见文字的前缀一致，所以 2.5.3 的 Label in Name 仍然成立，
+                swap.spec.ts 的 panel.getByRole('button', { name: '交换' }) 是子串匹配，
+                也照旧命中这一枚。动作仍是 store 里同一个 toggleSwap，机制一个字没动。 */}
             <button type="button" className="control" onClick={onUndo}>
               撤销
             </button>
-            <button type="button" className="control" onClick={onSwap}>
+            <button
+              type="button"
+              className="control"
+              aria-label="交换两枚方块（死局面板）"
+              onClick={onSwap}
+            >
               交换
             </button>
             <button type="button" className="control" onClick={onSettle}>

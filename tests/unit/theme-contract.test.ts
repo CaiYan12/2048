@@ -287,4 +287,20 @@ describe('T15：方块字族这个钩子真的被 Claude 用上了', () => {
     )
     expect(themeCss('claude', 'tokens.css')).toContain("--font-body: 'Source Sans 3'")
   })
+
+  test('Claude 的方块数字锁成齐线：子集带 lnum，board.css 那行 tabular-nums 对它是空转', () => {
+    // 设计卡 §3 把「方块数字锁定齐线数字」写成选 Playfair 的理由之一，而 board.css 的
+    // font-variant-numeric 只请求 tabular-nums——Playfair 的 subset 不带 tnum（同一个
+    // 探针：只有 lnum / zero / case / frac），所以那一行对 Claude 从来不生效。缺口补在
+    // Claude 自己的 styles.css 里：一条按 data-style 隔开的 .board__tile 规则，请求子集
+    // 确实带的 lnum。tabular-nums 留在声明里——对回退栈里真带 tnum 的字体仍然有效。
+    const claudeStyles = themeCss('claude', 'styles.css')
+    expect(claudeStyles).toContain("[data-style='claude'] .board__tile")
+    expect(claudeStyles).toContain('font-variant-numeric: lining-nums tabular-nums')
+    // 另两套不碰 .board__tile：它们的 tabular-nums 真的生效（Inter / Roboto Flex 带 tnum），
+    // board.css 那一行就够。这里断的是「样式表里没有第二条 .board__tile 规则」，
+    // 不断 font-variant-numeric 本身——那两套的 .panel__value 也声明它
+    expect(themeCss('classic', 'styles.css')).not.toContain('.board__tile')
+    expect(themeCss('material', 'styles.css')).not.toContain('.board__tile')
+  })
 })
