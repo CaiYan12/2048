@@ -232,7 +232,10 @@
 }
 
 /* 一张撕下来的纸，不是一张卡片：底色就是纸面（不透明，压在别的内容上也读得清），
-   上面压一条 1px 细线——与 .panel 同一条语言。没有投影：本套全壳零投影。
+   上面压一条 1px 细线——与 .panel 同一条语言。
+   **它带一层自己的投影**（2026-09-28 应所有者要求补的）：本套静态版面零投影，所以这一层是
+   一声耳语——暖墨色、大扩散、低不透明度，只为了把这张纸从它压着的画面上托起来一点点。
+   §6/§7 的「零投影」据此收窄（见那里的说明）。
    上行「图标 + 成就名（展示衬线）」、下行这一套风格的声音（两行，见 toast.tsx）。 */
 [data-style='claude'] .toast {
   display: flex;
@@ -248,6 +251,7 @@
   font-size: 0.875rem;
   line-height: 1.35;
   text-align: center;
+  box-shadow: 0 2px 12px rgba(38, 36, 31, 0.14);
   pointer-events: auto;
   opacity: 1;
   transition: opacity 180ms ease-out;

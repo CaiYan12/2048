@@ -47,6 +47,19 @@ const TOAST_BACKGROUND: Record<StyleId, string> = {
   claude: 'rgb(240, 238, 230)',
 }
 
+/**
+ * 每套风格的投影（2026-09-28 应所有者要求「toast 要有阴影」）。
+ *
+ * 三套的影**不是同一个**，因为「有影」在三种设计语言里是三种说法：Classic 全扁平，所以最轻；
+ * Material 本来就有板面那组 elevation；Claude 静态版面零投影，所以只是一声耳语。
+ * 这里断的是「各是各的那一层」——只断「不是 none」的话，三份实现互抄也照样过。
+ */
+const TOAST_SHADOW: Record<StyleId, string> = {
+  classic: 'rgba(74, 68, 63, 0.3)',
+  material: 'rgba(0, 0, 0, 0.12)',
+  claude: 'rgba(38, 36, 31, 0.14)',
+}
+
 /** 开局：选风格 → 开始游戏 */
 async function startRun(page: Page, styleId: StyleId, label: string): Promise<void> {
   await page.goto(startUrl())
@@ -91,6 +104,10 @@ for (const style of STYLE_CATALOG) {
       // 长相是这一套自己的：底色就是本风格 tokens.css 里那一个（三套互不相同）
       const background = await item.evaluate((element) => getComputedStyle(element).backgroundColor)
       expect(background, `${style.label} 的祝贺底色与设计卡不符`).toBe(TOAST_BACKGROUND[style.id])
+      // 阴影也是这一套自己的那一种（Classic 轻、Material 板面那组 elevation、Claude 耳语）
+      const shadow = await item.evaluate((element) => getComputedStyle(element).boxShadow)
+      expect(shadow, `${style.label} 的祝贺没有阴影`).not.toBe('none')
+      expect(shadow, `${style.label} 的祝贺阴影与设计卡不符`).toContain(TOAST_SHADOW[style.id])
     })
 
     test('约 5 秒之后自行消失，不用玩家点掉', async ({ page }) => {

@@ -397,6 +397,12 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
   `AchievementDefinition.emoji`（三套共用一份，各抄三份必然漂开），且 `aria-hidden`——名字
   已经把「拿到了哪一个」说全。三套设计卡 §7 的「禁 emoji 当装饰」据此收窄到**棋盘、方块与
   外壳的静态部分**：祝贺里的图标是内容，不是装饰。位置、内外边距、各套祝词逐条写在 §10。
+- **2026-09-28 再修订（应所有者要求「toast 要有阴影」）**：三套都有了自己的那一层影，而且是
+  **三种说法**——Classic 全扁平所以最轻（`0 2px 8px rgba(74,68,63,.3)`，用本套墨色）、
+  Material 本来就带板面那组 elevation（未改动）、Claude 静态版面零投影所以只是一声耳语
+  （`0 2px 12px rgba(38,36,31,.14)`）。三张设计卡的「无投影/禁 box-shadow」据此收窄到
+  **静态版面或棋盘、方块与外壳**：祝贺是瞬时浮层，不属于页面的静态层级。契约测试对三套各断
+  「自己的那一层」（只断「不是 none」的话，三份实现互抄也照样过）。
 - 三条测试缝都还在原处：纯判定与解码器（`achievements.test.ts` / `records.test.ts`）、宿主
   状态机（`achievement-host.test.ts`，假后端 + 假 synth 的既有接法）、浏览器共享契约
   （`tests/e2e/toast-contract.spec.ts` 对三套风格各跑一遍）。**没有新增测试缝。**

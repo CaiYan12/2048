@@ -213,8 +213,9 @@
 }
 
 /* 一张纸感卡片：上行「图标 + 成就名」、下行这一套风格的声音（两行，见 toast.tsx）。
-   深棕底压在纸面上，不用投影——Classic 的全扁平（§7 禁 box-shadow 当层级，唯一的例外
-   是下面的焦点双环，它说的是「焦点在这里」而不是「这一层被抬起」）。 */
+   深棕底压在纸面上。**它带一层自己的投影**（2026-09-28 应所有者要求补的）：Classic 全扁平，
+   所以这一层要轻——用本套自己的墨色 `#4a443f` 调出来的低矮柔和影，读起来是「一张压在纸上的
+   卡片」，不是 Material 那种 elevation。§7 的 box-shadow 禁令据此收窄（见那里的说明）。 */
 [data-style='classic'] .toast {
   display: flex;
   flex-direction: column;
@@ -228,6 +229,7 @@
   font-size: 0.875rem;
   line-height: 1.35;
   text-align: center;
+  box-shadow: 0 2px 8px rgba(74, 68, 63, 0.3);
   pointer-events: auto;
   opacity: 1;
   transform: translateY(0);
