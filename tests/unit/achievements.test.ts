@@ -6,6 +6,7 @@ import { move, swap } from '../../src/game/engine'
 import {
   ACHIEVEMENTS,
   countMergesAlongPath,
+  FIRST_MERGE_COUNT,
   mergeCountBetween,
   MERGE_MACHINE_COUNT,
   QUICK_HAND_SCORE,
@@ -28,14 +29,20 @@ import { stateWithBoard } from './support'
  * 界面上也没有占位，所以这里连「它不解锁」都不必断言——它们不存在。
  */
 
-/** 一局死局收工的本局事实基准。每个用例按需改一两个字段 */
+/**
+ * 本局事实的基准。每个用例按需改一两个字段。
+ *
+ * `merges: 0` 是**刻意的中性基线**：一旦默认给它一个正数，每个用例都会顺带拿到
+ * 「首次合并」，于是 `toEqual([...])` 这类断言就再也分不清自己在验哪一条。
+ * 要验那一条的用例自己把 merges 摆出来（见「首次合并」那一组）。
+ */
 function facts(overrides: Partial<RunFacts> = {}): RunFacts {
   return {
     modeId: 'classic',
     score: 4242,
     highestTile: 1024,
     reachedTarget: false,
-    merges: 12,
+    merges: 0,
     // T19 的风格切换次数：这里默认没切过，风格旅行者的用例按需覆盖它
     styleSwitches: 0,
     ...overrides,
@@ -74,11 +81,12 @@ const PACK_ONLY: CellSpec[][] = [
   [2, 4, 8, 16],
 ]
 
-describe('注册表：六个成就，全部是「本局」口径', () => {
-  test('恰好六个，次序恒定，跨局的那两条一行都没有', () => {
+describe('注册表：七个成就，全部是「本局」口径', () => {
+  test('恰好七个，次序恒定，跨局的那两条一行都没有', () => {
     // 撤销了模式的收藏家与每日坚守：它们的条件是「赢遍六个模式」「连续七天」，
     // 单局内无法自证，于是连占位都没有（ADR-0007）
     expect(ACHIEVEMENTS.map((item) => item.id)).toEqual([
+      'first-merge',
       'first-win',
       'tile-4096',
       'tile-8192',
@@ -86,7 +94,7 @@ describe('注册表：六个成就，全部是「本局」口径', () => {
       'merge-machine',
       'style-traveller',
     ])
-    expect(ACHIEVEMENTS).toHaveLength(6)
+    expect(ACHIEVEMENTS).toHaveLength(7)
     // 六个模式还在（模式轴没变），只是没有任何成就依赖「赢遍它们」
     expect(MODES).toHaveLength(6)
   })
@@ -111,7 +119,16 @@ describe('注册表：六个成就，全部是「本局」口径', () => {
   })
 })
 
-describe('六个成就：阈值下 / 正好 / 阈值上', () => {
+describe('七个成就：阈值下 / 正好 / 阈值上', () => {
+  test('首次合并：本局第一次合并就解锁（阈值 1，全场最早的那一个）', () => {
+    expect(FIRST_MERGE_COUNT).toBe(1)
+    expect(unlockedAchievements(facts({ merges: 0 }))).toEqual([])
+    expect(unlockedAchievements(facts({ merges: 1 }))).toEqual(['first-merge'])
+    expect(unlockedAchievements(facts({ merges: 2 }))).toEqual(['first-merge'])
+    // 一局开局、一局死局收工（没有任何合并）：都不解锁
+    expect(unlockedAchievements(facts({ merges: 0, reachedTarget: true }))).toEqual(['first-win'])
+  })
+
   test('首胜：本局达标就解锁，没达标不解锁', () => {
     expect(unlockedAchievements(facts({ reachedTarget: true }))).toContain('first-win')
     expect(unlockedAchievements(facts({ reachedTarget: false }))).toEqual([])
@@ -143,9 +160,10 @@ describe('六个成就：阈值下 / 正好 / 阈值上', () => {
   })
 
   test('合并机器：本局 200 次解锁，199 不解，201 照旧解锁', () => {
-    expect(unlockedAchievements(facts({ merges: 199 }))).toEqual([])
-    expect(unlockedAchievements(facts({ merges: 200 }))).toEqual(['merge-machine'])
-    expect(unlockedAchievements(facts({ merges: 201 }))).toEqual(['merge-machine'])
+    // 199 与 200 都已 >= 1，所以这两档顺带拿到「首次合并」（阈值 1 的成就）
+    expect(unlockedAchievements(facts({ merges: 199 }))).toEqual(['first-merge'])
+    expect(unlockedAchievements(facts({ merges: 200 }))).toEqual(['first-merge', 'merge-machine'])
+    expect(unlockedAchievements(facts({ merges: 201 }))).toEqual(['first-merge', 'merge-machine'])
   })
 
   test('风格旅行者：4 次不解锁，5 次解锁，6 次也解锁（阈值那一刀切在 5）', () => {
@@ -169,6 +187,7 @@ describe('派生：同一份事实永远给出同一份集合', () => {
     })
     const once = unlockedAchievements(run)
     expect(once).toEqual([
+      'first-merge',
       'first-win',
       'tile-4096',
       'tile-8192',

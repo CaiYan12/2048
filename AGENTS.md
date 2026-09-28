@@ -386,8 +386,19 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 - 一句话：成就条件**单局可自证**（撤下模式收藏家与每日坚守，8 → 6），祝贺由**每套风格自己
   实现**的 toast 呈现（呈现插槽，与两个装饰插槽分列），宿主按「锁定 → 解锁」的跃迁发号、
   撤销会收回（`style-traveller` 是写明理由的例外）。
+- **2026-09-28 追加**：应所有者要求加了第七个成就 `first-merge`「首次合并」（条件
+  「本局完成第一次合并」，阈值 `merges >= 1`），排在注册表第一位。它不在原附录里，但同样
+  单局可自证；加它的实际收益是「随便开一局，几步之内第一次合并就能看见这套祝贺机制」——
+  在此之前最快的一个也要打到合出 4096 或切够五次风格。规格的决策 2 与验收 2、ADR-0007 的
+  Consequences、README 的成就口径都已同步成七个。
 - 三条测试缝都还在原处：纯判定与解码器（`achievements.test.ts` / `records.test.ts`）、宿主
   状态机（`achievement-host.test.ts`，假后端 + 假 synth 的既有接法）、浏览器共享契约
   （`tests/e2e/toast-contract.spec.ts` 对三套风格各跑一遍）。**没有新增测试缝。**
-- 收官验证：typecheck 0 错、739 unit tests / 40 files、build 通过、check:contrast 3 风格
-  65 对、全量 Playwright（见 06 票据的 Evidence 数字）。
+- 收官验证：typecheck 0 错、**740** unit tests / 40 files、build 通过、check:contrast 3 风格
+  65 对、全量 Playwright **434 passed / 14 skipped / 0 failed**（见 06 票据的 Evidence 数字）。
+- **顺带修掉了那条从 T19 起「时红时绿」的 `style-traveller` 老红条**（它在本次基线里就是唯一
+  的失败）：根因是 `setStyle` 的两次写盘是 fire-and-forget，而那条 e2e 不等落盘就
+  `page.goto('/')`，把还在飞的 IndexedDB 事务连同这一页丢掉了；单独跑够快就过、四路并行就红。
+  判据与修法（探针读桶 → `waitForPersistedStyle` 轮询**盘上那个值**；切哪一枚从 `data-style`
+  推而不是 `aria-pressed`）写进了 `.codex/memories/e2e-debt.md`。**不是产品缺陷**：玩家不可能
+  在那几毫秒内按下 F5。

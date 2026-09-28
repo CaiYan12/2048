@@ -167,8 +167,8 @@ describe('跃迁：锁定 → 解锁发一条，一直解锁着不再发', () =>
 
     const state = useGameStore.getState()
     expect(state.game?.reachedTarget).toBe(true)
-    expect(state.unlocked).toEqual(['first-win'])
-    expect(state.toasts).toEqual([{ key: 1, ids: ['first-win'] }])
+    expect(state.unlocked).toEqual(['first-merge', 'first-win'])
+    expect(state.toasts).toEqual([{ key: 1, ids: ['first-merge', 'first-win'] }])
   })
 
   test('已经解锁着再走一步：集合不动，也就不再发号', () => {
@@ -182,7 +182,7 @@ describe('跃迁：锁定 → 解锁发一条，一直解锁着不再发', () =>
     useGameStore.getState().move('left')
 
     const state = useGameStore.getState()
-    expect(state.unlocked).toEqual(['first-win'])
+    expect(state.unlocked).toEqual(['first-merge', 'first-win'])
     expect(state.toasts).toHaveLength(1)
   })
 
@@ -196,10 +196,11 @@ describe('跃迁：锁定 → 解锁发一条，一直解锁着不再发', () =>
     const state = useGameStore.getState()
     expect(state.game?.reachedTarget).toBe(true)
     expect(state.runMerges).toBe(200)
-    // 三个成就，一条祝贺（不是每个成就一条）
+    // 四个成就，一条祝贺（不是每个成就一条）——这一步是第一次合并，所以
+    // 「首次合并」也在同一次跃迁里，按注册表次序排在首胜前面
     expect(state.toasts).toHaveLength(1)
-    expect(state.toasts[0].ids).toEqual(['first-win', 'tile-4096', 'merge-machine'])
-    expect(state.unlocked).toEqual(['first-win', 'tile-4096', 'merge-machine'])
+    expect(state.toasts[0].ids).toEqual(['first-merge', 'first-win', 'tile-4096', 'merge-machine'])
+    expect(state.unlocked).toEqual(['first-merge', 'first-win', 'tile-4096', 'merge-machine'])
   })
 })
 
@@ -207,7 +208,7 @@ describe('撤销收回：事实退回去，集合跟着退；重新达成算新�
   test('撤销掉达标那一步：解锁消失，再来一次又是一条新的祝贺', () => {
     mount(boardWithPair(1024))
     useGameStore.getState().move('left')
-    expect(useGameStore.getState().unlocked).toEqual(['first-win'])
+    expect(useGameStore.getState().unlocked).toEqual(['first-merge', 'first-win'])
 
     useGameStore.getState().undo()
     const revoked = useGameStore.getState()
@@ -217,7 +218,7 @@ describe('撤销收回：事实退回去，集合跟着退；重新达成算新�
 
     useGameStore.getState().move('left')
     const again = useGameStore.getState()
-    expect(again.unlocked).toEqual(['first-win'])
+    expect(again.unlocked).toEqual(['first-merge', 'first-win'])
     // 第二条，编号 +1：撤销之后达成算**新的一次跃迁**，不是「已经祝贺过」
     expect(again.toasts.map((toast) => toast.key)).toEqual([1, 2])
   })
@@ -326,7 +327,7 @@ describe('堆叠：最多三条，第四条到达时丢最旧', () => {
     useGameStore.getState().move('left')
     useGameStore.getState().dismissToast(1)
     expect(useGameStore.getState().toasts).toEqual([])
-    expect(useGameStore.getState().unlocked).toEqual(['first-win'])
+    expect(useGameStore.getState().unlocked).toEqual(['first-merge', 'first-win'])
     // 收一个不存在的 key 什么都不发生（同一个 state 引用）
     const before = useGameStore.getState()
     useGameStore.getState().dismissToast(99)
@@ -433,7 +434,7 @@ describe('一个字节都不落盘：成就与存储无关（ADR-0007）', () =>
   test('解锁之后，盘上没有任何一个桶写着成就', () => {
     mount(boardWithPair(1024))
     useGameStore.getState().move('left')
-    expect(useGameStore.getState().unlocked).toEqual(['first-win'])
+    expect(useGameStore.getState().unlocked).toEqual(['first-merge', 'first-win'])
 
     const persisted = JSON.stringify([
       [...fake.store.settings.values()],
@@ -473,7 +474,7 @@ describe('新一局是一道边界：集合清空、计数归零、编号复用'
     // 基线那一条路由 Playwright 覆盖（夹具开局不吹号）
     mount(boardWithPair(1024))
     useGameStore.getState().move('left')
-    expect(useGameStore.getState().unlocked).toEqual(['first-win'])
+    expect(useGameStore.getState().unlocked).toEqual(['first-merge', 'first-win'])
 
     useGameStore.getState().newGame()
 

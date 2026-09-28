@@ -40,10 +40,13 @@
 | 闸门 | 结果 |
 | --- | --- |
 | `npm run typecheck` | 0 错 |
-| `npm test` | **739 passed / 40 files**（新增 `achievement-host.test.ts`） |
+| `npm test` | **740 passed / 40 files**（`achievement-host.test.ts` + 第七个成就的那条） |
 | `npm run build` | 通过（78 modules） |
 | `npm run check:contrast` | 3 套风格 / 65 对全过 |
-| `npx playwright test`（后台 + headless，日志 `.scratch/pw-full-final.log`） | **432 passed / 14 skipped / 0 failed**（2.0m） |
+| `npx playwright test`（后台 + headless） | **434 passed / 14 skipped / 0 failed**（日志 `.scratch/pw-first-merge-final.log`） |
+
+上表是加了第七个成就 `first-merge` 之后的最终实测（unit 740、Playwright 434，比上一版各多
+一个断言 / 两条用例：桌面 + 手机）。同一批还修掉了下面这条账。
 
 **视觉检验**：`toast-contract.spec.ts` 对三套风格 × 两个视口各跑 9 条真实渲染断言——
 其中三条是逐项视觉的：祝贺的**计算底色**必须等于这一套 tokens.css 里那一个（三套互不相同，
@@ -82,3 +85,15 @@
 | session 桶仍写 `styleSwitches` | **无需处置**：规格决策 4 与 12 都点名要它（`style-traveller` 跨刷新要活） |
 
 两条轴都没有发现 scope creep。修完之后的闸门数字见本文件顶部那张表（重跑过的即为最终值）。
+
+## 追加收尾（2026-09-28 · 第七个成就 + 一条老红条）
+
+- 第七个成就 `first-merge`「首次合并」按所有者要求落地，凡写「六个」的地方都同步成七个
+  （规格决策 2 / 验收 2、ADR-0007、README、AGENTS.md、e2e 的行数与 id 列表）。
+- **修掉了那条从 T19 起「时红时绿」的 `style-traveller` 老红条**——它在本次开工的基线里就是
+  唯一的失败（`.scratch/pw-baseline.log`）。定案过程按仓里的规矩走：先跑一次
+  `--repeat-each=4` 看它到底是随机还是确定（4/4 红 → 不是随机），再写临时探针把 settings /
+  session 两个桶**在导航之前**读出来打印，探针显示盘上一直是对的 → 问题在「没等落盘就刷新」。
+  修法：`waitForPersistedStyle()` 用 `expect.poll` 读盘上那个值（不是 sleep），切哪一枚从
+  `data-style` 推而不是 `aria-pressed`。修完 `--repeat-each=3` **30/30 绿**，全量 434 绿。
+  根因与判据沉淀进 `.codex/memories/e2e-debt.md`。

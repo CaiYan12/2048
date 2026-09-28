@@ -2,7 +2,7 @@
 
 **Status: Accepted; implemented (2026-09-28)**
 
-实现落在 `src/game/achievements.ts`（派生判定）、`src/renderer/stores/useGameStore.ts`
+实现落在 `src/game/achievements.ts`（派生判定，注册表七条）、`src/renderer/stores/useGameStore.ts`
 （宿主状态机：跃迁 / 收回 / 堆叠）、各风格的 `themes/<id>/toast.tsx`（呈现插槽）与
 `src/renderer/stores/records.ts`（容忍未知字段的解码器）。验收证据见
 `docs/specs/single-run-achievements.md` 的 Evidence 一节。
@@ -24,8 +24,12 @@ a player could not tell from the board in front of them what they had done.
 
 - Every condition must be provable from the current run. `mode-collector` (win in all six modes)
   and `daily-stand` (settle one Daily on seven consecutive UTC dates) cannot be, so they were
-  retired rather than propped up: six achievements remain, with the thresholds they always had and
-  wording that says "this run". The registry holds no rows for the retired pair.
+  retired rather than propped up: six of the appendix's achievements remain, with the thresholds
+  they always had and wording that says "this run". The registry holds no rows for the retired pair.
+  (**2026-09-28, after this decision shipped:** at the owner's request the registry gained a seventh,
+  `first-merge` — "this run's first merge", threshold `merges >= 1`. It is not from the appendix, and
+  it satisfies the same rule as the rest: a single run proves it. It sits first in the registry
+  because it is the earliest milestone available in any run.)
 - An achievement id stops being a persisted identity. Retiring one no longer needs a storage
   migration; ids become interface and test identities only. This is the one place where the style
   ids' rule — retirement requires a migration — deliberately does not apply.

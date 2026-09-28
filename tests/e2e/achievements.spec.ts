@@ -48,6 +48,17 @@ const ONE_STEP_FROM_DEADLOCK: (number | null)[][] = [
   [4, 8, 2, 4],
 ]
 
+/**
+ * 第 0 行只有一对 2，其余三行都排成互不相邻相等：一次左移恰好完成**一次**合并，
+ * 离目标块（2048）还远得很——用来验「首次合并」这个最早能拿到的里程碑。
+ */
+const ONE_PAIR: (number | null)[][] = [
+  [2, 2, null, null],
+  [4, 8, 16, 32],
+  [64, 128, 256, 512],
+  [2, 4, 8, 16],
+]
+
 /** 收集 console / page 错误：祝贺是新的渲染路径，React 警告要当场看见 */
 function watchProblems(page: Page): string[] {
   const problems: string[] = []
@@ -78,6 +89,8 @@ test('达标那一刻就祝贺，不用等到结算', async ({ page }) => {
   const item = page.locator('[data-toast]')
   await expect(item).toHaveCount(1)
   await expect(item).toContainText('首胜')
+  // 那一步同时是这一局的第一次合并，所以「首次合并」也在同一条祝贺里
+  await expect(item).toContainText('首次合并')
   await expect(item).toHaveAttribute('role', 'status')
   // 它是「一条会自己走的提示」，不是一件要玩家处理的事：没有任何按钮
   await expect(item.getByRole('button')).toHaveCount(0)
@@ -87,6 +100,29 @@ test('达标那一刻就祝贺，不用等到结算', async ({ page }) => {
   // 结算之后不再多出一条：解锁只发生一次，祝贺也只响一次
   await expect(item).toHaveCount(1)
 
+  expect(problems).toEqual([])
+})
+
+test('第一次合并就解锁「首次合并」：随便开一局也能马上看到祝贺', async ({ page }) => {
+  const problems = watchProblems(page)
+  await page.goto(startUrl(ONE_PAIR))
+  await page.getByRole('button', { name: '开始游戏' }).click()
+  // 开局那一刻一条都没有：这个成就是**这一步**做出来的
+  await expect(page.locator('[data-toast]')).toHaveCount(0)
+
+  await page.keyboard.press('ArrowLeft')
+
+  const item = page.locator('[data-toast]')
+  await expect(item).toHaveCount(1)
+  await expect(item).toContainText('首次合并')
+  // 这一步没达标、也没合出 4096：祝贺里只有它一个（不是「顺手带出来一堆」）
+  await expect(item).not.toContainText('首胜')
+
+  // 面板上七个成就，第一个就是它（注册表次序 = 展示次序）
+  await openStats(page)
+  const rows = page.locator('[data-achievement]')
+  await expect(rows).toHaveCount(7)
+  await expect(rows.first()).toContainText('首次合并')
   expect(problems).toEqual([])
 })
 
@@ -120,7 +156,7 @@ test('祝贺自己走掉，玩家一个按钮都不用按', async ({ page }) => 
   expect(problems).toEqual([])
 })
 
-test('StatsPanel：六个成就各一行，照实写出条件，键盘可达，且不声称谁已解锁', async ({ page }) => {
+test('StatsPanel：七个成就各一行，照实写出条件，键盘可达，且不声称谁已解锁', async ({ page }) => {
   const problems = watchProblems(page)
   // **用确定的「一步即死局」局面**：这条用例要的是「一局死局、没赢过」的结算
   await page.goto(startUrl(ONE_STEP_FROM_DEADLOCK))
@@ -141,9 +177,10 @@ test('StatsPanel：六个成就各一行，照实写出条件，键盘可达，�
   await expect(page.locator('[data-stats-panel]')).toBeVisible()
 
   const rows = page.locator('[data-achievement]')
-  // ADR-0007 之后是六个：首胜、4096、大数猎人、快手、合并机器、风格旅行者
-  await expect(rows).toHaveCount(6)
+  // ADR-0007 之后是六个；2026-09-28 又加了「首次合并」，所以现在是七个
+  await expect(rows).toHaveCount(7)
   for (const id of [
+    'first-merge',
     'first-win',
     'tile-4096',
     'tile-8192',

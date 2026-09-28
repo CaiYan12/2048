@@ -108,10 +108,17 @@ needs to exist: a place for a styled toast to live.
    one question: given this run's facts, which achievements are satisfied? It takes no accumulated
    progress. Thresholds are unchanged (4096, 8192, 20000 points, 200 merges, 5 switches); the
    wording of each condition becomes "this run".
-2. **Six achievements remain.** `mode-collector` (win in all six modes) and `daily-stand` (settle
-   one Daily on seven consecutive UTC dates) cannot be satisfied by a single run and are retired
-   outright: no registry rows, no interface placeholders, following the precedent already set for
-   the suspended achievements.
+2. **Six of the appendix's achievements remain, and a seventh was added later.** `mode-collector`
+   (win in all six modes) and `daily-stand` (settle one Daily on seven consecutive UTC dates)
+   cannot be satisfied by a single run and are retired outright: no registry rows, no interface
+   placeholders, following the precedent already set for the suspended achievements.
+   **Amendment, 2026-09-28 (after this spec shipped):** at the owner's request a seventh
+   achievement, `first-merge` ("this run's first merge", threshold `merges >= 1`), was added and
+   placed first in the registry. It is not from the appendix. It obeys the same rule as everything
+   else here — a single run proves it, nothing is consulted from storage — and it is the earliest
+   milestone in any run, which is the point: a player meets this congratulation mechanism within
+   the first few moves instead of only after reaching a target tile. The registry therefore holds
+   **seven**.
 3. **The unlocked set is derived, never accumulated.** Every derivation of the same run state
    produces the same set. Consequently undo revokes: the set is recomputed after the run state
    moves, and an achievement whose condition no longer holds leaves the set.
@@ -165,9 +172,10 @@ needs to exist: a place for a styled toast to live.
 
 - [x] Every registered achievement condition can be satisfied, and evaluated, using only the run
       being played; no code path reads accumulated progress to decide an unlock.
-- [x] Six achievements are registered: the first win, 4096, 8192, the Time Attack score milestone,
-      the merge milestone, and the style traveller. The two retired achievements have no registry
-      row and no placeholder anywhere in the interface.
+- [x] Seven achievements are registered: the first merge (added 2026-09-28, see decision 2), the
+      first win, 4096, 8192, the Time Attack score milestone, the merge milestone, and the style
+      traveller. The two retired achievements have no registry row and no placeholder anywhere in
+      the interface.
 - [x] Undoing the move that satisfied a condition revokes that unlock; satisfying it again
       acknowledges it again; `style-traveller` is the documented exception and stays unlocked.
 - [x] One transition that satisfies several achievements produces one acknowledgement, naming them
@@ -257,8 +265,8 @@ The new required file makes a style folder six pieces instead of five. That fact
 places — the root SPEC, this directory's style-catalog spec, the repository agent notes, ADR-0002,
 ADR-0006, the primal setup plan, the execution plan, the catalog ticket, and the open-items list —
 plus one loader assertion that enumerates the required pieces. All of them, and the achievement
-count (eight becomes six, two suspended becomes four), are updated when the file exists, not
-before.
+count (eight becomes six, two suspended becomes four; seven once `first-merge` was added on
+2026-09-28), are updated when the file exists, not before.
 
 Specs that will move with this change: the achievement suite, the records suite, the achievement
 end-to-end spec, and the statistics assertions in the records end-to-end spec.
@@ -285,6 +293,13 @@ Every acceptance criterion above was checked against a real run, not against the
   never reaches the board or the direction pad, the container is `pointer-events: none` with the
   cards `auto`, and under `prefers-reduced-motion` it still appears with a zero transition duration.
   Measured: **54 passed** (3 styles × 9 × desktop/mobile).
+- **The seventh achievement, added after this spec shipped.** `first-merge` is verified at all three
+  seams: the pure layer pins 0 / 1 / 2 merges and the registry order (`achievements.test.ts`), the
+  host shows it arriving inside the same transition as whatever else that move earned
+  (`achievement-host.test.ts` — a big-board move that reaches 4096 as the 200th merge produces one
+  acknowledgement naming four achievements, `first-merge` first), and the browser plays a single
+  left move on a one-pair board and asserts the congratulation names 首次合并 and *not* 首胜, with
+  the panel listing seven rows (`achievements.spec.ts`).
 - **Storage.** `DB_VERSION` is still 2 and there is no migration script. A record written in the
   previous shape — `achievements` block included, naming the retired `mode-collector` and
   `daily-stand` — still yields its three statistics in the panel (unit: `records.test.ts`,

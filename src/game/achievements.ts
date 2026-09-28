@@ -20,9 +20,11 @@ import type { GameState } from '../shared/types'
  * 成就 id 因此也不再是持久化身份——退休一个成就不需要存储迁移（ADR-0007）：
  * 没有任何字节写过盘，也就没有字节要迁。
  *
- * **为什么是六个**：`mode-collector`（六个模式各赢一次）与 `daily-stand`（连续 7 个
+ * **为什么是七个**：`mode-collector`（六个模式各赢一次）与 `daily-stand`（连续 7 个
  * UTC 日期各结算一局 Daily）跨局才成立，单局内无法自证，按 ADR-0007 直接退休——
- * 注册表里没有它们的行，界面上也不留占位。
+ * 注册表里没有它们的行，界面上也不留占位。`first-merge` 是 2026-09-28 之后应所有者
+ * 要求**新加**的第七个（不在原附录里）：它同样单局可自证，而且是全场最早能拿到的
+ * 里程碑——玩家不必打到中后盘才第一次看见这套祝贺。
  *
  * 风格轴那两条远期成就（`全风格征服` / `复古大师`）同样不在这里：它们的前提是
  * **整套特色风格上线**，在三套基准风格下连「全风格」指什么都说不清，所以
@@ -37,6 +39,8 @@ import type { GameState } from '../shared/types'
  * （ADR-0007；与风格 id 的规矩刚好相反）。
  */
 export type AchievementId =
+  /** 首次合并：本局完成第一次合并（全场最早能拿到的那个里程碑） */
+  | 'first-merge'
   /** 首胜：本局达成目标块 */
   | 'first-win'
   /** 4096：本局合出 4096 */
@@ -65,6 +69,9 @@ export interface AchievementDefinition {
  * 一条诉状里几个成就的先后因此稳定，e2e 也有稳定下标。
  */
 export const ACHIEVEMENTS: readonly AchievementDefinition[] = [
+  // 它排在最前：注册表的次序就是展示次序，而这是**最快能拿到**的那一个——
+  // 随便开一局，几步之内第一次合并就解锁，玩家因此能立刻看懂这套祝贺机制在说什么
+  { id: 'first-merge', label: '首次合并', condition: '本局完成第一次合并' },
   { id: 'first-win', label: '首胜', condition: '本局达成目标块' },
   { id: 'tile-4096', label: '4096', condition: '本局合出 4096' },
   { id: 'tile-8192', label: '大数猎人', condition: '本局合出 8192' },
@@ -73,6 +80,16 @@ export const ACHIEVEMENTS: readonly AchievementDefinition[] = [
   // 风格轴那一个排在最后：解锁集合按这张表排序，于是刷新前后逐字节可比
   { id: 'style-traveller', label: '风格旅行者', condition: '本局切换 5 次以上风格' },
 ]
+
+/**
+ * 首次合并：本局合并次数到 1（**阈值就是 1**）。
+ *
+ * 它是 2026-09-28 应项目所有者要求新加的第七个成就（原附录里的六个之外），
+ * 加它的理由与 ADR-0007 同一条：条件必须单局可自证——`merges >= 1` 在第一步合并
+ * 那一刻就成立，不需要任何跨局进度。它在注册表里排第一，因为它是全场最早能拿到的
+ * 里程碑（其余几个都要打到中后盘才有机会）。
+ */
+export const FIRST_MERGE_COUNT = 1
 
 /** 4096：任一模式本局合出 4096 */
 export const TILE_4096 = 4096
@@ -126,6 +143,7 @@ export interface RunFacts {
  * 这一局此刻解锁了哪几个成就。**纯函数、可重放**：同一份事实永远给出同一份集合。
  *
  * 集合按 `ACHIEVEMENTS` 的恒定次序给出。判据全是「本局」：
+ *   · 首次合并 = 本局至少合并过一次（`merges >= 1`）——全场最早能拿到的那一个；
  *   · 首胜 = 本局曾达标（`reachedTarget`，与 stats.wins 同一把尺子：达标后继续玩到死局
  *     再收工那一局也算赢过）；
  *   · 4096 / 大数猎人 = 本局盘面上出现过的最高方块（合出 8192 必然先合出 4096，所以
@@ -142,6 +160,7 @@ export interface RunFacts {
  */
 export function unlockedAchievements(facts: RunFacts): readonly AchievementId[] {
   const satisfied = new Set<AchievementId>()
+  if (facts.merges >= FIRST_MERGE_COUNT) satisfied.add('first-merge')
   if (facts.reachedTarget) satisfied.add('first-win')
   if (facts.highestTile >= TILE_4096) satisfied.add('tile-4096')
   if (facts.highestTile >= TILE_8192) satisfied.add('tile-8192')

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { STYLE_CATALOG } from '../../src/shared/styleCatalog'
 
 /**
  * 风格旅行者：单局内切过 5 次以上风格 → **当场**一条祝贺，刷新之后计数与解锁都还在。
@@ -51,34 +52,69 @@ async function openStats(page: Page): Promise<void> {
 }
 
 /**
- * 切换一次风格，返回切到的那个名字。
+ * 切换一次风格。**目标从 `data-style` 推**——那是 store 的真实状态落在外壳上的信号——
+ * 而不是从 `aria-pressed` 推：后者是同一个事实的另一个投影，可能慢一帧。
  *
- * **从 DOM 上推出切哪一个**，而不是写死「第 n 个按钮」：问的是 aria-pressed 不为 true
- * 的那一个（StylePicker 的选中态就挂在这个属性上），于是加一套风格、或者选择器的位置
- * 变了，这个走法都还成立。
+ * 上一版正是栽在这一点上（`.scratch/pw-baseline.log` 里那条时红时绿的 `style-traveller`）：
+ * 点完一枚按钮之后立刻问「哪一枚没被选中」，如果 React 还没提交，问到的仍是**旧**的
+ * 那一枚，于是同一枚被点两次；第二次对 store 是 no-op（`setStyle` 对同一个 id 直接返回
+ * 原 state），而「等它变成 aria-pressed=true」这一步又已经为真——一次切换就这么丢了，
+ * 计数与 `data-style` 双双比预期少一次。
  *
- * **等这一下真的生效再返回**：不等的话，紧跟着的下一次调用会读到还没提交的 DOM，
- * 又把同一枚按钮当成「没被选中」再点一次——那一下是 no-op（setStyle 对同一个 id 直接
- * 返回原 state），一次真实切换都不算。这是上一版时红时绿的来源，照旧防住。
+ * 现在两头都不靠它：目标由**目录 + 当前 data-style** 算出来（必然与当前不同，不可能撞成
+ * no-op），点完之后等 `data-style` 真的变成目标 id——**这一条只有 store 动了才成立**。
  */
 async function switchOnce(page: Page): Promise<void> {
-  const picker = page.getByRole('group', { name: '风格' })
-  const buttons = picker.getByRole('button')
-  const count = await buttons.count()
-  for (let index = 0; index < count; index += 1) {
-    const button = buttons.nth(index)
-    if ((await button.getAttribute('aria-pressed')) !== 'true') {
-      await button.click()
-      await expect(button).toHaveAttribute('aria-pressed', 'true')
-      return
-    }
-  }
-  throw new Error('风格选择器上应当有一个没被选中的按钮')
+  const shell = page.locator('main')
+  const current = await shell.getAttribute('data-style')
+  const target = STYLE_CATALOG.find((entry) => entry.id !== current)
+  if (target === undefined) throw new Error(`从 data-style=${current} 找不到另一套风格可切`)
+  await page.getByRole('group', { name: '风格' }).getByRole('button', { name: target.label }).click()
+  await expect(shell).toHaveAttribute('data-style', target.id)
 }
 
 /** 连续切 count 次（每次都切到一个真的不同的风格上） */
 async function switchTimes(page: Page, count: number): Promise<void> {
   for (let index = 0; index < count; index += 1) await switchOnce(page)
+}
+
+/**
+ * 等这一局的风格**真的落到盘上**再往下走。
+ *
+ * `setStyle` 的那两次写盘（settings + session）是 **fire-and-forget** 的：store 的动作
+ * 不等 IndexedDB 的事务收口，而 `switchOnce` 的后置断言证明的只是**渲染**动了。于是紧跟着
+ * `page.goto('/')` 会把一个还在飞的事务连同这一页一起丢掉——刷新之后读回来的还是上一条，
+ * `data-style` 停在 classic 不动。
+ *
+ * 这就是这一条用例时红时绿的根：机器空着时那几毫秒够事务落地，四路并行跑起来就不够了
+ * （探针实测：单独跑总是过、`--repeat-each` 下几乎必红）。所以这里等的是**盘上那个值**，
+ * 不是一段 sleep——判据与玩家的真实处境同一条：刷新之前，这一局得先存下去。
+ */
+async function waitForPersistedStyle(page: Page, expected: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async (want) => {
+          const db = await new Promise<IDBDatabase>((resolve, reject) => {
+            const request = indexedDB.open('2048')
+            request.onsuccess = () => resolve(request.result)
+            request.onerror = () => reject(request.error)
+          })
+          const read = (store: string): Promise<unknown> =>
+            new Promise((resolve, reject) => {
+              const transaction = db.transaction(store, 'readonly')
+              const request = transaction.objectStore(store).get('current')
+              request.onsuccess = () => resolve(request.result)
+              request.onerror = () => reject(request.error)
+            })
+          const session = (await read('session')) as { styleId?: string } | null
+          const settings = (await read('settings')) as { styleId?: string } | null
+          db.close()
+          return `${session?.styleId}/${settings?.styleId}`
+        }, expected),
+      { timeout: 5000 }
+    )
+    .toBe(`${expected}/${expected}`)
 }
 
 test('切四次：不够，一条祝贺都没有（阈值是 5，不是 4）', async ({ page }) => {
@@ -128,6 +164,8 @@ test('局中刷新：切过的次数跟着这一局回来，补到阈值照样�
   await expect(page.locator('[data-board]')).toBeVisible()
   // 先切三次：还不够，此刻刷新一次，看这三次数不数得回来
   await switchTimes(page, 3)
+  // **先等这一局存下去**：切完就立刻 goto 会把还在飞的写盘事务丢掉
+  await waitForPersistedStyle(page, 'material')
 
   // 刷新：`?seed=` / `?board=` 优先于存档（T16），所以先 goto('/') 把参数去掉再 reload
   await page.goto('/')
@@ -156,6 +194,8 @@ test('切够五次之后刷新：解锁还在，但一条祝贺都不重播', as
   await expect(page.locator('[data-board]')).toBeVisible()
   await switchTimes(page, 5)
   await expect(page.locator('[data-toast]')).toHaveCount(1)
+  // 同上：存档先落地，再刷新
+  await waitForPersistedStyle(page, 'material')
 
   await page.goto('/')
   await page.reload()
