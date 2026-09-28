@@ -391,10 +391,16 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
   单局可自证；加它的实际收益是「随便开一局，几步之内第一次合并就能看见这套祝贺机制」——
   在此之前最快的一个也要打到合出 4096 或切够五次风格。规格的决策 2 与验收 2、ADR-0007 的
   Consequences、README 的成就口径都已同步成七个。
+- **2026-09-28 再修订（应所有者要求）**：祝贺挪到视口**上方正中**（`top` / 左右各 `1rem`、
+  `align-items: center`），改**两行**结构（上行 `.toast__head` = `图标 + 成就名`，下行
+  `.toast__note` = 这一套风格自己的一句祝词），并配上 emoji。图标住在
+  `AchievementDefinition.emoji`（三套共用一份，各抄三份必然漂开），且 `aria-hidden`——名字
+  已经把「拿到了哪一个」说全。三套设计卡 §7 的「禁 emoji 当装饰」据此收窄到**棋盘、方块与
+  外壳的静态部分**：祝贺里的图标是内容，不是装饰。位置、内外边距、各套祝词逐条写在 §10。
 - 三条测试缝都还在原处：纯判定与解码器（`achievements.test.ts` / `records.test.ts`）、宿主
   状态机（`achievement-host.test.ts`，假后端 + 假 synth 的既有接法）、浏览器共享契约
   （`tests/e2e/toast-contract.spec.ts` 对三套风格各跑一遍）。**没有新增测试缝。**
-- 收官验证：typecheck 0 错、**740** unit tests / 40 files、build 通过、check:contrast 3 风格
+- 收官验证：typecheck 0 错、**741** unit tests / 40 files、build 通过、check:contrast 3 风格
   65 对、全量 Playwright **434 passed / 14 skipped / 0 failed**（见 06 票据的 Evidence 数字）。
 - **顺带修掉了那条从 T19 起「时红时绿」的 `style-traveller` 老红条**（它在本次基线里就是唯一
   的失败）：根因是 `setStyle` 的两次写盘是 fire-and-forget，而那条 e2e 不等落盘就

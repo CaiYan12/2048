@@ -5,6 +5,7 @@ import { MODES } from '../../src/shared/modes'
 import { move, swap } from '../../src/game/engine'
 import {
   ACHIEVEMENTS,
+  achievementEmoji,
   countMergesAlongPath,
   FIRST_MERGE_COUNT,
   mergeCountBetween,
@@ -97,6 +98,18 @@ describe('注册表：七个成就，全部是「本局」口径', () => {
     expect(ACHIEVEMENTS).toHaveLength(7)
     // 六个模式还在（模式轴没变），只是没有任何成就依赖「赢遍它们」
     expect(MODES).toHaveLength(6)
+  })
+
+  test('每条都有一个图标，而且两两不同——祝贺靠它一眼认出拿到了哪一个', () => {
+    // 图标住在注册表里（与 label 同一条职责），三套风格共用一份：各抄三份必然漂开
+    for (const item of ACHIEVEMENTS) {
+      expect(item.emoji, `${item.id} 缺图标`).not.toBe('')
+    }
+    const emojis = ACHIEVEMENTS.map((item) => item.emoji)
+    expect(new Set(emojis).size, '两个成就共用一个图标就看不出是哪一个了').toBe(emojis.length)
+    // 取图标的那个帮手与 label 的那个对称：查不到给中性图标，不抛
+    expect(achievementEmoji('first-merge')).toBe('🧩')
+    expect(achievementEmoji('style-traveller')).toBe('🎨')
   })
 
   test('每一条的条件文案都自称「本局」——它必须与实现同一个口径', () => {

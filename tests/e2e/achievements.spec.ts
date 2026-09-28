@@ -115,6 +115,9 @@ test('第一次合并就解锁「首次合并」：随便开一局也能马上�
   const item = page.locator('[data-toast]')
   await expect(item).toHaveCount(1)
   await expect(item).toContainText('首次合并')
+  // 图标是注册表给的那一个（设计卡 §10 的两行结构：上行图标 + 名字，下行风格的声音）
+  await expect(item.locator('.toast__emoji')).toHaveText('🧩')
+  await expect(item.locator('.toast__note')).toContainText('解锁成就')
   // 这一步没达标、也没合出 4096：祝贺里只有它一个（不是「顺手带出来一堆」）
   await expect(item).not.toContainText('首胜')
 

@@ -58,6 +58,14 @@ export interface AchievementDefinition {
   id: AchievementId
   /** 界面用名（中文） */
   label: string
+  /**
+   * 祝贺里的那个图标。**它是内容，不是装饰**：它报出「你拿到了哪一个」，与 label 同一条
+   * 职责——所以它住在这里，三套风格共用一份，而不是各抄一遍（各抄三份必然漂开）。
+   *
+   * 2026-09-28 应所有者要求加的。三套设计卡 §7 原先一律「禁 emoji 当装饰」，那是冲着
+   * 棋盘、方块与外壳的静态长相说的；这一处是消息的一部分，禁令据此收窄，见各卡 §10。
+   */
+  emoji: string
   /** 达成条件的原话。战绩面板照实显示它——永远是一句「本局」的口径 */
   condition: string
 }
@@ -71,14 +79,14 @@ export interface AchievementDefinition {
 export const ACHIEVEMENTS: readonly AchievementDefinition[] = [
   // 它排在最前：注册表的次序就是展示次序，而这是**最快能拿到**的那一个——
   // 随便开一局，几步之内第一次合并就解锁，玩家因此能立刻看懂这套祝贺机制在说什么
-  { id: 'first-merge', label: '首次合并', condition: '本局完成第一次合并' },
-  { id: 'first-win', label: '首胜', condition: '本局达成目标块' },
-  { id: 'tile-4096', label: '4096', condition: '本局合出 4096' },
-  { id: 'tile-8192', label: '大数猎人', condition: '本局合出 8192' },
-  { id: 'quick-hand', label: '快手', condition: '本局 Time Attack 超过 20000 分' },
-  { id: 'merge-machine', label: '合并机器', condition: '本局合并 200 次' },
+  { id: 'first-merge', label: '首次合并', emoji: '🧩', condition: '本局完成第一次合并' },
+  { id: 'first-win', label: '首胜', emoji: '🏆', condition: '本局达成目标块' },
+  { id: 'tile-4096', label: '4096', emoji: '💠', condition: '本局合出 4096' },
+  { id: 'tile-8192', label: '大数猎人', emoji: '🚀', condition: '本局合出 8192' },
+  { id: 'quick-hand', label: '快手', emoji: '⚡', condition: '本局 Time Attack 超过 20000 分' },
+  { id: 'merge-machine', label: '合并机器', emoji: '⚙️', condition: '本局合并 200 次' },
   // 风格轴那一个排在最后：解锁集合按这张表排序，于是刷新前后逐字节可比
-  { id: 'style-traveller', label: '风格旅行者', condition: '本局切换 5 次以上风格' },
+  { id: 'style-traveller', label: '风格旅行者', emoji: '🎨', condition: '本局切换 5 次以上风格' },
 ]
 
 /**
@@ -249,4 +257,10 @@ export interface AchievementToast {
 export function achievementUnlockLabel(id: AchievementId): string {
   const found = ACHIEVEMENTS.find((item) => item.id === id)
   return found === undefined ? id : found.label
+}
+
+/** 同上，取的是那个图标。查不到时给一个中性图标，不抛——界面不该因为一个 id 崩掉 */
+export function achievementEmoji(id: AchievementId): string {
+  const found = ACHIEVEMENTS.find((item) => item.id === id)
+  return found === undefined ? '✨' : found.emoji
 }

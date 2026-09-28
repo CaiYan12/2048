@@ -1,12 +1,19 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { achievementUnlockLabel, type AchievementToast } from '../../../../game/achievements'
+import {
+  achievementEmoji,
+  achievementUnlockLabel,
+  type AchievementToast,
+} from '../../../../game/achievements'
 import type { ToastSlot, ToastSlotProps } from '../../types'
 
 /**
  * Classic 的成就祝贺（设计卡 §10）
  *
- * 呈现插槽**拥有结构与行为**（ADR-0002）：这一份文件管「长什么样、放在哪、怎么消失」，
+ * 呈现插槽**拥有结构与行为**（ADR-0002）：这一份文件管「长什么样、放在哪、怎么消失、说什么」，
  * 而「什么时候该有一条」是宿主（store）的事——这里不判断任何成就条件，也不读存储。
+ *
+ * **两行**：上行是图标 + 成就名（内容），下行是这一套风格的**声音**（`TAG · FLAVOUR`）。
+ * 二者都只由注册表与这一处常量决定，所以三套风格的差别是「怎么说」，不是「说什么」。
  *
  * 共享契约（三套风格逐条相同，由同一套 Playwright 断言各跑一遍）：
  *   · 约 5 秒后自行消失；指针悬停或焦点落在里面时**暂停计时**，移开接着走剩下的时间；
@@ -16,7 +23,7 @@ import type { ToastSlot, ToastSlotProps } from '../../types'
  *     抢焦点**，解锁不改变 `document.activeElement`；
  *   · 最多三条同屏（栈由宿主封顶）；
  *   · 尊重 `prefers-reduced-motion`（CSS 里时长归零，长相不变）；
- *   · 位置与配色见设计卡 §10——贴视口右上角、不进文档流、卡片之外点击穿透。
+ *   · 位置与配色见设计卡 §10——贴视口**上方正中**、不进文档流、卡片之外点击穿透。
  *
  * 为什么进场分两步（`entered` 那个 state）：要让 CSS 过渡真的跑起来，元素得先以「起点」
  * 画一帧、再切到「终点」。起点是**不可见**的（opacity 0），所以这里不会出现 T21 在
@@ -28,6 +35,10 @@ const VISIBLE_MS = 5000
 
 /** 出场的过渡时长：与 CSS 里 `.toast--leaving` 的 200ms 一致，动画结束再通知宿主 */
 const EXIT_MS = 200
+
+/** 这一套风格的声音：一句直白、亲切的祝词。**只说实话**——不声称战绩或存储被动过 */
+const TAG = '解锁成就'
+const FLAVOUR = '干得漂亮，接着来'
 
 interface Props {
   toast: AchievementToast
@@ -70,7 +81,6 @@ function ClassicToast({ toast, onDone }: Props): JSX.Element {
     return () => window.clearTimeout(timer)
   }, [leaving, onDone, toast.key])
 
-  const names = toast.ids.map(achievementUnlockLabel).join('、')
   const className = `toast${entered ? '' : ' toast--entering'}${leaving ? ' toast--leaving' : ''}`
 
   return (
@@ -85,8 +95,17 @@ function ClassicToast({ toast, onDone }: Props): JSX.Element {
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
     >
-      <span className="toast__label">解锁成就：</span>
-      <span className="toast__names">{names}</span>
+      <p className="toast__head">
+        {/* 图标是**内容**（它报出拿到了哪一个），但名字已经把这个意思说全了，
+            所以对读屏软件隐藏它——否则每条会多念一遍「拼图块」「奖杯」 */}
+        <span className="toast__emoji" aria-hidden="true">
+          {toast.ids.map(achievementEmoji).join('')}
+        </span>
+        <span className="toast__names">{toast.ids.map(achievementUnlockLabel).join('、')}</span>
+      </p>
+      <p className="toast__note">
+        {TAG} · {FLAVOUR}
+      </p>
     </div>
   )
 }
