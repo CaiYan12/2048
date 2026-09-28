@@ -1,5 +1,5 @@
 import { MODES, type ModeId } from '../../shared/modes'
-import { THEMES } from '../styles/themes'
+import { STYLE_CATALOG } from '../../shared/styleCatalog'
 import type {
   Board,
   Cell,
@@ -233,8 +233,16 @@ function isKnownMode(value: unknown): value is ModeId {
   return MODES.some((mode) => mode.id === value)
 }
 
+/**
+ * 风格身份问共享目录，不问渲染注册表（ADR-0006）
+ *
+ * 注册表顶层 import 各风格的 config.ts、config.ts 又 import 自己的 tokens.css /
+ * styles.css：从那里问「这份存档认不认得这个 id」，等于让「一局能不能续玩」的判定
+ * 依赖渲染层。目录是一张零依赖的表，问它才是这条判定本来的层级（与 isKnownMode
+ * 问 MODES 同一条路子）。
+ */
 function isKnownStyle(value: unknown): value is StyleId {
-  return THEMES.some((theme) => theme.id === value)
+  return STYLE_CATALOG.some((entry) => entry.id === value)
 }
 
 function decodeTile(raw: unknown): Tile | null {

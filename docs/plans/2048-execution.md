@@ -13,7 +13,7 @@
 ### 架构铁律
 
 1. `src/game/` 零 DOM 引用，随机源与时间由调用方注入（ADR-0001）。
-2. 一套风格 = `themes/<id>/` 下 `DESIGN.md` + `tokens.css` + `styles.css` + `config.ts` + `contrast.json`；
+2. 一套风格 = `themes/<id>/` 下 `DESIGN.md` + `tokens.css` + `styles.css` + `config.ts` + `contrast.json` + `toast.tsx`；
    棋盘只渲染固定 DOM 结构 + `boardOverlay` / `tileOverlay` 两个装饰插槽（ADR-0002）。
 3. 棋盘与方块层用 `board.css`，**不用** Tailwind utility；Tailwind 只修饰外壳。
 4. 撤销不设上限、不静默丢弃历史（ADR-0003）。

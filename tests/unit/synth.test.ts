@@ -16,7 +16,7 @@ import { boardOf, stateWithBoard } from './support'
  *
  * 为什么必须能这样测：本会话被明确要求不打开任何浏览器、不跑 Playwright，而「声音对不
  * 对」在这里根本不可验证（headless 浏览器里音频本来就听不见）。能验证的是**决策**：
- * 有没有在手势之前造出 AudioContext、静音时连造都不造、四个事件各自排出什么振荡器、
+ * 有没有在手势之前造出 AudioContext、静音时连造都不造、五个事件各自排出什么振荡器、
  * 音高是否随数值单调上升。这些全是数字，于是它们必须是可断言的数字——本文件钉的就是
  * 这一组。至于「好不好听」，只有 owner 在真机上说了算。
  */
@@ -267,10 +267,10 @@ describe('静音', () => {
     expect(audio.tones).toHaveLength(afterFirst)
   })
 
-  test('四个事件在静音下一声都没有', () => {
+  test('五个事件在静音下一声都没有', () => {
     const audio = createFakeAudio()
     const sound = newSynth(audio)
-    for (const event of ['move', 'merge', 'win', 'loss'] as const) {
+    for (const event of ['move', 'merge', 'win', 'loss', 'blocked'] as const) {
       sound.play(event, { muted: true, value: 16 })
     }
     expect(audio.constructed).toBe(0)
@@ -278,10 +278,12 @@ describe('静音', () => {
   })
 })
 
-// ─── 四个事件的音色 ─────────────────────────────────────────────────────────
+// ─── 五个事件的音色 ─────────────────────────────────────────────────────────
 
-describe('四个事件各自响成什么样', () => {
-  test('移动：一个短促低沉的正弦，是四个事件里最不显眼的那一个', () => {
+describe('五个事件各自响成什么样', () => {
+  // 「最不显眼」这个头衔在第五个事件加进来之后换了主人：无法移动音比它更低更短更轻。
+  // 移动音剩下的身份是「响得最勤」——它每次按键都响，所以依然不能是最大声的那个
+  test('移动：一个短促低沉的正弦，固定频率不带数值', () => {
     const audio = createFakeAudio()
     const sound = newSynth(audio)
     sound.play('move', UNMUTED)
@@ -293,6 +295,21 @@ describe('四个事件各自响成什么样', () => {
     expect(tone.stopAt - tone.startAt).toBeCloseTo(0.06, 5)
     // 比合并音轻一半：它响得最勤，不能盖过别的声音
     expect(tone.peakGain).toBeCloseTo(0.1, 5)
+  })
+
+  test('无法移动：比移动音更低、更短、更轻的一声闷响', () => {
+    // 占位音色（README TODO 记着「震动等特效」的简单实现留给后来者）。三条都压在
+    // 移动音之下是**刻意的**：这一声要说的是「什么都没发生」，它不该比「动了」还显眼
+    const audio = createFakeAudio()
+    const sound = newSynth(audio)
+    sound.play('blocked', UNMUTED)
+    const [tone] = audio.tones
+    expect(audio.tones).toHaveLength(1)
+    expect(tone.type).toBe('sine')
+    // F3 174.61 的下方一个八度多一点：A2 110
+    expect(tone.frequency).toBeCloseTo(110, 5)
+    expect(tone.stopAt - tone.startAt).toBeCloseTo(0.05, 5)
+    expect(tone.peakGain).toBeCloseTo(0.08, 5)
   })
 
   test('合并：两个振荡器——三角波基音 + 低音量的八度泛音', () => {
@@ -564,7 +581,7 @@ describe('mergedValueOf：这一步合出了多大的方块', () => {
 
 describe('planFor：一份方案自己说得清', () => {
   test('总时长撑得住最后一个音：delay + duration 正好收口', () => {
-    for (const event of ['move', 'merge', 'win', 'loss'] as const) {
+    for (const event of ['move', 'merge', 'win', 'loss', 'blocked'] as const) {
       const plan = planFor(event, 64, false)
       const end = plan.tones.reduce((max, tone) => Math.max(max, tone.delay + tone.duration), 0)
       expect(plan.duration).toBeCloseTo(end, 6)
@@ -572,11 +589,17 @@ describe('planFor：一份方案自己说得清', () => {
   })
 
   test('峰值音量都在 0 与 1 之间：事件叠在一起也削不了顶', () => {
-    for (const event of ['move', 'merge', 'win', 'loss'] as const) {
+    for (const event of ['move', 'merge', 'win', 'loss', 'blocked'] as const) {
       for (const tone of planFor(event, 2048, false).tones) {
         expect(tone.peakGain).toBeGreaterThan(0)
         expect(tone.peakGain).toBeLessThan(1)
       }
     }
+  })
+
+  test('无法移动不吃 value：换个数值是同一份方案', () => {
+    // 音高只属于 merge（它携带「合出了多大」这个信息），别的事件把 value 忽略掉。
+    // 这一条是**断言**而不是「反正没人传」：将来谁给无法移动音加了音高，它先炸
+    expect(planFor('blocked', 2, false)).toEqual(planFor('blocked', 4096, false))
   })
 })

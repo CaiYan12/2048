@@ -24,9 +24,10 @@ interface Props {
  *   · 键盘到达它走的是普通 Tab 顺序（按钮是原生 button），不需要也不应该抢焦点——
  *     一打开就把焦点从棋盘上拽走，玩家会以为这一局被打断了。
  *
- * T18 起这块面板多一份**已解锁的成就**列表：数字全部从 store 里读，而 store 里那份是
- * **落盘后读回来**的（useGameStore 的 loadSettled）：面板显示的就是刷新之后会看到的东西，
- * 不是界面上算出来的一份。`data-*` 是 e2e 的断言点（DOM 契约），与其余组件同一套路。
+ * 成就区是一份**静态清单**：每条成就的名字与条件，仅此而已。它不声称任何一条已解锁——
+ * 成就是单局可自证的东西、解锁集合从眼前的棋盘派生（ADR-0007），而这块面板既看不到
+ * 当前棋盘、也没有任何跨局的解锁状态可读。写「已解锁 / 未解锁」就是在编一个它不知道的
+ * 结论。`data-*` 是 e2e 的断言点（DOM 契约），与其余组件同一套路。
  */
 export function StatsPanel({ records, stats, onClose }: Props): JSX.Element {
   // 只列真的有记录的模式 / 风格：铺满 6×3 = 18 个空格只会让人以为那 18 个组合
@@ -35,8 +36,6 @@ export function StatsPanel({ records, stats, onClose }: Props): JSX.Element {
   const totalRuns = stats?.totalRuns ?? 0
   const wins = stats?.wins ?? 0
   const timePlayedMs = stats?.timePlayedMs ?? 0
-  const unlocked = stats?.achievements.unlocked ?? []
-  const achievements = unlocked.length
 
   return (
     <section
@@ -109,32 +108,22 @@ export function StatsPanel({ records, stats, onClose }: Props): JSX.Element {
             {formatDuration(timePlayedMs)}
           </div>
         </div>
-        <div className="panel">
-          <div className="panel__label">成就解锁</div>
-          <div className="panel__value" data-stat="achievementUnlocks">
-            {achievements}
-          </div>
-        </div>
       </div>
 
-      {/* 成就列表（T18 验收标准 3：已解锁状态要能在这里看到）。
-          锁着的那一行**照实写出条件**，不把条件藏起来——「不知道还要干什么」比
-          「差一点」更让人想关掉这个面板。data-unlocked 是 e2e 的断言点（DOM 契约）。 */}
+      {/* 成就清单（ADR-0007）：一行一个成就，照实写出它的条件。
+          这里**没有**解锁状态可言——集合从眼前的棋盘派生，而这块面板看不到那一局。
+          data-achievement 是 e2e 的断言点（DOM 契约）。 */}
       <ul className="flex flex-col gap-1" data-achievements>
-        {ACHIEVEMENTS.map((item) => {
-          const isUnlocked = unlocked.includes(item.id)
-          return (
-            <li
-              key={item.id}
-              className="flex items-baseline justify-between gap-3"
-              data-achievement={item.id}
-              data-unlocked={isUnlocked}
-            >
-              <span className="panel__label">{item.label}</span>
-              <span className="hint">{isUnlocked ? '已解锁' : item.condition}</span>
-            </li>
-          )
-        })}
+        {ACHIEVEMENTS.map((item) => (
+          <li
+            key={item.id}
+            className="flex items-baseline justify-between gap-3"
+            data-achievement={item.id}
+          >
+            <span className="panel__label">{item.label}</span>
+            <span className="hint">{item.condition}</span>
+          </li>
+        ))}
       </ul>
     </section>
   )

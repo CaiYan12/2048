@@ -131,7 +131,9 @@ async function openDaily(page: Page, url = '/'): Promise<void> {
 async function dropStoredSession(page: Page): Promise<void> {
   await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('2048', 1)
+      // 不带版本号：库由应用建好，版本由应用说了算（写死会撞 VersionError，
+      // 见 session.spec.ts 的同一条说明）。onupgradeneeded 只在库还不存在时兜底
+      const request = indexedDB.open('2048')
       request.onupgradeneeded = () => {
         for (const name of ['settings', 'session', 'history']) {
           if (!request.result.objectStoreNames.contains(name)) {

@@ -1,4 +1,3 @@
-import type { JSX } from 'react'
 import type { ModeId } from './modes'
 
 /** 移动方向。顺序无含义，仅作联合类型 */
@@ -87,23 +86,18 @@ export interface MoveOutcome {
 }
 
 /**
- * 风格 id。每套风格是一个字面量，T13 / T15 各添一个（加法，不动引擎与棋盘 DOM）。
+ * 风格 id。现在从纯目录派生（src/shared/styleCatalog.ts，ADR-0006），这里只做转出，
+ * 好让既有的 `from '../shared/types'` 调用点不动；手写的第二份联合已删除。
+ *
  * T13 起它同时是 data-style 的属性值：每套风格的 tokens.css / styles.css 都把自己的规则
  * 挂在 `[data-style='<id>']` 之下，所以多套风格的 CSS 可以同时活在同一个文档里而不互相覆盖。
  * `Run` 故意不在此声明：它是 T16 的持久化形状，提前声明等于替一票未写的需求定型。
  */
-export type StyleId = 'classic' | 'material' | 'claude'
+export type { StyleId } from './styleCatalog'
 
 /**
- * 装饰插槽的组件形状：纯呈现、不吃 props、可返回 null 表示该风格没有这项装饰。
- * 两个插槽由 config.ts 提供，Board 从风格配置里解构出来渲染，不写死成 null。
+ * 装饰插槽与风格声明**不在这里**（ADR-0006 第 3 条）：`OverlaySlot` 要引用 JSX、
+ * `StyleDefinition` 要引用它，两样都住在 `src/renderer/styles/types.ts`。本文件因此
+ * 一行 React 都不引——只想判「这个存下来的风格 id 认不认得」的调用方（session.ts /
+ * records.ts）不必认识渲染世界。
  */
-export type OverlaySlot = () => JSX.Element | null
-
-/** 一套风格暴露给注册表与棋盘的最小声明。T13 落地换肤机制时再往里加字段 */
-export interface StyleDefinition {
-  id: StyleId
-  label: string
-  boardOverlay: OverlaySlot
-  tileOverlay: OverlaySlot
-}

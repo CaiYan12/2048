@@ -1,170 +1,114 @@
 import type { ModeId } from '../shared/modes'
-import { MODES } from '../shared/modes'
 import type { GameState } from '../shared/types'
 
 /**
- * 模式轴成就与「风格旅行者」的**纯判定**（计划附录「本次成就清单」 · SPEC §3.3）
+ * 成就的**纯判定**：给一份「本局事实」，答「这一局此刻满足了哪几个成就」。
  *
- * 本文件零 DOM、零 `indexedDB`、零 `window`、零 `Date`：一次结算带来的**本局事实**
- * 由调用方喂进来，解锁与进度从这些事实算出来。于是「这一局该不该解锁某个成就」可以在
- * node 环境里被单测逐条驱动，而不必先在浏览器里打一局——T14 的闸门已经证明过：
- * 没人在真实环境里跑过的那一层，恰恰是缺陷最爱住的地方。
+ * 本文件零 DOM、零 `indexedDB`、零 `window`、零 `Date`：事实由调用方喂进来，解锁集合从
+ * 这些事实算出来。于是「这一局该不该解锁某个成就」可以在 node 环境里被单测逐条驱动，
+ * 而不必先在浏览器里打一局——T14 的闸门已经证明过：没人在真实环境里跑过的那一层，
+ * 恰恰是缺陷最爱住的地方。
  *
- * **没有任何「本局用过撤销」的标记，今后也不许有**（ADR-0003 + SPEC §6）。撤销过
- * 的一局与干净的一局在记录里逐字节同形，T17 的两条测试钉的就是这件事。本文件因此
- * 只消费**能从持久化状态推导出来**的本局事实：
+ * **判据只有本局**（ADR-0007）。这一层不接受、也不读任何跨局累积的进度：
  *   · 分数 / 最高方块 / 曾达标 —— 终局 GameState 自己就带着；
- *   · 合并次数 —— 沿结算时的撤销路径逐段数（见 countMergesAlongPath）；
- *   · 风格切换次数 —— session 桶的一个字段（T19）：它是**发生过的事件**，不是位置，
- *     所以住在撤销恢复不到的地方；
- *   · Daily 日期 —— SessionRecord.dailyDate（T08：它不能从种子反推，只能由结算方带来）。
+ *   · 本局合并次数 —— 宿主增量维护（每步 O(1)，撤销按该步差值回退）；
+ *   · 本局风格切换次数 —— session 桶的一个字段，它是**发生过的事件**，不是位置，
+ *     所以住在撤销恢复不到的地方（T19）。
  *
- * 进度住在 stats 桶里（SPEC §3.3「stats stores ... achievement unlocks」），形状判据在
- * 本文件的 decodeAchievementProgress，与 STORAGE_VERSION 同一套版本 / 拒绝次序。
+ * 因此「同一个成就解锁了没有」这件事永远只由**眼前这一局**回答：同一份事实永远给出
+ * 同一份集合，撤销改动了事实就把它收回（唯一例外见 unlockedAchievements 的注释）。
+ * 成就 id 因此也不再是持久化身份——退休一个成就不需要存储迁移（ADR-0007）：
+ * 没有任何字节写过盘，也就没有字节要迁。
  *
- * **为什么只有八个 id**：「完美一局」与「无作弊通关」要的是「这一局**曾经**用过撤销 /
- * 作弊交换」，而撤销把前态弹出撤销栈之后，那件事在持久化状态里不再留下任何痕迹——
- * undo 之后 history.length 与 moves 一起回退，两者之差只在交换时变化（见
- * countMergesAlongPath 上方对 `history.length - moves` 的说明）。判定这两个成就需要
- * 一个只增不减的计数器，而加这个字段正是 ADR-0003 明令禁止的标记字段。owner 裁决
- * 之前这两个成就**不实现**，而不是换一个将就的推导。
+ * **为什么是六个**：`mode-collector`（六个模式各赢一次）与 `daily-stand`（连续 7 个
+ * UTC 日期各结算一局 Daily）跨局才成立，单局内无法自证，按 ADR-0007 直接退休——
+ * 注册表里没有它们的行，界面上也不留占位。
  *
- * 风格轴那两个（`全风格征服` / `复古大师`）也不在这里：它们的前提是**整套特色风格上线**，
- * 在三套基准风格下连「全风格」指什么都说不清。它们留在家目录的 README TODO（SPEC §6
- * 也禁止界面上出现暗示未来风格可用的占位），所以 `AchievementId` 与 `ACHIEVEMENTS`
- * 里都没有它们的 id——不是「先占一行、等以后填」，而是结构上就不给它们留位置。
- * 本次唯一实现的风格轴成就是 `style-traveller`：它数的是**切换事件本身**，三套风格
- * 就数得出来，与将来有几套风格无关。
+ * 风格轴那两条远期成就（`全风格征服` / `复古大师`）同样不在这里：它们的前提是
+ * **整套特色风格上线**，在三套基准风格下连「全风格」指什么都说不清，所以
+ * `AchievementId` 与 `ACHIEVEMENTS` 里都没有它们的 id——不是「先占一行、等以后填」，
+ * 而是结构上就不给它们留位置。
  */
 
 /**
- * 已实现的模式轴成就 id。
+ * 已实现的成就 id。
  *
- * id 是成就的身份：它进 stats 桶的 `unlocked` 列表，于是**改名就是一管理解进度清零**。
- * 界面上显示的是 label，id 只在存档与 e2e 的 data-* 里出现。
+ * id 是**界面与测试的身份**，不是持久化身份：它没有写进任何桶，所以退休它不用迁移
+ * （ADR-0007；与风格 id 的规矩刚好相反）。
  */
 export type AchievementId =
-  /** 首胜：任一模式第一次胜利 */
+  /** 首胜：本局达成目标块 */
   | 'first-win'
-  /** 模式收藏家：六个模式各赢至少一次 */
-  | 'mode-collector'
-  /** 4096：任一模式合出 4096 */
+  /** 4096：本局合出 4096 */
   | 'tile-4096'
-  /** 大数猎人：合出 8192 */
+  /** 大数猎人：本局合出 8192 */
   | 'tile-8192'
-  /** 快手：Time Attack 单局超过 20000 分 */
+  /** 快手：本局 Time Attack 超过 20000 分 */
   | 'quick-hand'
-  /** 每日坚守：连续 7 个 UTC 日期各结算至少一局 Daily */
-  | 'daily-stand'
-  /** 合并机器：单局完成 200 次合并 */
+  /** 合并机器：本局完成 200 次合并 */
   | 'merge-machine'
-  /** 风格旅行者：单局内切换 5 次以上风格 */
+  /** 风格旅行者：本局内切换 5 次以上风格 */
   | 'style-traveller'
 
 export interface AchievementDefinition {
   id: AchievementId
   /** 界面用名（中文） */
   label: string
-  /** 解锁条件的原话。锁着的时候照实显示它，不把条件藏起来 */
+  /** 达成条件的原话。战绩面板照实显示它——永远是一句「本局」的口径 */
   condition: string
 }
 
 /**
  * 全部已实现成就的**恒定次序**。
  *
- * 恒定不只是好看：`unlocked` 列表按它排序，于是「同样的进度 → 同样的字节」，
- * 刷新前后逐字节可比；e2e 断言第几个成就也才有个稳定下标。
+ * 恒定不只是好看：解锁集合按它排序，于是「同一份事实 → 同一份集合」在字节上也可比，
+ * 一条诉状里几个成就的先后因此稳定，e2e 也有稳定下标。
  */
 export const ACHIEVEMENTS: readonly AchievementDefinition[] = [
-  { id: 'first-win', label: '首胜', condition: '任一模式首次胜利' },
-  { id: 'mode-collector', label: '模式收藏家', condition: '六个模式各赢至少一次' },
-  { id: 'tile-4096', label: '4096', condition: '任一模式合出 4096' },
-  { id: 'tile-8192', label: '大数猎人', condition: '合出 8192' },
-  { id: 'quick-hand', label: '快手', condition: 'Time Attack 单局超过 20000 分' },
-  { id: 'daily-stand', label: '每日坚守', condition: '连续 7 个 UTC 日期各结算至少一局 Daily' },
-  { id: 'merge-machine', label: '合并机器', condition: '单局完成 200 次合并' },
-  // 风格轴那一个排在最后：计划附录的清单就是「九个模式轴 + 风格旅行者」这个次序，
-  // 而 unlocked 列表按这张表排序，于是刷新前后逐字节可比
-  { id: 'style-traveller', label: '风格旅行者', condition: '单局内切换 5 次以上风格' },
+  { id: 'first-win', label: '首胜', condition: '本局达成目标块' },
+  { id: 'tile-4096', label: '4096', condition: '本局合出 4096' },
+  { id: 'tile-8192', label: '大数猎人', condition: '本局合出 8192' },
+  { id: 'quick-hand', label: '快手', condition: '本局 Time Attack 超过 20000 分' },
+  { id: 'merge-machine', label: '合并机器', condition: '本局合并 200 次' },
+  // 风格轴那一个排在最后：解锁集合按这张表排序，于是刷新前后逐字节可比
+  { id: 'style-traveller', label: '风格旅行者', condition: '本局切换 5 次以上风格' },
 ]
 
-/** 模式收藏家的目标：**当前注册表里有几个模式**就得赢几个，不写死 6（modes.ts 是唯一真话） */
-export const MODE_COLLECTOR_TARGET = MODES.length
-
-/** 4096：计划附录的「任一模式合出 4096」 */
+/** 4096：任一模式本局合出 4096 */
 export const TILE_4096 = 4096
 
-/** 大数猎人：计划附录的「合出 8192」 */
+/** 大数猎人：本局合出 8192 */
 export const TILE_8192 = 8192
 
-/** 快手：计划附录的「Time Attack 单局超过 20000 分」。**超过**，所以判据是严格大于 */
+/** 快手：Time Attack 本局超过 20000 分。**超过**，所以判据是严格大于 */
 export const QUICK_HAND_SCORE = 20000
 
-/** 每日坚守：连续 7 个 UTC 日期 */
-export const DAILY_STREAK_TARGET = 7
-
-/** 合并机器：单局 200 次合并 */
+/** 合并机器：本局 200 次合并 */
 export const MERGE_MACHINE_COUNT = 200
 
 /**
- * 风格旅行者：计划附录的「单局内切换 5 次以上风格」，**阈值钉在 5，判据是 `>=`**。
+ * 风格旅行者：「本局内切换 5 次以上风格」，**阈值钉在 5，判据是 `>=`**。
  *
- * 「以上」在边界上是含本数的（中文规范里「以上」含本数、「超过」不含），而同附录同
- * 一张表里的「超过 20000 分」被 T18 实现成严格大于——同一份文件的两个措辞应当读出两
- * 个意思，否则它没必要换词。所以 **5 次解锁、4 次不解**，判据写成
+ * 「以上」在边界上是含本数的（中文规范里「以上」含本数、「超过」不含），而同一张
+ * 计划表里的「超过 20000 分」被实现成严格大于——同一份文件的两个措辞应当读出两个
+ * 意思，否则它没必要换词。所以 **5 次解锁、4 次不解**，判据写成
  * `facts.styleSwitches >= STYLE_TRAVELLER_SWITCHES`。
  *
  * 钉在这里而不是留给读代码的人现猜：界面上照实显示的条件原话就是「切换 5 次以上」，
- * 常数与界面必须说同一个数；要是把「以上」读成「超过」（要 6 次），那句话就与实现
- * 当场矛盾，而玩家没有别的办法知道自己到底要切几次。tests/unit/achievements.test.ts
- * 把 4 / 5 / 6 三档都钉住，日后谁也换不成另一种读法。
+ * 常数与界面必须说同一个数。tests/unit/achievements.test.ts 把 4 / 5 / 6 三档都钉住，
+ * 日后谁也换不成另一种读法。
  */
 export const STYLE_TRAVELLER_SWITCHES = 5
 
 /**
- * 成就进度（住在 stats 桶里）。
+ * 本局事实：判定一个成就需要的全部输入。
  *
- * 每一项都是**只增不减**的最大值 / 并集语义，这正是 SPEC §3.3 要的形状：同一次结算
- * 递两次，进度逐字节相同，所以「写两次」与「写一次」在这里不可区分。
- */
-export interface AchievementProgress {
-  /** 已解锁的成就 id，按 ACHIEVEMENTS 的次序。展示与「是否已解锁」都读它 */
-  unlocked: readonly AchievementId[]
-  /** 赢过的模式（判据是曾达标，与 stats.wins 同一条）。模式收藏家的进度 */
-  modesWon: readonly ModeId[]
-  /** 历史最高方块。4096 与大数猎人读它 */
-  highestTile: number
-  /** 单局最高合并数（沿结算时的撤销路径数）。合并机器读它 */
-  bestMerges: number
-  /** Time Attack 单局最高分。快手读它 */
-  bestTimeAttackScore: number
-  /** 连续 Daily 结算链上的最后一天（UTC 日期串）；从没结算过 Daily 为 null */
-  dailyStreakDate: string | null
-  /** 连续天数。同一天再结一局不推进，断一天从头数 */
-  dailyStreakLength: number
-}
-
-/** 从没有任何进度时的形状。刚打开这个页面就是这样 */
-export function emptyAchievementProgress(): AchievementProgress {
-  return {
-    unlocked: [],
-    modesWon: [],
-    highestTile: 0,
-    bestMerges: 0,
-    bestTimeAttackScore: 0,
-    dailyStreakDate: null,
-    dailyStreakLength: 0,
-  }
-}
-
-/**
- * 一次结算带来的本局事实。
+ * 它与结算载荷（records.ts 的 Settlement）**只是字段重合**，不是同一个东西：判定住在
+ * `src/game/`，而 `src/game/` 不许依赖渲染层（ADR-0001 的分工）。所以这里单独声明，
+ * 由调用方（store）在每一次对局状态变化之后现拼一份。
  *
- * 它与 `Settlement`（records.ts）**结构同名**：结算载荷本来就要带着这些字段跨过
- * 「结算即作废 session」那道边界，所以调用方直接把 settlement 递进来即可，不必再抄一份。
- * 这里单独声明而不 import 那个类型，是为了让 `src/game/` 不依赖渲染层（ADR-0001 的分工）。
- * 也因此**这里不自己算最高方块**：那一个数 records.ts 已经在算（highestTileOf），
- * 抄一份就是同一个概念有两个实现。
+ * **这里没有最高方块的计算**：那一个数 records.ts 已经有 highestTileOf，抄一份就是同一个
+ * 概念有两个实现。调用方取那一份，连同商业模式无关的三个计数一起递进来。
  */
 export interface RunFacts {
   modeId: ModeId
@@ -172,29 +116,40 @@ export interface RunFacts {
   highestTile: number
   /** 曾达到目标块。胜局判据，与 stats.wins 同一条（达标是里程碑，不是终局） */
   reachedTarget: boolean
-  /** 本局合并次数（沿结算时的撤销路径数） */
+  /** 本局合并次数。宿主增量维护、撤销按该步差值回退（不读任何跨局进度） */
   merges: number
-  /**
-   * 本局**真实发生**的风格切换次数（T19 的风格旅行者读它）
-   *
-   * 它是事件计数，不是位置的属性：一次切换发生过就发生过，撤销一步移动不会把它变回
-   * 「没发生过」。所以它住在撤销恢复不到的地方——session 桶的一个字段（见
-   * SessionRecord.styleSwitches），由结算方在 session 作废之前带进来。
-   *
-   * **只数真的换了的那几次**：重复选当前风格不是切换，一次都不加。结算那一刻的风格
-   * 归记录（mode-contract §3「成绩归结算那一刻所处的风格」），而这个数问的是另一件
-   * 事——这一局里换过几次观感。
-   */
+  /** 本局**真实发生**的风格切换次数。它只增不减，见 unlockedAchievements 的例外 */
   styleSwitches: number
-  /** 本局的 Daily UTC 日期串；非 Daily 为 null */
-  dailyDate: string | null
 }
 
-/** 一次结算的成就结论：新进度，以及**这一次**新解锁了哪些成就 */
-export interface AchievementOutcome {
-  progress: AchievementProgress
-  /** 只装这一次新解锁的。同一个成就第二次递进来时空数组，于是提示不会重复响 */
-  unlocked: readonly AchievementId[]
+/**
+ * 这一局此刻解锁了哪几个成就。**纯函数、可重放**：同一份事实永远给出同一份集合。
+ *
+ * 集合按 `ACHIEVEMENTS` 的恒定次序给出。判据全是「本局」：
+ *   · 首胜 = 本局曾达标（`reachedTarget`，与 stats.wins 同一把尺子：达标后继续玩到死局
+ *     再收工那一局也算赢过）；
+ *   · 4096 / 大数猎人 = 本局盘面上出现过的最高方块（合出 8192 必然先合出 4096，所以
+ *     前者顺带解锁后者）；
+ *   · 快手 = 本局是 Time Attack **且**本局分数超过 20000（别的模式打再高也不算）；
+ *   · 合并机器 = 本局合并次数到 200；
+ *   · 风格旅行者 = 本局切换次数到 5。
+ *
+ * **唯一一处不对称**：`style-traveller` 读的切换计数**不跟撤销回退**（ADR-0003 对那个
+ * 计数的裁决），所以它解锁之后本局收不回来——而其余五个都随事实回退而收回。这不是
+ * 漏写：让那个计数可回退，玩家就能靠「撤销 + 再切一下」反复刷出同一条祝贺
+ * （ADR-0007 把它记为刻意保留的不对称，而不是待修的缺陷）。集合仍然是从事实**派生**的，
+ * 只是那份事实里有一个只增不减的分量。
+ */
+export function unlockedAchievements(facts: RunFacts): readonly AchievementId[] {
+  const satisfied = new Set<AchievementId>()
+  if (facts.reachedTarget) satisfied.add('first-win')
+  if (facts.highestTile >= TILE_4096) satisfied.add('tile-4096')
+  if (facts.highestTile >= TILE_8192) satisfied.add('tile-8192')
+  if (facts.modeId === 'time-attack' && facts.score > QUICK_HAND_SCORE) satisfied.add('quick-hand')
+  if (facts.merges >= MERGE_MACHINE_COUNT) satisfied.add('merge-machine')
+  if (facts.styleSwitches >= STYLE_TRAVELLER_SWITCHES) satisfied.add('style-traveller')
+  // 按 ACHIEVEMENTS 的恒定次序落库：同一份事实 → 同一份集合，一条提示里几个成就的先后稳定
+  return ACHIEVEMENTS.filter((item) => satisfied.has(item.id)).map((item) => item.id)
 }
 
 /** 棋盘上这一局出现过的方块身份（合并会吞掉一个身份，见 mergeCountBetween） */
@@ -217,10 +172,10 @@ function tileIdsOf(state: GameState): Set<number> {
  * 不吞（两枚方块换个位置，身份集合逐字节相同）、生成只加不删。三条合起来，这个差
  * 的大小就是合并次数，且**不需要**任何计数器参与。
  *
- * 它同时解释了 `history.length - moves` 为什么数不出撤销：一次有效移动让历史与 moves
- * 同时 +1，一次撤销让两者同时 −1，两者之差只在**交换**时 +1（交换进历史、不进 moves）。
- * 所以那个差是「路径上的交换数」，与撤销无关；而撤销弹掉的前态在持久化状态里不留任何
- * 痕迹（重做同一步会还原出逐字节相同的状态），「曾经撤销过」因此**不可推导**。
+ * 宿主用它做两件事，都在 O(棋盘格数) 内完成、与撤销栈深度无关：
+ *   · 一次有效移动之后 `mergeCountBetween(before, after)` 累加；
+ *   · 一次撤销时对**同一对**状态再算一遍，得到的就是那一步当初加进去的数——
+ *     撤销因此按步差值回退，而不是把整条路径重数一遍。
  */
 export function mergeCountBetween(before: GameState, after: GameState): number {
   const beforeIds = tileIdsOf(before)
@@ -236,11 +191,12 @@ export function mergeCountBetween(before: GameState, after: GameState): number {
  * 沿一条撤销路径累计合并次数：`prior[0] → prior[1] → … → prior[n-1] → final`。
  *
  * **只数当前路径**，与 `moves` 同一条口径：撤销把一步从路径上摘掉，重做又放回来，
- * 于是被撤销又重做的那一步只算一次。「单局完成 200 次合并」在撤销存在的前提下只有
- * 这一种可复现的读法——按「这辈子按过的所有合并键」数的话，刷新之后无从恢复。
+ * 于是被撤销又重做的那一步只算一次。
  *
- * `prior` 就是 store 的 `history`（索引 0 是开局那一个状态，越往后越新），`final` 是
- * 结算那一刻的终局。整条路径都在 history 桶里持久化（T16），所以这个数跨刷新不变。
+ * 它只有一个调用者：宿主从存档恢复一局时**建立基线**。本局合并次数是那个「读不出状态
+ * 的事实」，而整条撤销路径都在 history 桶里持久化（T16）——所以恢复时把路径数一遍，
+ * 得到的正是刷新前那个数，合并机器的解锁因此不会被一次刷新抹掉。运行期不调它：
+ * 那会变成每步 O(路径长度)。
  */
 export function countMergesAlongPath(
   prior: readonly GameState[],
@@ -257,214 +213,21 @@ export function countMergesAlongPath(
 }
 
 /**
- * UTC 日期串 → 从公元纪元起算的天数。形状不对返回 null（运行期走到这里的都是合法形状，
- * 判据在 decodeAchievementProgress；导出是为了让「连续两天」这件事可被单独钉住）。
+ * 一次「锁定 → 解锁」跃迁带来的一批成就 = 一条祝贺。
  *
- * **不用 `Date`**：`src/game/` 一行 Date 都没有（ADR-0001），而这里要的只是一个
- * 「两个日期差几天」的算术。用民用历法的天算术（Howard Hinnant 的 days_from_civil）
- * 现算，纯整数除法，没有时区、没有闰秒、没有本地化——UTC 日期的差就该是这个数。
+ * 它是**数据**，不是呈现：宿主（store）决定什么时候该有一条、把同一次跃迁里满足的
+ * 几个成就合并成一条、并按 `ACHIEVEMENTS` 的次序排好；风格拿到它之后自己决定长相与
+ * 消失表现（ADR-0002 的呈现插槽）。`key` 是这一条的身份，堆叠与「本条已结束」都认它。
  */
-export function utcDayNumberOf(date: string): number | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
-  if (match === null) return null
-  const year = Number(match[1])
-  const month = Number(match[2])
-  const day = Number(match[3])
-  // 一月与二月按「上一年的十三、十四月」算，于是闰日永远落在年末
-  const shiftedYear = month <= 2 ? year - 1 : year
-  const era = Math.floor(shiftedYear / 400)
-  const yearOfEra = shiftedYear - era * 400
-  const shiftedMonth = month > 2 ? month - 3 : month + 9
-  const dayOfYear = Math.floor((153 * shiftedMonth + 2) / 5) + day - 1
-  const dayOfEra =
-    yearOfEra * 365 + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100) + dayOfYear
-  return era * 146097 + dayOfEra - 719468
+export interface AchievementToast {
+  /** 这一条的身份。堆叠时 React 的 key 与「谁结束了」的回调都认它 */
+  key: number
+  /** 这一条里包含的成就，按 ACHIEVEMENTS 的恒定次序 */
+  ids: readonly AchievementId[]
 }
 
-/**
- * 把一次结算并进成就进度。**纯函数、可重放**：同一份进度与同一份事实，结论逐字节相同。
- *
- * 每一项都只增不减（最大值 / 并集），所以同一次结算递两次与递一次不可区分——
- * 与 applySettlement 的最大值语义同一条理由（SPEC §3.3 要的形状）。
- */
-export function applyRunToAchievements(
-  progress: AchievementProgress | null,
-  facts: RunFacts
-): AchievementOutcome {
-  const previous = progress ?? emptyAchievementProgress()
-  const next: AchievementProgress = {
-    ...previous,
-    unlocked: previous.unlocked,
-    modesWon: previous.modesWon,
-    highestTile: Math.max(previous.highestTile, facts.highestTile),
-    bestMerges: Math.max(previous.bestMerges, facts.merges),
-    bestTimeAttackScore:
-      facts.modeId === 'time-attack'
-        ? Math.max(previous.bestTimeAttackScore, facts.score)
-        : previous.bestTimeAttackScore,
-  }
-
-  /**
-   * 模式收藏家的进度：赢过的模式。
-   *
-   * 判据是 `reachedTarget` 而不是 `endReason === 'won'`——mode-contract §3 定「达标只是
-   * 里程碑」，SPEC §3.3 的「including a run that reached the target and continued」说的
-   * 就是达标后继续玩到死局再收工那种：结束原因是 deadlock，但它确实赢过。与
-   * stats.wins 按同一把尺子量，两个数字才对得上。
-   */
-  if (facts.reachedTarget && !next.modesWon.includes(facts.modeId)) {
-    next.modesWon = [...next.modesWon, facts.modeId]
-  }
-
-  /**
-   * 每日坚守的进度：**连续** UTC 日期、每天至少结算一局 Daily。
-   *
-   * 三条边界（owner 需要拍板的都拍在这里）：
-   *   · 同一天第二次结算 —— 链条停在原地，不推进也不重来。一天里打几局都算
-   *     「这一天结算过」，「连续 7 天」数的是日期，不是局数；
-   *   · 差正好一天 —— 链条 +1；
-   *   · 差两天及以上（含「隔了一天」）—— 链条**断**，从这一天重新数 1。
-   *     N 与 N+2 是断的，这是「连续」的字面意思，没有中间态可选。
-   *
-   * 只认 Daily 结算：别的模式不推进也不打断链条（这一条成就问的是「每天打一局
-   * 每日」，中间打一局经典不影响它）。日期只能来自 SessionRecord.dailyDate
-   * （T08：seedFromUtcDate 是单向哈希，日期串从种子里反推不回来）。
-   */
-  if (facts.dailyDate !== null) {
-    const today = utcDayNumberOf(facts.dailyDate)
-    const last = next.dailyStreakDate === null ? null : utcDayNumberOf(next.dailyStreakDate)
-    if (today !== null && last !== null && today === last) {
-      // 同一天：原样留着
-    } else if (today !== null && last !== null && today === last + 1) {
-      next.dailyStreakLength += 1
-      next.dailyStreakDate = facts.dailyDate
-    } else {
-      // 第一天，或断档：从今天重新数
-      next.dailyStreakLength = 1
-      next.dailyStreakDate = facts.dailyDate
-    }
-  }
-
-  const unlocked = new Set(previous.unlocked)
-  const newly: AchievementId[] = []
-  const grant = (id: AchievementId): void => {
-    if (unlocked.has(id)) return
-    unlocked.add(id)
-    newly.push(id)
-  }
-
-  if (facts.reachedTarget) grant('first-win')
-  if (next.modesWon.length >= MODE_COLLECTOR_TARGET) grant('mode-collector')
-  if (next.highestTile >= TILE_4096) grant('tile-4096')
-  if (next.highestTile >= TILE_8192) grant('tile-8192')
-  if (next.bestTimeAttackScore > QUICK_HAND_SCORE) grant('quick-hand')
-  if (next.dailyStreakLength >= DAILY_STREAK_TARGET) grant('daily-stand')
-  if (next.bestMerges >= MERGE_MACHINE_COUNT) grant('merge-machine')
-  // 风格旅行者与上面几个不同：它只读**本局事实**，进度里没有对应的最大值字段。
-  // 理由是它没有「累积」可言——「单局内切了五次」与「三局各切两次」不是一回事，攒一个
-  // 跨局最大值只会造出一个谁也不知道该怎么解释的数。于是这个成就的持久残留只有
-  // `unlocked` 里那一个 id（与 first-win 同一条路子），而切换次数本身住在 session 桶、
-  // 结算即作废：结算之后不可能再计数，放弃的一局更是什么都不留（验收标准 2 的后半句）
-  if (facts.styleSwitches >= STYLE_TRAVELLER_SWITCHES) grant('style-traveller')
-
-  // 按 ACHIEVEMENTS 的恒定次序落库：刷新前后逐字节可比，e2e 也有稳定下标
-  next.unlocked = ACHIEVEMENTS.filter((item) => unlocked.has(item.id)).map((item) => item.id)
-  return { progress: next, unlocked: newly }
-}
-
-/** 成就进度读出来的结论。三态与其余桶同构：没存过不是错，存了读不得才是 */
-export type AchievementProgressParse =
-  | { kind: 'ok'; progress: AchievementProgress }
-  /** 没有这个字段 = T17 时代的 stats（那时还没有成就进度），按「还没有任何进度」收 */
-  | { kind: 'absent' }
-  | { kind: 'rejected' }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isCount(value: unknown, min: number): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= min
-}
-
-function isIdList<T extends string>(value: unknown, known: readonly T[]): value is T[] {
-  return (
-    Array.isArray(value) && value.every((item) => typeof item === 'string' && known.includes(item as T))
-  )
-}
-
-/** UTC 日期串的形状（与 session.ts 的 DATE_PATTERN 同一个口径，两边各自认一遍） */
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
-
-/**
- * 成就进度的形状判据。
- *
- * **版本由调用方先判**（decodeStats 按 STORAGE_VERSION 拒旧版），所以这里只说形状。
- * 七个字段全都在：缺一个就说明这份数据来自另一种形状，那时猜一个默认值比读不出来
- * 更糟——它会造出一个「解锁了一半成就」的假进度，而本地存储没有谁能修它。
- */
-export function decodeAchievementProgress(raw: unknown): AchievementProgressParse {
-  if (raw === null || raw === undefined) return { kind: 'absent' }
-  if (!isRecord(raw)) return { kind: 'rejected' }
-  if (!isIdList(raw.unlocked, ACHIEVEMENTS.map((item) => item.id))) return { kind: 'rejected' }
-  if (!isIdList(raw.modesWon, MODES.map((mode) => mode.id))) return { kind: 'rejected' }
-  if (!isCount(raw.highestTile, 0)) return { kind: 'rejected' }
-  if (!isCount(raw.bestMerges, 0)) return { kind: 'rejected' }
-  if (!isCount(raw.bestTimeAttackScore, 0)) return { kind: 'rejected' }
-  if (raw.dailyStreakDate !== null && typeof raw.dailyStreakDate !== 'string') {
-    return { kind: 'rejected' }
-  }
-  if (typeof raw.dailyStreakDate === 'string' && !DATE_PATTERN.test(raw.dailyStreakDate)) {
-    return { kind: 'rejected' }
-  }
-  if (!isCount(raw.dailyStreakLength, 0)) return { kind: 'rejected' }
-  return {
-    kind: 'ok',
-    progress: {
-      unlocked: raw.unlocked,
-      modesWon: raw.modesWon,
-      highestTile: raw.highestTile,
-      bestMerges: raw.bestMerges,
-      bestTimeAttackScore: raw.bestTimeAttackScore,
-      dailyStreakDate: raw.dailyStreakDate,
-      dailyStreakLength: raw.dailyStreakLength,
-    },
-  }
-}
-
-/** 界面上一句「解锁了什么」。给提示与统计面板共用，措辞只在这一处 */
+/** 界面上一句「解锁了什么」：一条祝贺里几个成就的名字拼起来用它，措辞只在这一处 */
 export function achievementUnlockLabel(id: AchievementId): string {
   const found = ACHIEVEMENTS.find((item) => item.id === id)
   return found === undefined ? id : found.label
 }
-
-/**
- * 「完美一局」与「无作弊通关」的挂点：**这里现在什么都没有，等 owner 裁决**。
- *
- * 计划附录里的两条：
- *   · 完美一局 = 不使用撤销通关
- *   · 无作弊通关 = 不使用作弊交换通关
- *
- * 裁决落成之后，接手的人要写的就是 applyRunToAchievements 里与上面七个谓词并排的两行：
- *
- *     if (facts.undoCount > 0) grant('perfect-run')
- *     if (facts.swapCount > 0) grant('no-cheat-run')
- *
- * 外加两件事，缺一不可：
- *   1. `AchievementId` 联合里添 'perfect-run' / 'no-cheat-run'，`ACHIEVEMENTS` 里按附录
- *      原话添两条（label 与 condition 直接抄，**不要改写成别的口径**）；
- *   2. `RunFacts` 各多一个字段，而且它们**只能由运行期累加**：
- *        undoCount: number   —— 本局撤销过几次
- *        swapCount:  number   —— 本局作弊交换过几次
- *
- * 为什么必须是累加量而不是结算时的快照：撤销把前态弹出撤销栈之后，那件事在持久化状态里
- * 不留痕迹——`history.length` 与 `moves` 一起回退（撤销恢复的是整个前态），重做同一步会
- * 还原出**逐字节相同**的状态（rngState 也一起回退），`initialSeed` 是开局那一颗、与撤销
- * 无关。所以「本局曾经撤销过」这个事实只能由运行期记着，而它要跨过刷新活在盘上，就得在
- * `SessionRecord` 里有一个字段——那正是 ADR-0003 禁止的「本局用过撤销」标记。
- *
- * **因此在 owner 拍板之前，这里有意留空。** 一个将就的替代口径（例如按「结算那一刻的
- * 路径上有没有撤销痕迹」判）会在「撤销后又重做同一步」这种真实操作上给出反的结论，
- * 而那种结论比没有成就更糟：它会让玩家以为自己在用一个有漏洞的排行榜。
- */
-

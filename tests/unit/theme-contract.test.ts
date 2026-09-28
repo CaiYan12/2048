@@ -33,16 +33,19 @@ import materialContrast from '../../src/renderer/styles/themes/material/contrast
  * —— 加一套新风格要交的东西（checklist）——
  *
  *   1. `DESIGN.md`：参考特征、色彩角色、字体角色、布局与密度、棋盘 vs 外壳、独有装饰
- *      与动效、禁用清单、窄屏策略、对比度与无障碍共九节（三套基准风格各有一份范本，
- *      T15 的 `claude` 是第三份，且它证明了三套可以各有各的设计语言而不是同一套换色）。
+ *      与动效、禁用清单、窄屏策略、对比度与无障碍、成就祝贺共**十**节（三套基准风格
+ *      各有一份范本，T15 的 `claude` 是第三份，且它证明了三套可以各有各的设计语言而不是
+ *      同一套换色；2026-09-28 加的第 10 节是 toast 的坐标与视觉）。
  *   2. `tokens.css`：`[data-style='<id>']` 作用域下交齐下面推出的那一套令牌，
  *      **含 11 个色档连字色 + beyond**，以及 `--wall-bg`（漏了墙会透明）。
  *   3. `styles.css`：每条规则都按 `[data-style='<id>']` 隔开。
- *   4. `config.ts`：id / label / 两个插槽，并由它 import 自己的两份 CSS。
- *   5. `contrast.json`：每一对前景/背景都过线，并带 basis / scene / probe 三个字段
+ *   4. `config.ts`：**三个插槽**（两个装饰 + 一个呈现）与自己的两份 CSS import。
+ *      id 与 label 归目录，不在文件夹里（ADR-0006）。
+ *   5. `toast.tsx`：成就祝贺的呈现插槽实现（见各设计卡第 10 节）。
+ *   6. `contrast.json`：每一对前景/背景都过线，并带 basis / scene / probe 三个字段
  *      （T14 起；缺 probe 会让浏览器那一层对不上号）。
- *   6. `themes/index.ts` 注册一行。
- *   7. 若用到新的字体家族：`src/renderer/styles/fontLicences.json` 加一条授权与版权
+ *   7. `themes/index.ts` 注册一行。
+ *   8. 若用到新的字体家族：`src/renderer/styles/fontLicences.json` 加一条授权与版权
  *      （tests/unit/font-licences.test.ts 会核），字体文件放进 `public/fonts/<dir>/`
  *      并在 `fonts.css` 声明（同字形类别的回退栈在 fonts.css 的 :root 里）。
  */

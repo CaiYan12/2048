@@ -21,8 +21,8 @@ interface Props {
  * **不抢焦点**：一把焦点从棋盘上拽走，玩家会以为这一局被打断了（StatsPanel 头注里
  * 同一条理由）。
  *
- * **live region 的机制沿用仓库里已有的那一条**（StorageNotice 与 AchievementNotice
- * 都是 `role="status"`）：每个提示自带一个 status 区，一条区只说一件事，内容按当前
+ * **live region 的机制沿用仓库里已有的那一条**（StorageNotice 与各风格的成就祝贺都是
+ * `role="status"`）：每个提示自带一个 status 区，一条区只说一件事，内容按当前
  * 状态推导（RunAnnouncement.ts）。本区不是第二套策略——它是同一套策略的第四个用户：
  * 结算、达标、死局这三件「一局的结果」此前一条都没有被播报过，而 StatusBar 的操作
  * 播报更是从 T12 起就写着「live region 策略归 T22」。

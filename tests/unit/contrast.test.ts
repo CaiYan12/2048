@@ -236,12 +236,21 @@ describe('T14 交接的三笔账，两套风格都齐了', () => {
     const tokens = tokensCss('classic')
     expect(tokens).toContain('--ink-variant: #766e66')
     expect(tokens).toContain('--ink-bright-variant: #e4e0da')
-    // 而 styles.css 里那个 .panel__label 不再带 opacity 声明（注释里提到这个词不算）
+    // 而 styles.css 里那个 .panel__label 不再带 opacity 声明（注释里提到这个词不算）。
+    // **这一条只管 .panel__label 那几条规则**：`opacity` 本身不是禁物——成就祝贺的进 / 出场
+    // 就是整条卡片的淡入淡出（设计卡 §10），那是动效，不是「把一个色值压暗」。
+    // 原来这里断的是「整份 styles.css 里一处 opacity 都没有」，那只是当年的巧合。
     const styles = readFileSync(
       new URL('../../src/renderer/styles/themes/classic/styles.css', import.meta.url),
       'utf8'
     )
-    expect(styles).not.toMatch(/^\s*opacity\s*:/m)
+    const panelLabelRules = styles
+      .split('}')
+      .filter((block) => block.includes('.panel__label') && block.includes('{'))
+    expect(panelLabelRules.length, '两张 .panel__label 规则都该在').toBeGreaterThan(0)
+    for (const rule of panelLabelRules) {
+      expect(rule, '.panel__label 不该再用 opacity 压明度').not.toMatch(/^\s*opacity\s*:/m)
+    }
   })
 
   test('T15 之后三套风格的表里一对都不走半透明合成', () => {

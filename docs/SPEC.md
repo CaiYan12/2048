@@ -2,6 +2,7 @@
 
 > 状态：实现参考规格，已发布为 GitHub [#1](https://github.com/CaiYan12/2048/issues/1)。由 [`primal-setup-plan.md`](primal-setup-plan.md)、[`CONTEXT.md`](../CONTEXT.md)、现有代码和 ADR-0001～0005 整理；尚未实现的能力不视为已验证。
 > 本文定义交付行为与边界；阶段清单仍留在原计划，具体实施单元由 tickets 管理。若两者发生冲突，先更新本 SPEC、相应 ADR 与 ticket，再编码。
+> 本地修订（2026-09-28）：风格目录架构已达成设计共识，尚未实现，也尚未同步至 GitHub #1；范围与验收见 [`docs/specs/style-catalog.md`](specs/style-catalog.md) 和 ADR-0006。
 
 ## 1. 问题与方案
 
@@ -40,7 +41,7 @@
 25. As a screen-reader player, I want the board, controls, and important results announced without repeated chatter, so that I can follow the game.
 26. As a player, I want each style to keep legible text and visible focus when fonts fail, so that presentation remains usable.
 27. As a learner, I want each of the three baseline styles to have its own design card and verified rendered result, so that I can test the theme system before expanding it.
-28. As a learner, I want to add a style by editing its folder and registry only, so that I can iterate without changing rules or board interactions.
+28. As a learner, I want to add a style by adding it to the pure style catalog and providing its matching folder, so that the runtime can discover it without editing game rules or the Board.
 29. As a maintainer, I want unit, browser, contrast, build, and deployment checks, so that incomplete or broken work is not called finished.
 30. As a visitor, I want the published Pages build to load its scripts, CSS, and fonts under the repository path, so that the hosted game actually works.
 
@@ -65,9 +66,9 @@ Undo has no product-imposed count limit. Every effective Move and cheat swap has
 
 ### 3.2 Style and visual practice
 
-The fixed Board DOM owns interaction and Tile identity. `boardOverlay` and `tileOverlay` permit decoration only. Each style lives in `src/renderer/styles/themes/<id>/` with `DESIGN.md`, `tokens.css`, `styles.css`, `config.ts`, and `contrast.json`; registry changes are confined to `themes/index.ts`. The board and Tile layer use `board.css`, while Tailwind is limited to the surrounding interface. A style cannot alter rules, scores, timers, or the accessible meaning of controls.
+The fixed Board DOM owns interaction and Tile identity. `boardOverlay` and `tileOverlay` permit decoration only. A pure catalog in `src/shared/styleCatalog.ts` owns each available style's stable ID, display name, and order; `StyleId` is derived from its IDs. Each style lives in `src/renderer/styles/themes/<id>/` with `DESIGN.md`, `tokens.css`, `styles.css`, `config.ts`, `contrast.json`, and `toast.tsx`. The renderer loads the folder matching each catalog ID; a folder absent from the catalog is dormant, while a catalog entry without its required folder/config fails acceptance. `StyleDefinition`, `OverlaySlot`, and `ToastSlot` are renderer-owned and the pure catalog imports no CSS, React, or DOM types. Decoration slots add skin only; the presentation slot owns the achievement acknowledgement's structure and behaviour, and the host hands it what to render and when. The board and Tile layer use `board.css`, while Tailwind is limited to the surrounding interface. A style cannot alter rules, scores, timers, or the accessible meaning of controls.
 
-The three IDs in this release are `classic`, `material`, and `claude`. A design card specifies recognizable references, color and font roles, density, board and shell treatment, signature decoration and motion, exclusions, and narrow-screen behavior. Each style needs rendered desktop and mobile review, not only a successful CSS build. The registry and style picker expose only completed styles; changing style during a run updates presentation immediately. Future style names and researched repositories are kept in the README TODO, outside this release.
+The three IDs in this release are `classic`, `material`, and `claude`. A design card specifies recognizable references, color and font roles, density, board and shell treatment, signature decoration and motion, exclusions, and narrow-screen behavior. Each style needs rendered desktop and mobile review, not only a successful CSS build. The catalog and style picker expose only completed styles; changing style during a run updates presentation immediately. Future style names and researched repositories are kept in the README TODO, outside this release.
 
 Font assets are self-hosted. Each distributed family retains its own license and copyright notice. Font fallback stays in the same visual family; font state must be checked again when a newly selected style first uses a font. Regular text has at least 4.5:1 contrast, large text and applicable non-text indicators at least 3:1. Reduced-motion mode provides static alternatives. The retro flashing cap in ADR-0004 applies when those future styles are implemented; it is not a requirement to add flashing in this release.
 
@@ -83,9 +84,9 @@ Keyboard operation covers mode/style choice, Move, Undo, swap, new run, panels, 
 
 ## 4. Architecture and external test seams
 
-`src/game/` is DOM-free, with deterministic state transitions and injected randomness/time (ADR-0001). `src/renderer/` owns React, browser events, CSS, WebAudio, and storage. The single Zustand store coordinates the Run and exposes UI actions without becoming a second rule engine. The theme contract follows ADR-0002; undo and fonts follow ADR-0003/0005.
+`src/game/` is DOM-free, with deterministic state transitions and injected randomness/time (ADR-0001). `src/renderer/` owns React, browser events, CSS, WebAudio, and storage. The pure style catalog is shared metadata; the renderer owns style loading and decoration definitions. Storage validators use catalog IDs rather than importing the render registry. The single Zustand store coordinates the Run and exposes UI actions without becoming a second rule engine. The theme contract follows ADR-0002; undo and fonts follow ADR-0003/0005.
 
-Test the rule engine through its public `createGame`, `move`, `swap`, `undo`, and `tick` behavior with fixed seeds and time values. Test user paths through the rendered app in Playwright using deterministic fixtures where a particular merge or outcome is asserted. Do not test private helpers merely to mirror implementation. The final browser matrix visits all **18 mode/style combinations** on desktop and mobile-sized viewports; human visual review uses representative states and each of the three design cards. `check:contrast` validates declared pairs, with browser computed-style checks to catch declarations that differ from rendered CSS. CI runs typecheck, real unit tests, build, and applicable e2e checks; Pages is verified after deployment.
+Test the rule engine through its public `createGame`, `move`, `swap`, `undo`, and `tick` behavior with fixed seeds and time values. Test user paths through the rendered app in Playwright using deterministic fixtures where a particular merge or outcome is asserted. Do not test private helpers merely to mirror implementation. The browser matrix is generated from `MODES × style catalog` and visits every available combination on desktop and mobile-sized viewports; the current three-style baseline is **18 combinations** per viewport. Human visual review uses representative states and each available style's design card. `check:contrast` validates declared pairs, with browser computed-style checks to catch declarations that differ from rendered CSS. CI runs typecheck, real unit tests, build, and applicable e2e checks; Pages is verified after deployment.
 
 ## 5. Rules frozen by the mode-contract ticket
 

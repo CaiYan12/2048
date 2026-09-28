@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { createBoardLayout, fitCellSize } from '../../src/renderer/components/BoardLayout'
 
 /**
  * T15 的 Claude 纵向切片：三套风格之外的第三套，从开局界面到局中、从键盘到窄屏。
@@ -210,15 +211,22 @@ test('Claude 的外壳不填色：面板透明、控件只有一圈线、板面�
         outlineOffset: style.outlineOffset,
       }
     })
-  // 控件底就是纸面（不填色），边界由 outline 说——用 outline 而不是 border 是为了不进布局
-  expect(control.background).toBe('rgb(240, 238, 226)') // --control-bg = --page
+  // 控件底就是纸面（不填色），边界由 outline 说——用 outline 而不是 border 是为了不进布局。
+  // 值照 tokens.css 的 --page / --control-bg（#f0eee6）：这里原来写成 226，是把 e6 抄成了 e2，
+  // 与设计卡 §2、contrast.json 量的那 7 对都对不上（三处都是 #f0eee6）
+  expect(control.background).toBe('rgb(240, 238, 230)') // --control-bg = --page = #f0eee6
   expect(control.outlineStyle).toBe('solid')
   expect(control.outlineColor).toBe('rgb(133, 124, 109)') // --control-border #857c6d
   expect(control.outlineOffset).toBe('-1px')
   expect(parseFloat(control.outlineWidth)).toBeGreaterThan(0)
 
-  // 板面外那一圈细线：颜色是 --rule，且它不占布局（棋盘宽度仍是 BoardLayout 算出来的那一个值：
-  // 4×4 + 桌面格边长 100 ⇒ 12×2 + 100×4 + 12×3 = 460。多一像素 border 都会让它变成 458）
+  // 板面外那一圈细线：颜色是 --rule，且它**不占布局**——棋盘宽度必须逐像素等于
+  // BoardLayout 算出来的那一份（多一像素 border 都会让它变小，实测差值就是 1–2px）。
+  //
+  // 期望值**现算而不是写死**：原来是 460（12×2 + 100×4 + 12×3，桌面 4×4 的数），
+  // 于是这条用例在手机视口上必挂（Pixel 5 上实测 344 = 24 + 71×4 + 36，71 是
+  // fitCellSize(4, 393)）。写成算式之后两个视口都成立，而「不多不少」这句断言强度没变。
+  const viewportWidth = await page.evaluate(() => window.innerWidth)
   const board = await page.locator('[data-board]').evaluate((el) => {
     const style = getComputedStyle(el)
     return {
@@ -229,7 +237,7 @@ test('Claude 的外壳不填色：面板透明、控件只有一圈线、板面�
   })
   expect(board.outlineStyle).toBe('solid')
   expect(board.outlineColor).toBe('rgb(184, 175, 155)')
-  expect(board.width).toBe(460)
+  expect(board.width).toBe(createBoardLayout(4, fitCellSize(4, viewportWidth)).pixelSize)
 })
 
 test('选中的那一套换成暖色填充，其余控件仍是纸面', async ({ page }) => {
@@ -249,12 +257,12 @@ test('选中的那一套换成暖色填充，其余控件仍是纸面', async ({
   expect(selected.background).toBe('rgb(168, 72, 43)') // #a8482b
   expect(selected.color).toBe('rgb(251, 249, 244)') // --ink-bright
 
-  // 未选中的那些仍是纸面
+  // 未选中的那些仍是纸面（#f0eee6，见上一条的说明）
   const other = await page
     .locator('.control[aria-pressed="false"]')
     .first()
     .evaluate((el) => getComputedStyle(el).backgroundColor)
-  expect(other).toBe('rgb(240, 238, 226)')
+  expect(other).toBe('rgb(240, 238, 230)')
 })
 
 test('reduced-motion：位移与淡入归零，方块直接到位', async ({ browser }) => {
@@ -326,13 +334,31 @@ test('窄屏（Pixel 5 视口）：三套风格的按钮折成两行，棋盘不
   await page.goto(SEED_URL)
   await pickStyle(page, 'Claude')
 
-  const buttons = page.getByRole('group', { name: '风格' }).getByRole('button')
+  const group = page.getByRole('group', { name: '风格' })
+  const buttons = group.getByRole('button')
   await expect(buttons).toHaveCount(3)
-  const tops = await buttons.evaluateAll((nodes) =>
-    nodes.map((node) => Math.round(node.getBoundingClientRect().top))
-  )
-  // 三个按钮占两行：至少有一个 top 与另一个不同
-  expect(new Set(tops).size).toBeGreaterThan(1)
+
+  // 三个按钮**要么排进一行、要么折成两行**——两条路都对，本用例要守的是「不撑破容器」
+  // （撑破才会把棋盘挤出屏外，那是验收标准 2 真正关心的那件事）。
+  //
+  // 原来断言「必须占两行」（三个 top 至少有两种）。那是照 Claude 设计卡 §8 的预期写的，
+  // 而实测（探针 2026-09-28，393px 视口）：三枚 110.6 + 121.9 + 112.5 = 345.0px，
+  // 加 2×8px 间距正好 **361px = 容器宽**——一行刚好放下，余量为 0。
+  // 也就是说设计卡那句话与现状不符（已记在 open-items.md B10，未擅自改设计卡）。
+  const bounds = await page.evaluate(() => {
+    const picker = document.querySelector('[role="group"][aria-label="风格"]')
+    if (picker === null) return { groupRight: -1, rights: [] as number[] }
+    const groupRight = picker.getBoundingClientRect().right
+    const rights = [...picker.querySelectorAll('button')].map(
+      (button) => button.getBoundingClientRect().right
+    )
+    return { groupRight, rights }
+  })
+  expect(bounds.rights).toHaveLength(3)
+  for (const right of bounds.rights) {
+    // 半像素容差：getBoundingClientRect 是小数，flex 舍入会差一点点
+    expect(right, '风格按钮撑出了选择器容器').toBeLessThanOrEqual(bounds.groupRight + 0.5)
+  }
 
   await page.getByRole('button', { name: '开始游戏' }).click()
   await expect(page.locator('[data-board]')).toBeVisible()

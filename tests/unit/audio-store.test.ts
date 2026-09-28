@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { GameState } from '../../src/shared/types'
 import { createGame, move } from '../../src/game/engine'
-import { emptyAchievementProgress } from '../../src/game/achievements'
 import { useGameStore } from '../../src/renderer/stores/useGameStore'
 import { encodeSettings, type SessionRecord } from '../../src/renderer/stores/session'
 import { boardOf, stateWithBoard } from './support'
@@ -84,7 +83,7 @@ vi.mock('../../src/renderer/stores/sessionStore', () => ({
     score: number
     highestTile: number
     startedAt: number | null
-  }): Promise<{ kind: 'written'; unlocked: [] }> => {
+  }): Promise<{ kind: 'written' }> => {
     backend.writes.push('settlement')
     const key = `${settlement.modeId}:${settlement.styleId}`
     const previous = (backend.buckets.records.get(key) ?? {
@@ -98,7 +97,7 @@ vi.mock('../../src/renderer/stores/sessionStore', () => ({
     })
     // stats 桶**故意不写**：本票不关心战绩统计，而 loadSettled 读一个空桶只会得到
     // 「还没有统计过」，那正是此时该有的诚实结论
-    return { kind: 'written', unlocked: [] }
+    return { kind: 'written' }
   },
 }))
 
@@ -118,6 +117,10 @@ function pristineStore(): void {
     selectedModeId: 'classic',
     runStartedAt: null,
     styleSwitches: 0,
+    runMerges: 0,
+    unlocked: [],
+    toasts: [],
+    nextToastKey: 0,
     records: [],
     stats: null,
     storageNotice: null,
@@ -136,6 +139,10 @@ function mount(game: GameState): void {
     swapArmed: false,
     swapSelection: null,
     runStartedAt: null,
+    runMerges: 0,
+    unlocked: [],
+    toasts: [],
+    nextToastKey: 0,
   })
 }
 
@@ -225,7 +232,7 @@ describe('一次有效移动响什么', () => {
     expect(played.calls[0].value).toBe(1024)
   })
 
-  test('无效移动一个音都没有', () => {
+  test('无法移动响 blocked：走不动的那个方向只有这一声', () => {
     // 两个方块都贴左边：左移是无效移动（引擎原样返回同一个对象）
     const game = stateWithBoard([
       [2, null, null, null],
@@ -235,9 +242,40 @@ describe('一次有效移动响什么', () => {
     ])
     mount(game)
     useGameStore.getState().move('left')
-    expect(events()).toEqual([])
+    // T20 当时钉的是「无效移动一个音都没有」——那条断言属于四个事件的时代。
+    // 第五个事件（无法移动）是此后应项目所有者要求补上的占位代码（见 tone.ts 的
+    // SoundEvent 说明与 README TODO），所以这里断言的正是**那一声**
+    expect(events()).toEqual(['blocked'])
     // 而且 state 都没换：声音这一侧没有偷偷碰任何东西
     expect(useGameStore.getState().game).toBe(game)
+  })
+
+  test('面板挡着时不响：那不是「走不了」，是这一局不在这里了', () => {
+    // won / stuck / ended 三个阶段引擎一律早退，把按键原样咽掉。那是**面板在接管
+    // 输入**，不是玩家试了一个走不动的方向——给它配「无法移动」音，等于把「点不动」
+    // 说成「走不了」。下面这副盘在 playing 下左移是**有效**的，所以这三条断言
+    // 只可能因为阶段守卫而成立
+    for (const phase of ['won', 'stuck', 'ended'] as const) {
+      mount({ ...stateWithBoard(SLIDE_ROWS), phase })
+      played.calls = []
+      useGameStore.getState().move('left')
+      expect(events(), `phase=${phase}`).toEqual([])
+    }
+  })
+
+  test('静音时无法移动也不响：静音管的是全部五个事件', () => {
+    useGameStore.setState({ mute: true })
+    mount(
+      stateWithBoard([
+        [2, null, null, null],
+        [4, null, null, null],
+        [null, null, null, null],
+        [null, null, null, null],
+      ])
+    )
+    useGameStore.getState().move('left')
+    expect(audible()).toEqual([])
+    expect(everyCallMuted()).toBe(true)
   })
 
   test('合出目标块只响 win，不叠加 merge', () => {

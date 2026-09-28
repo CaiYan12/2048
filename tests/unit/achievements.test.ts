@@ -5,34 +5,30 @@ import { MODES } from '../../src/shared/modes'
 import { move, swap } from '../../src/game/engine'
 import {
   ACHIEVEMENTS,
-  applyRunToAchievements,
   countMergesAlongPath,
-  decodeAchievementProgress,
-  emptyAchievementProgress,
   mergeCountBetween,
+  MERGE_MACHINE_COUNT,
+  QUICK_HAND_SCORE,
   STYLE_TRAVELLER_SWITCHES,
-  utcDayNumberOf,
-  type AchievementProgress,
+  TILE_4096,
+  TILE_8192,
+  unlockedAchievements,
   type RunFacts,
 } from '../../src/game/achievements'
-import { applyRunToStats, settlementOf } from '../../src/renderer/stores/records'
-import { NOW, stateWithBoard } from './support'
-import { useGameStore } from '../../src/renderer/stores/useGameStore'
+import { stateWithBoard } from './support'
 
 /**
- * T18 的成就判定：九个模式轴成就里**能推导的那七个**。
+ * 成就的单局判定（ADR-0007）。
  *
- * 判定全部是纯函数：本局事实（分数 / 最高方块 / 曾达标 / 合并次数 / Daily 日期）喂进去，
- * 解锁与进度算出来，没有任何 DOM、没有 indexedDB、没有 Date。于是每个成就都按
- * 「解锁一次 + 不解锁一次」两个用例钉住，同样的事实递进去永远得到同样的结论（可重放）。
+ * 判定是纯函数：本局事实喂进去，解锁集合算出来，没有任何 DOM、没有 indexedDB、没有
+ * Date。于是每条成就都按「阈值下 / 正好 / 阈值上」钉住，而且钉住它是**派生**的——
+ * 同一份事实永远给出同一份集合，没有任何累积入参能改变它。
  *
- * **为什么只有七个**：「完美一局」与「无作弊通关」要判「本局**曾经**用过撤销 / 作弊
- * 交换」，而撤销把前态弹出撤销栈之后那件事在持久化状态里不留痕迹（重做同一步还原出
- * 逐字节相同的状态，rngState 一起回退）。判定它们需要一个只增不减的计数器，而那正是
- * ADR-0003 禁的标记字段——owner 裁决之前这两个成就不实现，见 achievements.ts 头注。
+ * 跨局的那两条（模式收藏家、每日坚守）已按 ADR-0007 退休：注册表里没有它们的行，
+ * 界面上也没有占位，所以这里连「它不解锁」都不必断言——它们不存在。
  */
 
-/** 一局死局收工的终局基准。每个用例按需改一两个字段 */
+/** 一局死局收工的本局事实基准。每个用例按需改一两个字段 */
 function facts(overrides: Partial<RunFacts> = {}): RunFacts {
   return {
     modeId: 'classic',
@@ -42,31 +38,8 @@ function facts(overrides: Partial<RunFacts> = {}): RunFacts {
     merges: 12,
     // T19 的风格切换次数：这里默认没切过，风格旅行者的用例按需覆盖它
     styleSwitches: 0,
-    dailyDate: null,
     ...overrides,
   }
-}
-
-/** 一份已有进度。每个用例按需改一两个字段 */
-function progress(overrides: Partial<AchievementProgress> = {}): AchievementProgress {
-  return { ...emptyAchievementProgress(), ...overrides }
-}
-
-/**
- * 连续若干天的 Daily 结算：一天一局，按顺序递进去。
- *
- * 日期串是 `SessionRecord.dailyDate` 的口径（T08：它不能从种子反推，只能由结算方带来），
- * 这里的用例直接写日期串——「哪一天结算过一局」本来就该由这一层说得准。
- */
-function settleDailies(dates: readonly string[], from: AchievementProgress | null = null): AchievementProgress {
-  let current = from ?? emptyAchievementProgress()
-  for (const date of dates) {
-    current = applyRunToAchievements(
-      current,
-      facts({ modeId: 'daily', reachedTarget: false, dailyDate: date })
-    ).progress
-  }
-  return current
 }
 
 /** 只有第 0 行有一个相邻相等对、别处都不相等的棋盘：一次左移合并 1 对 */
@@ -101,7 +74,140 @@ const PACK_ONLY: CellSpec[][] = [
   [2, 4, 8, 16],
 ]
 
-describe('合并次数：沿路径数「消失的方块身份」', () => {
+describe('注册表：六个成就，全部是「本局」口径', () => {
+  test('恰好六个，次序恒定，跨局的那两条一行都没有', () => {
+    // 撤销了模式的收藏家与每日坚守：它们的条件是「赢遍六个模式」「连续七天」，
+    // 单局内无法自证，于是连占位都没有（ADR-0007）
+    expect(ACHIEVEMENTS.map((item) => item.id)).toEqual([
+      'first-win',
+      'tile-4096',
+      'tile-8192',
+      'quick-hand',
+      'merge-machine',
+      'style-traveller',
+    ])
+    expect(ACHIEVEMENTS).toHaveLength(6)
+    // 六个模式还在（模式轴没变），只是没有任何成就依赖「赢遍它们」
+    expect(MODES).toHaveLength(6)
+  })
+
+  test('每一条的条件文案都自称「本局」——它必须与实现同一个口径', () => {
+    for (const item of ACHIEVEMENTS) {
+      expect(item.condition, `${item.id} 的条件没有说是本局`).toContain('本局')
+    }
+    expect(ACHIEVEMENTS.find((item) => item.id === 'style-traveller')?.condition).toBe(
+      '本局切换 5 次以上风格'
+    )
+    expect(ACHIEVEMENTS.find((item) => item.id === 'tile-4096')?.label).toBe('4096')
+    expect(ACHIEVEMENTS.find((item) => item.id === 'tile-8192')?.label).toBe('大数猎人')
+  })
+
+  test('阈值与界面说的那几个数完全一致', () => {
+    expect(TILE_4096).toBe(4096)
+    expect(TILE_8192).toBe(8192)
+    expect(QUICK_HAND_SCORE).toBe(20000)
+    expect(MERGE_MACHINE_COUNT).toBe(200)
+    expect(STYLE_TRAVELLER_SWITCHES).toBe(5)
+  })
+})
+
+describe('六个成就：阈值下 / 正好 / 阈值上', () => {
+  test('首胜：本局达标就解锁，没达标不解锁', () => {
+    expect(unlockedAchievements(facts({ reachedTarget: true }))).toContain('first-win')
+    expect(unlockedAchievements(facts({ reachedTarget: false }))).toEqual([])
+    // 判据是 reachedTarget 而不是「结束原因是 won」：达标后继续玩到死局再收工也算赢过
+    // （与 stats.wins 同一把尺子）
+  })
+
+  test('4096：正好 4096 解锁，2048 不解锁', () => {
+    expect(unlockedAchievements(facts({ highestTile: 4096 }))).toEqual(['tile-4096'])
+    expect(unlockedAchievements(facts({ highestTile: 2048 }))).toEqual([])
+  })
+
+  test('大数猎人：8192 解锁，且它顺带解锁 4096', () => {
+    expect(unlockedAchievements(facts({ highestTile: 8192 }))).toEqual([
+      'tile-4096',
+      'tile-8192',
+    ])
+    // 4096 只够解锁 4096：最高方块再大也翻不回去
+    expect(unlockedAchievements(facts({ highestTile: 4096 }))).toEqual(['tile-4096'])
+  })
+
+  test('快手：Time Attack 本局**超过** 20000 分解锁，等于 20000 不解', () => {
+    expect(
+      unlockedAchievements(facts({ modeId: 'time-attack', score: 20001 }))
+    ).toEqual(['quick-hand'])
+    expect(unlockedAchievements(facts({ modeId: 'time-attack', score: 20000 }))).toEqual([])
+    // 别的模式打再高也不算：这个成就只认 Time Attack 的单局分
+    expect(unlockedAchievements(facts({ modeId: 'classic', score: 99999 }))).toEqual([])
+  })
+
+  test('合并机器：本局 200 次解锁，199 不解，201 照旧解锁', () => {
+    expect(unlockedAchievements(facts({ merges: 199 }))).toEqual([])
+    expect(unlockedAchievements(facts({ merges: 200 }))).toEqual(['merge-machine'])
+    expect(unlockedAchievements(facts({ merges: 201 }))).toEqual(['merge-machine'])
+  })
+
+  test('风格旅行者：4 次不解锁，5 次解锁，6 次也解锁（阈值那一刀切在 5）', () => {
+    expect(unlockedAchievements(facts({ styleSwitches: 4 }))).toEqual([])
+    expect(unlockedAchievements(facts({ styleSwitches: 5 }))).toEqual(['style-traveller'])
+    expect(unlockedAchievements(facts({ styleSwitches: 6 }))).toEqual(['style-traveller'])
+    // 一次都没换过当然不解锁
+    expect(unlockedAchievements(facts({ styleSwitches: 0 }))).toEqual([])
+  })
+})
+
+describe('派生：同一份事实永远给出同一份集合', () => {
+  test('连着算三遍逐字节相同，集合次序恒等于 ACHIEVEMENTS 的次序', () => {
+    const run = facts({
+      reachedTarget: true,
+      highestTile: 8192,
+      modeId: 'time-attack',
+      score: 30000,
+      merges: 250,
+      styleSwitches: 5,
+    })
+    const once = unlockedAchievements(run)
+    expect(once).toEqual([
+      'first-win',
+      'tile-4096',
+      'tile-8192',
+      'quick-hand',
+      'merge-machine',
+      'style-traveller',
+    ])
+    expect(unlockedAchievements(run)).toEqual(once)
+    expect(unlockedAchievements(run)).toEqual(once)
+    // 次序由注册表定，不由「哪一条先满足」定
+    const registryOrder = ACHIEVEMENTS.map((item) => item.id)
+    const positions = once.map((id) => registryOrder.indexOf(id))
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
+  })
+
+  test('集合只认这一份事实：没有任何累积入参能改变它', () => {
+    // 事实里没有一个「上一局」的字段——所以「别人打过 8192」这件事影响不到这一局
+    const factsKeys = Object.keys(facts()).sort()
+    expect(factsKeys).toEqual([
+      'highestTile',
+      'merges',
+      'modeId',
+      'reachedTarget',
+      'score',
+      'styleSwitches',
+    ])
+  })
+
+  test('事实退回去，集合跟着退回去（撤销要能收回，除了那一个例外）', () => {
+    const won = unlockedAchievements(facts({ reachedTarget: true }))
+    expect(won).toContain('first-win')
+    // 事实里 reachedTarget 变回 false：集合不再有首胜——派生的定义就是这一条
+    expect(unlockedAchievements(facts({ reachedTarget: false }))).not.toContain('first-win')
+    expect(unlockedAchievements(facts({ merges: 200 }))).toContain('merge-machine')
+    expect(unlockedAchievements(facts({ merges: 199 }))).not.toContain('merge-machine')
+  })
+})
+
+describe('合并次数：数「消失的方块身份」', () => {
   test('一次合并少一个身份，一次滑动一个都不少', () => {
     const before = stateWithBoard(ONE_PAIR, 7)
     const after = move(before, 'left').state
@@ -126,6 +232,20 @@ describe('合并次数：沿路径数「消失的方块身份」', () => {
     expect(mergeCountBetween(before, swapped as GameState)).toBe(0)
   })
 
+  test('同一对状态两个方向算一遍，得到的正是同一步加进去 / 退回去的那个数', () => {
+    // 宿主增量维护本局合并数靠的就是这一条：走一步加 `(before, after)`，撤一步减
+    // `(before, after)`——同一对状态、同一个数，所以来回走多少遍都不会漂
+    const before = stateWithBoard(TWO_PAIRS, 7)
+    const after = move(before, 'left').state
+    expect(mergeCountBetween(before, after)).toBe(2)
+    expect(mergeCountBetween(before, after)).toBe(2)
+    // 反过来（after → before）**不是**同一个数：回退方向上「重新出现」的那几个身份里
+    // 混着对方生成的那一枚，所以合并次数这个度量是有方向的，只能沿同一对状态同向取
+    expect(mergeCountBetween(after, before)).not.toBe(mergeCountBetween(before, after))
+  })
+})
+
+describe('沿撤销路径累计：恢复一局时建立基线', () => {
   test('整条路径逐段累计：两步各 2 对，一共 4 对', () => {
     const first = stateWithBoard(TWO_PAIRS, 7)
     const second = move(first, 'left').state
@@ -137,28 +257,18 @@ describe('合并次数：沿路径数「消失的方块身份」', () => {
     expect(countMergesAlongPath([first, second], third)).toBe(4)
   })
 
-  test('路径摘掉一步就少算一步：只数当前路径，与 moves 同一条口径', () => {
-    // 走两步、再撤一步。撤销之后 history 里只剩开局那一个状态，于是合并次数回到 2——
-    // 「单局完成 200 次合并」在撤销存在的前提下只有这一种可复现的读法
-    const opening = stateWithBoard(TWO_PAIRS, 7)
-    useGameStore.setState({ game: opening, dailyDate: null, history: [] })
-    useGameStore.getState().move('left')
-    useGameStore.getState().move('left')
-    const twoSteps = useGameStore.getState()
-    expect(countMergesAlongPath(twoSteps.history, twoSteps.game as GameState)).toBe(4)
-
-    useGameStore.getState().undo()
-    const oneStep = useGameStore.getState()
-    expect(countMergesAlongPath(oneStep.history, oneStep.game as GameState)).toBe(2)
-    // 反过来比（S2 → S1）也数得出 1：这个度量是**有方向**的，撤销那一步看起来就像一次
-    // 合并——第二步吞掉的身份在回退之后又回来了。所以只能沿路径逐段数，拿起点与终点
-    // 比一下是不成立的
-    expect(mergeCountBetween(twoSteps.game as GameState, oneStep.game as GameState)).toBe(1)
+  test('路径摘掉一步就少算一步：只数当前路径', () => {
+    const first = stateWithBoard(TWO_PAIRS, 7)
+    const second = move(first, 'left').state
+    const third = move(second, 'left').state
+    // 撤销把第二步从路径上摘掉之后，累计只剩第一步那 2 对
+    expect(countMergesAlongPath([first, second], third)).toBe(4)
+    expect(countMergesAlongPath([first], second)).toBe(2)
   })
 
   test('合并次数可从持久化状态推导：整条路径过一遍 JSON 一个都不少', () => {
     // 撤销路径以 GameState 全文的形式存在 history 桶里（T16），所以「合并了几次」
-    // 必须能从那一份读回来——这也是跨刷新不丢合并进度的全部依据
+    // 必须能从那一份读回来——这是刷新之后合并机器不被抹掉的唯一依据
     const first = stateWithBoard(TWO_PAIRS, 7)
     const second = move(first, 'left').state
     const third = move(second, 'left').state
@@ -166,452 +276,8 @@ describe('合并次数：沿路径数「消失的方块身份」', () => {
     expect(countMergesAlongPath(fromDisk.slice(0, 2), fromDisk[2])).toBe(4)
   })
 
-  test('开局就结算（没有历史）：0 次合并', () => {
+  test('开局就恢复（没有历史）：0 次合并', () => {
     const opening = stateWithBoard(ONE_PAIR, 7)
     expect(countMergesAlongPath([], opening)).toBe(0)
-  })
-})
-
-describe('七个成就：解锁与不解锁各一例', () => {
-  test('首胜：第一次赢就解锁，没赢过就不解锁', () => {
-    const win = applyRunToAchievements(null, facts({ reachedTarget: true }))
-    expect(win.unlocked).toEqual(['first-win'])
-    expect(win.progress.unlocked).toEqual(['first-win'])
-    // 没赢过的一局：一个都不解锁，进度里也没有首胜
-    const loss = applyRunToAchievements(null, facts({ reachedTarget: false }))
-    expect(loss.unlocked).toEqual([])
-    expect(loss.progress.unlocked).toEqual([])
-  })
-
-  test('模式收藏家：六个模式各赢一次才解锁，差一个都不行', () => {
-    // 五个模式赢过：还差一个
-    const five = progress({ modesWon: ['classic', 'fibonacci', 'big-board', 'walls', 'daily'] })
-    const still = applyRunToAchievements(five, facts({ reachedTarget: false }))
-    expect(still.unlocked).toEqual([])
-    // 第六个模式赢下来的这一局：解锁
-    const sixth = applyRunToAchievements(five, facts({ modeId: 'time-attack', reachedTarget: true }))
-    expect(sixth.unlocked).toEqual(['first-win', 'mode-collector'])
-    // 同一个模式赢第二次不加进度（并集语义）
-    const repeat = applyRunToAchievements(sixth.progress, facts({ modeId: 'classic', reachedTarget: true }))
-    expect(repeat.progress.modesWon).toEqual([
-      'classic',
-      'fibonacci',
-      'big-board',
-      'walls',
-      'daily',
-      'time-attack',
-    ])
-  })
-
-  test('4096：合出就解锁，差一点不解', () => {
-    const big = applyRunToAchievements(null, facts({ highestTile: 4096 }))
-    expect(big.unlocked).toEqual(['tile-4096'])
-    const justUnder = applyRunToAchievements(null, facts({ highestTile: 2048 }))
-    expect(justUnder.unlocked).toEqual([])
-    expect(justUnder.progress.highestTile).toBe(2048)
-  })
-
-  test('大数猎人：8192 才解锁，且它顺带解锁 4096（合出 8192 之前必然合出过 4096）', () => {
-    const hunter = applyRunToAchievements(null, facts({ highestTile: 8192 }))
-    expect(hunter.unlocked).toEqual(['tile-4096', 'tile-8192'])
-    // 4096 只够解锁 4096，够不着大数猎人
-    const notYet = applyRunToAchievements(null, facts({ highestTile: 4096 }))
-    expect(notYet.unlocked).toEqual(['tile-4096'])
-    expect(notYet.progress.unlocked).not.toContain('tile-8192')
-  })
-
-  test('快手：Time Attack 单局**超过** 20000 分解锁，等于 20000 不解', () => {
-    const fast = applyRunToAchievements(
-      null,
-      facts({ modeId: 'time-attack', score: 20001, reachedTarget: true })
-    )
-    expect(fast.unlocked).toEqual(['first-win', 'quick-hand'])
-    const exactly = applyRunToAchievements(
-      null,
-      facts({ modeId: 'time-attack', score: 20000 })
-    )
-    expect(exactly.unlocked).toEqual([])
-    // 别的模式打再高也不算：这个成就只认 Time Attack 的单局分
-    const classic = applyRunToAchievements(null, facts({ modeId: 'classic', score: 99999 }))
-    expect(classic.unlocked).toEqual([])
-    expect(classic.progress.bestTimeAttackScore).toBe(0)
-  })
-
-  test('合并机器：单局 200 次合并解锁，199 不解', () => {
-    const machine = applyRunToAchievements(null, facts({ merges: 200 }))
-    expect(machine.unlocked).toEqual(['merge-machine'])
-    const almost = applyRunToAchievements(null, facts({ merges: 199 }))
-    expect(almost.unlocked).toEqual([])
-    expect(almost.progress.bestMerges).toBe(199)
-  })
-
-  test('每日坚守：连续 7 天各结算一局 Daily 才解锁，6 天不解', () => {
-    const week = settleDailies([
-      '2026-09-01',
-      '2026-09-02',
-      '2026-09-03',
-      '2026-09-04',
-      '2026-09-05',
-      '2026-09-06',
-      '2026-09-07',
-    ])
-    expect(week.dailyStreakLength).toBe(7)
-    expect(week.unlocked).toEqual(['daily-stand'])
-    expect(week.dailyStreakDate).toBe('2026-09-07')
-    // 只差一天：链条够长，但还没到 7
-    const six = settleDailies([
-      '2026-09-01',
-      '2026-09-02',
-      '2026-09-03',
-      '2026-09-04',
-      '2026-09-05',
-      '2026-09-06',
-    ])
-    expect(six.dailyStreakLength).toBe(6)
-    expect(six.unlocked).toEqual([])
-  })
-})
-
-/**
- * 风格旅行者：计划附录风格轴那一个，条件原话「单局内切换 5 次以上风格」。
- *
- * 阈值钉在 5、判据是 `>=`（STYLE_TRAVELLER_SWITCHES 的注释写了为什么这么读），
- * 所以三档都要钉住：4 不解、5 解、6 也解。日后谁把「以上」读成「超过」要 6 次，
- * 「6 也解」那一行不会红，而「5 解」这一行会——所以它才是那道闸门。
- */
-describe('风格旅行者：单局内切换 5 次以上', () => {
-  test('4 次不解锁，5 次解锁，6 次也解锁（阈值那一刀切在 5）', () => {
-    const four = applyRunToAchievements(null, facts({ styleSwitches: 4 }))
-    expect(four.unlocked).toEqual([])
-    expect(four.progress.unlocked).toEqual([])
-
-    const five = applyRunToAchievements(null, facts({ styleSwitches: 5 }))
-    expect(five.unlocked).toEqual(['style-traveller'])
-    expect(five.progress.unlocked).toEqual(['style-traveller'])
-
-    const six = applyRunToAchievements(null, facts({ styleSwitches: 6 }))
-    expect(six.unlocked).toEqual(['style-traveller'])
-  })
-
-  test('0 次（一次都没换过）当然不解锁', () => {
-    const none = applyRunToAchievements(null, facts({ styleSwitches: 0 }))
-    expect(none.unlocked).toEqual([])
-  })
-
-  test('解锁过一次之后，第二局少换几次也收不回去', () => {
-    // 只增不减是整份进度的形状（SPEC §3.3）：unlocked 是并集，没有「这一局不够，
-    // 上一局白解锁了」这种中间态
-    const first = applyRunToAchievements(null, facts({ styleSwitches: 5 })).progress
-    const second = applyRunToAchievements(first, facts({ styleSwitches: 1 }))
-    expect(second.unlocked).toEqual([])
-    expect(second.progress.unlocked).toEqual(['style-traveller'])
-  })
-
-  test('同一个结算递两次：第二次没有新解锁', () => {
-    const once = applyRunToAchievements(null, facts({ styleSwitches: 9 }))
-    const twice = applyRunToAchievements(once.progress, facts({ styleSwitches: 9 }))
-    expect(twice.unlocked).toEqual([])
-    expect(twice.progress).toEqual(once.progress)
-  })
-
-  test('界面上那句话照实写出附录原话，一个数都不改', () => {
-    // 锁着的时候照实显示条件（AchievementDefinition 的约定）。条件与上面钉的常数
-    // 必须是同一个数——改条件不改常数会让玩家以为自己要的不是实现要的那个数
-    const entry = ACHIEVEMENTS.find((item) => item.id === 'style-traveller')
-    expect(entry).toEqual({
-      id: 'style-traveller',
-      label: '风格旅行者',
-      condition: '单局内切换 5 次以上风格',
-    })
-    expect(STYLE_TRAVELLER_SWITCHES).toBe(5)
-  })
-
-  test('它与别的成就同时达成时，按注册表次序落在最后', () => {
-    // 落库次序只由 ACHIEVEMENTS 定（刷新前后逐字节可比、e2e 有稳定下标）
-    const both = applyRunToAchievements(
-      null,
-      facts({ reachedTarget: true, highestTile: 4096, styleSwitches: 5 })
-    )
-    expect(both.unlocked).toEqual(['first-win', 'tile-4096', 'style-traveller'])
-    expect(both.progress.unlocked).toEqual(['first-win', 'tile-4096', 'style-traveller'])
-  })
-
-  test('进度里没有「最多切过几次」这种字段：它没有累积可言', () => {
-    // 「单局内切了五次」与「三局各切两次」不是一回事。攒一个跨局最大值只会造出一个
-    // 谁也不知道该怎么解释的数，而这个成就要的只是 unlocked 里那一个 id
-    const done = applyRunToAchievements(null, facts({ styleSwitches: 8 })).progress
-    expect(Object.keys(done)).not.toContain('bestStyleSwitches')
-    expect(Object.keys(done)).not.toContain('styleSwitches')
-  })
-})
-
-
-describe('跨局进度：只增不减，刷新前后逐字节同形', () => {
-  test('几局累积起来：赢过的模式、最高方块、最高合并数各按各的来', () => {
-    let current = applyRunToAchievements(
-      null,
-      facts({ modeId: 'classic', reachedTarget: true, highestTile: 2048, merges: 60 })
-    ).progress
-    current = applyRunToAchievements(
-      current,
-      facts({ modeId: 'fibonacci', highestTile: 1024, merges: 12 })
-    ).progress
-    current = applyRunToAchievements(
-      current,
-      facts({ modeId: 'fibonacci', reachedTarget: true, highestTile: 4096, merges: 150 })
-    ).progress
-    expect(current.modesWon).toEqual(['classic', 'fibonacci'])
-    expect(current.highestTile).toBe(4096)
-    expect(current.bestMerges).toBe(150)
-    expect(current.unlocked).toEqual(['first-win', 'tile-4096'])
-  })
-
-  test('更差的一局拉不动任何一项（最大值 / 并集语义）', () => {
-    const previous = progress({
-      modesWon: ['classic'],
-      highestTile: 4096,
-      bestMerges: 300,
-      unlocked: ['first-win', 'tile-4096', 'merge-machine'],
-    })
-    const next = applyRunToAchievements(
-      previous,
-      facts({ modeId: 'walls', reachedTarget: false, highestTile: 8, merges: 3 })
-    ).progress
-    expect(next.modesWon).toEqual(['classic'])
-    expect(next.highestTile).toBe(4096)
-    expect(next.bestMerges).toBe(300)
-    // 已解锁的成就**不会**因为一局差劲而收回
-    expect(next.unlocked).toEqual(['first-win', 'tile-4096', 'merge-machine'])
-  })
-
-  test('同一个结算递两次：进度逐字节相同，第二次没有任何新解锁', () => {
-    const once = applyRunToAchievements(null, facts({ reachedTarget: true, highestTile: 8192 }))
-    const twice = applyRunToAchievements(once.progress, facts({ reachedTarget: true, highestTile: 8192 }))
-    expect(twice.progress).toEqual(once.progress)
-    expect(twice.unlocked).toEqual([])
-  })
-
-  test('unlocked 的次序恒等于 ACHIEVEMENTS 的次序', () => {
-    // 倒着递：先 8192 再首胜，落库的次序仍按注册表——刷新前后逐字节可比
-    let current = applyRunToAchievements(null, facts({ highestTile: 8192 })).progress
-    current = applyRunToAchievements(current, facts({ reachedTarget: true })).progress
-    // 这一局把 8192 与首胜一起解锁；其余四个（mode-collector / quick-hand / daily-stand /
-    // merge-machine）一个都没够上。落库次序按 ACHIEVEMENTS，与解锁先后无关
-    expect(current.unlocked).toEqual(['first-win', 'tile-4096', 'tile-8192'])
-  })
-
-  test('一次结算可能同时解锁好几个', () => {
-    const all = applyRunToAchievements(
-      progress({ modesWon: ['classic', 'fibonacci', 'big-board', 'walls', 'daily'] }),
-      facts({ modeId: 'time-attack', reachedTarget: true, highestTile: 8192, merges: 250, score: 20001 })
-    )
-    expect(all.unlocked).toEqual([
-      'first-win',
-      'mode-collector',
-      'tile-4096',
-      'tile-8192',
-      'quick-hand',
-      'merge-machine',
-    ])
-    expect(all.progress.unlocked).toEqual([
-      'first-win',
-      'mode-collector',
-      'tile-4096',
-      'tile-8192',
-      'quick-hand',
-      'merge-machine',
-    ])
-  })
-})
-
-describe('每日坚守的日期边界', () => {
-  test('同一天再结一局：链条停在原地，不推进也不重来', () => {
-    const twice = settleDailies(['2026-09-01', '2026-09-01'])
-    expect(twice.dailyStreakLength).toBe(1)
-    expect(twice.dailyStreakDate).toBe('2026-09-01')
-    // 一天里打几局都算「这一天结算过」：「连续 7 天」数的是日期，不是局数
-    const thrice = settleDailies(['2026-09-01', '2026-09-01', '2026-09-01', '2026-09-02'])
-    expect(thrice.dailyStreakLength).toBe(2)
-  })
-
-  test('隔一天 = 断档：从断档那天重新数 1', () => {
-    // N 与 N+2 之间空着一天，「连续」就断了。这是字面意思，没有中间态可选
-    const gapped = settleDailies(['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-05'])
-    expect(gapped.dailyStreakLength).toBe(1)
-    expect(gapped.dailyStreakDate).toBe('2026-09-05')
-  })
-
-  test('差得更多同样断，且断之前攒的长度不算数', () => {
-    const far = settleDailies(['2026-08-01', '2026-08-02', '2026-09-30'])
-    expect(far.dailyStreakLength).toBe(1)
-  })
-
-  test('别的模式不推进也不打断链条', () => {
-    // 中间打一局经典：链条原地不动
-    let current = settleDailies(['2026-09-01', '2026-09-02'])
-    current = applyRunToAchievements(
-      current,
-      facts({ modeId: 'classic', reachedTarget: true })
-    ).progress
-    expect(current.dailyStreakLength).toBe(2)
-    expect(current.dailyStreakDate).toBe('2026-09-02')
-    // 第二天再打一局 Daily，接得上
-    current = applyRunToAchievements(
-      current,
-      facts({ modeId: 'daily', dailyDate: '2026-09-03' })
-    ).progress
-    expect(current.dailyStreakLength).toBe(3)
-  })
-
-  test('跨月与跨年也算连续：日期差是按天算的，不是按字符串', () => {
-    const day = (date: string): number => {
-      const value = utcDayNumberOf(date)
-      if (value === null) throw new Error(`形状不对：${date}`)
-      return value
-    }
-    expect(day('2026-10-01')).toBe(day('2026-09-30') + 1)
-    expect(day('2027-01-01')).toBe(day('2026-12-31') + 1)
-    // 闰年：2028 是闰年，2 月 29 存在
-    expect(day('2028-03-01')).toBe(day('2028-02-29') + 1)
-    // 形状不对认不出来：返回 null，由调用方按「无法比较」处理
-    expect(utcDayNumberOf('2026-9-6')).toBeNull()
-  })
-
-  test('断档之后重新攒满 7 天，仍然可以解锁', () => {
-    // 断过一次，再连 7 天：链条从 1 数到 7，成就照旧解锁
-    const dates = [
-      '2026-09-01',
-      '2026-09-05', // 断
-      '2026-09-05',
-      '2026-09-06',
-      '2026-09-07',
-      '2026-09-08',
-      '2026-09-09',
-      '2026-09-10',
-      '2026-09-11',
-    ]
-    const again = settleDailies(dates)
-    expect(again.dailyStreakLength).toBe(7)
-    expect(again.unlocked).toEqual(['daily-stand'])
-  })
-})
-
-describe('结算接线：事实从结算载荷带过来', () => {
-  const RUN_START = Date.UTC(2026, 8, 26, 11, 30)
-  const SETTLE_AT = Date.UTC(2026, 8, 26, 12)
-
-  /** 一副第 0 行与第 3 行各有一个相邻相等对的 4×4 局面 */
-  function opening(): GameState {
-    return stateWithBoard(TWO_PAIRS, 7)
-  }
-
-  test('结算载荷带着合并次数与 Daily 日期，成就按它们判', () => {
-    const settlement = settlementOf(
-      move(opening(), 'left').state,
-      'material',
-      RUN_START,
-      SETTLE_AT,
-      [opening()],
-      '2026-09-26',
-      // T19 的切换次数：这一局换过 6 次观感（阈值是 5，见 STYLE_TRAVELLER_SWITCHES）。
-      // 它与合并次数、Daily 日期走同一条路——结算方在 session 作废之前带进来
-      6
-    )
-    // 沿路径数出来：这一步合并了 2 对（第 0 行与第 3 行各一对）
-    expect(settlement.merges).toBe(2)
-    expect(settlement.dailyDate).toBe('2026-09-26')
-    // 切换次数原样过到结算载荷上（T19）：结算方带进来的那一个数，一个都不加工
-    expect(settlement.styleSwitches).toBe(6)
-    const outcome = applyRunToStats(null, settlement)
-    expect(outcome.stats.achievements.bestMerges).toBe(2)
-    expect(outcome.stats.achievements.dailyStreakDate).toBe('2026-09-26')
-    expect(outcome.stats.achievements.dailyStreakLength).toBe(1)
-    // 6 ≥ 5，所以这一局同时拿到风格旅行者
-    expect(outcome.unlocked).toContain('style-traveller')
-    // 而它不留下任何「最多切过几次」的进度字段：unlocked 那一个 id 是唯一残留
-    expect(Object.keys(outcome.stats.achievements)).not.toContain('styleSwitches')
-  })
-
-  test('结算只执行一次：同一个对象原样返回，第二次没有新解锁', () => {
-    const settlement = settlementOf(
-      move(opening(), 'left').state,
-      'material',
-      RUN_START,
-      SETTLE_AT,
-      [opening()],
-      null,
-      0
-    )
-    const first = applyRunToStats(null, settlement)
-    const second = applyRunToStats(first.stats, settlement)
-    // 为什么不能只写 toEqual：把这一行重建一遍、每个字段都一样，toEqual 照样过；
-    // 而这里要断的是「第二次落库的记录与第一次是同一个东西」——计数与进度都没有被
-    // 第二次写入碰过。深相等证不了「什么都没变」（T13 的评审立下的规矩）
-    expect(second.stats).toBe(first.stats)
-    expect(second.unlocked).toEqual([])
-  })
-})
-
-describe('成就进度的形状判据：拒绝，而不是静默重置', () => {
-  test('没存过不是错：T17 时代的 stats 没有这个字段，按「还没有进度」收', () => {
-    expect(decodeAchievementProgress(null)).toEqual({ kind: 'absent' })
-    expect(decodeAchievementProgress(undefined)).toEqual({ kind: 'absent' })
-  })
-
-  test('正常的一份进度过得去，七个字段一起交出来', () => {
-    const parsed = decodeAchievementProgress({
-      unlocked: ['first-win'],
-      modesWon: ['classic'],
-      highestTile: 4096,
-      bestMerges: 200,
-      bestTimeAttackScore: 20001,
-      dailyStreakDate: '2026-09-07',
-      dailyStreakLength: 7,
-    })
-    expect(parsed.kind).toBe('ok')
-    if (parsed.kind !== 'ok') return
-    expect(parsed.progress.unlocked).toEqual(['first-win'])
-    expect(parsed.progress.modesWon).toEqual(['classic'])
-  })
-
-  const broken: ReadonlyArray<[string, () => unknown]> = [
-    ['整个进度是数组', () => []],
-    ['整个进度是字符串', () => 'achievements'],
-    ['unlocked 不是数组', () => ({ ...emptyAchievementProgress(), unlocked: 'first-win' })],
-    ['unlocked 里混进不认识的 id', () => ({ ...emptyAchievementProgress(), unlocked: ['perfect-run'] })],
-    ['modesWon 里混进不认识的模式', () => ({ ...emptyAchievementProgress(), modesWon: ['aero'] })],
-    ['modesWon 不是数组', () => ({ ...emptyAchievementProgress(), modesWon: 'classic' })],
-    ['highestTile 是负数', () => ({ ...emptyAchievementProgress(), highestTile: -1 })],
-    ['highestTile 是小数', () => ({ ...emptyAchievementProgress(), highestTile: 1.5 })],
-    ['bestMerges 是字符串', () => ({ ...emptyAchievementProgress(), bestMerges: '200' })],
-    ['bestTimeAttackScore 是 NaN', () => ({ ...emptyAchievementProgress(), bestTimeAttackScore: Number.NaN })],
-    ['dailyStreakDate 形状不对', () => ({ ...emptyAchievementProgress(), dailyStreakDate: '2026-9-6' })],
-    ['dailyStreakDate 是数字', () => ({ ...emptyAchievementProgress(), dailyStreakDate: 20260906 })],
-    ['dailyStreakLength 是负数', () => ({ ...emptyAchievementProgress(), dailyStreakLength: -1 })],
-    // 缺一个字段：这份数据来自另一种形状。猜一个默认值会造出「解锁了一半成就」的假进度
-    ['缺 unlocked', () => { const p = emptyAchievementProgress() as unknown as Record<string, unknown>; delete p.unlocked; return p }],
-    ['缺 dailyStreakLength', () => { const p = emptyAchievementProgress() as unknown as Record<string, unknown>; delete p.dailyStreakLength; return p }],
-  ]
-
-  test.each(broken)('%s：按形状拒', (_name, make) => {
-    expect(decodeAchievementProgress(make()).kind).toBe('rejected')
-  })
-
-  test('六个模式一个都不能少：注册表是唯一真话', () => {
-    // 收藏家的目标按 MODES 的长度算：加一个模式就得赢七个，不写死 6
-    expect(MODES).toHaveLength(6)
-    // 七个模式轴 + 风格旅行者。**恰好八个**：没有给全风格征服 / 复古大师留行，
-    // 也没有给挂起的完美一局 / 无作弊通关留行（见 achievements.ts 头注）
-    expect(ACHIEVEMENTS).toHaveLength(8)
-    expect(ACHIEVEMENTS.map((item) => item.id)).toEqual([
-      'first-win',
-      'mode-collector',
-      'tile-4096',
-      'tile-8192',
-      'quick-hand',
-      'daily-stand',
-      'merge-machine',
-      'style-traveller',
-    ])
   })
 })

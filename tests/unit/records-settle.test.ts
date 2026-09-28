@@ -5,7 +5,6 @@ import type { Settlement, SettlementWrite } from '../../src/renderer/stores/reco
 import { createGame, move } from '../../src/game/engine'
 import { NOW, stateWithBoard } from './support'
 import { useGameStore } from '../../src/renderer/stores/useGameStore'
-import { emptyAchievementProgress } from '../../src/game/achievements'
 
 /**
  * T17 的接线：一次结算怎么变成盘上的一条记录与统计
@@ -94,13 +93,11 @@ vi.mock('../../src/renderer/stores/sessionStore', async () => {
         key,
         records.applySettlement(parsedRecord.kind === 'ok' ? parsedRecord.record : null, settlement)
       )
-      const outcome = records.applyRunToStats(
-        parsedStats.kind === 'ok' ? parsedStats.record : null,
-        settlement
+      fake.store.stats.set(
+        'current',
+        records.applyRunToStats(parsedStats.kind === 'ok' ? parsedStats.record : null, settlement)
       )
-      fake.store.stats.set('current', outcome.stats)
-      // 「这一次新解锁了哪些」跟着一次真正的写盘一起回来（与真的 writeSettlement 同一条路）
-      return { kind: 'written', unlocked: outcome.unlocked }
+      return { kind: 'written' }
     },
     saveRun: async (
       record: unknown,
@@ -146,9 +143,12 @@ function pristineStore(): void {
     selectedModeId: 'classic',
     runStartedAt: null,
     styleSwitches: 0,
+    runMerges: 0,
+    unlocked: [],
+    toasts: [],
+    nextToastKey: 0,
     records: [],
     stats: null,
-    achievementNotice: null,
     storageNotice: null,
     restoring: true,
   })
@@ -177,6 +177,12 @@ function mount(
     runStartedAt: options.startedAt ?? RUN_START,
     // 与 game 一起落下：不显式归零的话，上一个用例切过的次数会漏进这一个用例的结算里
     styleSwitches: options.styleSwitches ?? 0,
+    // 成就那三个字段与本票的结算路径无关，但一样要清干净：上一个用例留下的集合
+    // 会让「这一局解锁了什么」的断言读到别人的东西
+    runMerges: 0,
+    unlocked: [],
+    toasts: [],
+    nextToastKey: 0,
   })
 }
 
@@ -440,7 +446,6 @@ describe('统计按公式累加', () => {
       totalRuns: number
       wins: number
       timePlayedMs: number
-      achievements: { unlocked: readonly string[] }
       lastRunStartedAt: unknown
     }
     expect(stats.totalRuns).toBe(2)
@@ -448,9 +453,10 @@ describe('统计按公式累加', () => {
     expect(stats.wins).toBe(1)
     // 1800000 + 1800000：两局各自的墙上时间相加
     expect(stats.timePlayedMs).toBe(3600000)
-    // 第二局曾达标，于是首胜在这一局解锁（T18）；幂等键是最近那一局的起始时刻
-    expect(stats.achievements.unlocked).toEqual(['first-win'])
+    // 幂等键是最近那一局的起始时刻
     expect(stats.lastRunStartedAt).toBe(SECOND_RUN_START)
+    // 成就一个字节都不在这里（ADR-0007）：集合是单局派生的，与战绩两条路
+    expect(Object.keys(stats)).not.toContain('achievements')
   })
 
   test('胜局按「曾达标」数，不按结束原因', async () => {
@@ -581,13 +587,13 @@ describe('读回来与拒绝', () => {
   })
 
   test('统计桶形状坏了：这一局也不写记录', async () => {
-    // 一个负数总局数：不是「旧版」而是「坏」，同样不许被静默重置
+    // 一个负数总局数：不是「旧版」而是「坏」，同样不许被静默重置。
+    // **宽容的是未知字段，不是坏值**：这一条里没有任何认不得的字段，坏就坏在值上
     fake.store.stats.set('current', {
       version: 1,
       totalRuns: -1,
       wins: 0,
       timePlayedMs: 0,
-      achievements: emptyAchievementProgress(),
       lastRunStartedAt: null,
     })
     mount(run())
@@ -645,164 +651,54 @@ describe('撤销辅助的一局与干净的一局无法区分', () => {
       'bestScore',
       'highestTile',
     ])
-    // 统计那一侧同样只有本票声明的几个键
+    // 统计那一侧同样只有本票声明的几个键——**没有 achievements**（ADR-0007）
     expect(Object.keys(fake.store.stats.get('current') as object).sort()).toEqual(
-      ['achievements', 'lastRunStartedAt', 'timePlayedMs', 'totalRuns', 'version', 'wins'].sort()
+      ['lastRunStartedAt', 'timePlayedMs', 'totalRuns', 'version', 'wins'].sort()
     )
   })
 })
 
-describe('成就解锁：提示只响一次，进度跨刷新保持', () => {
-  /** 盘上那份统计的成就进度 */
-  function progressOnDisk(): { unlocked: readonly string[]; modesWon: readonly string[] } {
-    return (fake.store.stats.get('current') as {
-      achievements: { unlocked: readonly string[]; modesWon: readonly string[] }
-    }).achievements
-  }
-
-  test('赢下第一局：提示带着「首胜」出现，盘上也真的解锁了', async () => {
-    mount(run({ reachedTarget: true, phase: 'won' }), { styleId: 'material' })
-    vi.setSystemTime(SETTLE_AT)
-
-    useGameStore.getState().settle()
-    await settleWrites()
-
-    expect(useGameStore.getState().achievementNotice).toEqual(['first-win'])
-    expect(progressOnDisk().unlocked).toEqual(['first-win'])
-  })
-
-  test('一局什么都没解锁：提示保持 null', async () => {
-    // 死局收工、没赢过：counters 照记，但没有成就变多
+/**
+ * ADR-0007：上一版写下的统计里带着一个 `achievements` 块（还含已退休的成就 id）。
+ * 解码器对**未知字段**宽容，所以这一局照旧写进去、旧字节被整条覆盖——退休一个成就
+ * 不该让玩家丢掉战绩，也不该让这一局写不进记录。
+ */
+describe('带成就块的旧版统计：照旧读得出来，也照旧写得进去', () => {
+  test('结算写进去了，旧字节被整条覆盖成新形状', async () => {
+    fake.store.stats.set('current', {
+      version: 1,
+      totalRuns: 4,
+      wins: 2,
+      timePlayedMs: 3600000,
+      achievements: {
+        unlocked: ['mode-collector', 'daily-stand'],
+        modesWon: ['classic', 'fibonacci', 'big-board', 'walls', 'daily', 'time-attack'],
+        highestTile: 8192,
+        bestMerges: 250,
+        bestTimeAttackScore: 21000,
+        dailyStreakDate: '2026-09-07',
+        dailyStreakLength: 7,
+      },
+      lastRunStartedAt: null,
+    })
     mount(run(), { styleId: 'material' })
     vi.setSystemTime(SETTLE_AT)
 
     useGameStore.getState().settle()
     await settleWrites()
 
-    expect(useGameStore.getState().achievementNotice).toBeNull()
-    expect(progressOnDisk().unlocked).toEqual([])
-  })
-
-  test('连点两次「结束并记录」：第二次不响（结算只执行一次）', async () => {
-    mount(run({ reachedTarget: true, phase: 'won' }), { styleId: 'material' })
-    vi.setSystemTime(SETTLE_AT)
-
-    useGameStore.getState().settle()
-    await settleWrites()
-    // 第二下：引擎对已结算的局原样返回同一个对象，store 连动作都不再走
-    useGameStore.getState().settle()
-    useGameStore.getState().settle()
-    await settleWrites()
-
-    expect(fake.store.settlementCalls).toBe(1)
-    expect(useGameStore.getState().achievementNotice).toEqual(['first-win'])
-    expect(progressOnDisk().unlocked).toEqual(['first-win'])
-  })
-
-  test('刷新之后不再播报，而盘上的解锁一个都没少', async () => {
-    mount(run({ reachedTarget: true, phase: 'won' }), { styleId: 'material' })
-    vi.setSystemTime(SETTLE_AT)
-    useGameStore.getState().settle()
-    await settleWrites()
-
-    // 一次「刷新」：store 回到还没开局的样子，再 hydrate
-    pristineStore()
-    useGameStore.getState().hydrate()
-    await settleWrites()
-
-    // 提示不重播——它只在写盘那一次由「落库前后的差」产生，hydrate 只读盘上那份列表
-    expect(useGameStore.getState().achievementNotice).toBeNull()
-    // 而解锁本身在盘上，刷新之后照旧看得见
-    expect(useGameStore.getState().stats?.achievements.unlocked).toEqual(['first-win'])
-  })
-
-  test('跨局进度在刷新后保持：模式收藏家的进度不丢', async () => {
-    // 第一局：经典赢一次
-    mount(run({ reachedTarget: true, phase: 'won' }), { styleId: 'material', startedAt: RUN_START })
-    vi.setSystemTime(SETTLE_AT)
-    useGameStore.getState().settle()
-    await settleWrites()
-
-    // 第二局：斐波那契再赢一次（另一次加载，起始时刻也换一个）
-    pristineStore()
-    mount(
-      run({ modeId: 'fibonacci', reachedTarget: true, phase: 'won' }, LAID_OUT),
-      { styleId: 'claude', startedAt: SECOND_RUN_START }
-    )
-    vi.setSystemTime(SECOND_SETTLE_AT)
-    useGameStore.getState().settle()
-    await settleWrites()
-    expect(progressOnDisk().modesWon).toEqual(['classic', 'fibonacci'])
-    // 第二局是这一局才解锁的（首胜在第一局就解过了），提示只带新的那一个
-    expect(useGameStore.getState().achievementNotice).toBeNull()
-
-    // 刷新：两个模式的进度都还在，一个都没被重置
-    pristineStore()
-    useGameStore.getState().hydrate()
-    await settleWrites()
-    expect(useGameStore.getState().stats?.achievements.modesWon).toEqual(['classic', 'fibonacci'])
-    expect(useGameStore.getState().stats?.achievements.unlocked).toEqual(['first-win'])
-  })
-
-  test('Daily 的日期跟着结算走：一天一次，同一天不推进', async () => {
-    mount(run({ modeId: 'daily' }), { styleId: 'classic', dailyDate: '2026-09-01' })
-    vi.setSystemTime(SETTLE_AT)
-    useGameStore.getState().settle()
-    await settleWrites()
-    expect(progressOnDisk()).toMatchObject({
-      dailyStreakDate: '2026-09-01',
-      dailyStreakLength: 1,
-    })
-
-    // 同一天再结一局：链条停在原地
-    pristineStore()
-    mount(run({ modeId: 'daily' }), {
-      styleId: 'classic',
-      startedAt: SECOND_RUN_START,
-      dailyDate: '2026-09-01',
-    })
-    vi.setSystemTime(SECOND_SETTLE_AT)
-    useGameStore.getState().settle()
-    await settleWrites()
-    expect(progressOnDisk()).toMatchObject({
-      dailyStreakDate: '2026-09-01',
-      dailyStreakLength: 1,
-    })
-  })
-
-  test('收起提示不动盘上的解锁', async () => {
-    mount(run({ reachedTarget: true, phase: 'won' }), { styleId: 'material' })
-    vi.setSystemTime(SETTLE_AT)
-    useGameStore.getState().settle()
-    await settleWrites()
-
-    useGameStore.getState().dismissAchievementNotice()
-    expect(useGameStore.getState().achievementNotice).toBeNull()
-    // 盘上那一份原样：收起只是一句提示，不是把成就收回去
-    expect(progressOnDisk().unlocked).toEqual(['first-win'])
-    expect(useGameStore.getState().stats?.achievements.unlocked).toEqual(['first-win'])
-  })
-
-  test('旧版 / 坏形状的成就进度：这一局什么都不写', async () => {
-    // 桶里躺着一份形状坏了的成就进度（版本号是对的）——整桶按形状拒，于是这一局的
-    // 战绩与进度都不写，桌面上那一句说明白「已保留原有数据」
-    fake.store.stats.set('current', {
+    // 一次都没被拒：未知字段丢掉，三个数字照旧认
+    expect(fake.store.settlementWrites).toBe(1)
+    expect(fake.store.writes).toContain('settlement')
+    expect(fake.store.stats.get('current')).toEqual({
       version: 1,
-      totalRuns: 0,
-      wins: 0,
-      timePlayedMs: 0,
-      achievements: { unlocked: ['perfect-run'] },
-      lastRunStartedAt: null,
+      totalRuns: 5,
+      wins: 2,
+      timePlayedMs: 3600000 + 1800000,
+      lastRunStartedAt: RUN_START,
     })
-    mount(run({ reachedTarget: true, phase: 'won' }), { styleId: 'material' })
-
-    useGameStore.getState().settle()
-    await settleWrites()
-
-    expect(fake.store.settlementWrites).toBe(0)
-    expect(fake.store.records.size).toBe(0)
-    expect(useGameStore.getState().achievementNotice).toBeNull()
-    expect(useGameStore.getState().storageNotice?.message).toContain('统计读不出来')
+    // 桌面上没有「统计读不出来」那句话
+    expect(useGameStore.getState().storageNotice).toBeNull()
   })
 })
 
@@ -815,7 +711,7 @@ describe('成就解锁：提示只响一次，进度跨刷新保持', () => {
 async function writeSameSettlementTwice(): Promise<void> {
   const records = await import('../../src/renderer/stores/records')
   const store = await import('../../src/renderer/stores/sessionStore')
-  const settlement = records.settlementOf(run(), 'classic', RUN_START, SETTLE_AT, [], null, 0)
+  const settlement = records.settlementOf(run(), 'classic', RUN_START, SETTLE_AT)
   await store.writeSettlement(settlement)
   await store.writeSettlement(settlement)
 }

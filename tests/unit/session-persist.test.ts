@@ -3,7 +3,6 @@ import type { GameState } from '../../src/shared/types'
 import { createGame, move } from '../../src/game/engine'
 import { NOW } from './support'
 import { useGameStore } from '../../src/renderer/stores/useGameStore'
-import { emptyAchievementProgress } from '../../src/game/achievements'
 import {
   STORAGE_VERSION,
   encodeSession,
@@ -126,7 +125,6 @@ vi.mock('../../src/renderer/stores/sessionStore', () => ({
       totalRuns: 0,
       wins: 0,
       timePlayedMs: 0,
-      achievements: emptyAchievementProgress(),
       lastRunStartedAt: null,
     }) as {
       totalRuns: number

@@ -289,11 +289,14 @@ test('换风格不重建棋盘：tile 的 DOM 节点还是同一批对象（引�
   // window 上，换完风格再逐个问「还在文档里吗」——被重建的节点会掉出文档，于是这里会响。
   // 它同时钉住 Board 没有因为换风格重新挂载：重挂一次，整套 tile 节点全部换新，
   // T21 的位移动画（靠 data-tile-id 复用同一个节点）会当场失效。
-  await page.evaluate(() => {
+  // 回调跑在浏览器里，那边没有 expect（曾经把断言写在里面，一跑就是
+  // ReferenceError: expect is not defined）；断言一律留在 Node 侧，回调只回传事实。
+  const captured = await page.evaluate(() => {
     const bank = window as unknown as { __tiles: Element[] }
     bank.__tiles = [...document.querySelectorAll('[data-tile-id]')]
-    expect(bank.__tiles.length).toBeGreaterThan(0)
+    return bank.__tiles.length
   })
+  expect(captured).toBeGreaterThan(0)
 
   await pickStyle(page, 'Material')
   await expect(page.locator('main')).toHaveAttribute('data-style', 'material')

@@ -213,10 +213,15 @@ test('存档损坏：界面给出可见提示，不把坏数据当成可续玩�
   expect(moved).not.toEqual(opening)
 
   // 往 session 桶里塞一句不是存档的东西。用浏览器自己的 IndexedDB 写，
-  // 不碰 store——要坏的正是「读取时读到这东西」这条路
+  // 不碰 store——要坏的正是「读取时读到这东西」这条路。
+  //
+  // **不带版本号**：库是应用刚刚建好的（上面那一步就写进去了），此时它的版本由
+  // 应用说了算。这里写死一个数字，等于把一个「库里有哪几个桶」的实现细节抄进测试——
+  // T17 把库从 1 涨到 2 之后，这几行就全撞 VersionError 而再也没跑过。
+  // 下面那个 onupgradeneeded 只在库还不存在时兜底，正常路径上根本不触发。
   await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('2048', 1)
+      const request = indexedDB.open('2048')
       request.onupgradeneeded = () => {
         for (const name of ['settings', 'session', 'history']) {
           if (!request.result.objectStoreNames.contains(name)) {
@@ -229,7 +234,8 @@ test('存档损坏：界面给出可见提示，不把坏数据当成可续玩�
     })
     await new Promise<void>((resolve, reject) => {
       const transaction = db.transaction('session', 'readwrite')
-      // 一句中文文本：解得出 JSON 的部分根本没有，形状也无从谈起
+      // 一句中文文本：既不是记录对象，形状也就无从谈起。它是**结构化克隆**进去的
+      // 值，所以应用那边走的是 decodeSession 的 shape 分支，不是「字节解不出来」
       transaction.objectStore('session').put('这不是一个存档', 'current')
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error)
@@ -244,7 +250,12 @@ test('存档损坏：界面给出可见提示，不把坏数据当成可续玩�
   await expect(notice).toBeVisible()
   await expect(notice).toHaveAttribute('data-storage-notice', 'restore-rejected')
   await expect(notice).toContainText('这一局读不出来')
-  await expect(notice).toContainText('已损坏')
+  // 说的是形状对不上，不是「已损坏」：这个桶里存的是结构化克隆的**对象**
+  // （sessionStore.saveRun 直接 put 记录），readSessionRaw 读回来的就是当初放进去的
+  // 那个值，中间没有一次 JSON.parse——`unreadable`（已损坏）那一档由
+  // decodeSessionText 产出，而它在 src/ 里没有任何调用点。对一句随机文本，
+  // 应用的真相就是 shape。这里原来断言「已损坏」，是存档还以文本形式存放时的说法
+  await expect(notice).toContainText('存档内容与当前规则对不上')
   await expect(notice).toContainText('开始新游戏')
 
   // 不假装恢复：盘面没有回来，开局界面在
@@ -273,8 +284,21 @@ test('写入失败：界面给出警告，且说的是实话——页面内的�
         // 同步派发会掉在一个还没有监听者的请求上
         queueMicrotask(() => {
           request.onerror?.(new Event('error'))
+          // **中止要排在请求的错误之后**，这才是真浏览器的顺序（应用的 settleWrite
+          // 就是照这个顺序写的：注释里写着「规范里请求的错误事件本来就先于中止事件」，
+          // 所以它优先采信请求自己的 QuotaExceededError）。原来把 abort() 放在派发**之前**，
+          // 事务的 AbortError 先到，界面于是说了一句什么都没说明的白话
+          // （实测：「本地存储已满」变成「无法写入本地存储」）
+          try {
+            transaction.abort()
+          } catch {
+            // 事务这时可能已经收口（错误派发本身就会了结它），那时 abort() 会抛
+            // InvalidStateError。本用例要的是「写失败」这件事，不是「由谁先把事务中止」，
+            // 所以已经结束就什么都不用做——但**必须挡住这个异常**，否则它会以
+            // pageerror 的形式落到 watchProblems 里，把这条用例改成挂在另一个断言上
+            // （实测：文案那句已经绿了，红的是 `problems` 那一条）
+          }
         })
-        transaction.abort()
         return request
       }
       return store
@@ -310,27 +334,37 @@ test('写入失败：界面给出警告，且说的是实话——页面内的�
 test('新游戏不擦已结算数据：records 桶里的东西原样留在原地', async ({ page }) => {
   const problems = watchProblems(page)
 
-  // 先把「已结算数据」摆进 records 桶。T17 之前这里只能手工摆一个进去；T17 起
-  // 写入方真的存在了，而这个用例要验的仍然是「新游戏的写入路径不碰它」，所以要摆
-  // 的是一个**结算写不出来的键**（classic:material——本用例打的是 classic 风格）。
-  // 形状照真的写入方给齐：version + bestScore + highestTile（records.ts 的
-  // decodeStyleRecord），少了 version 会被判成旧版记录，那时冒出来的提示会让
-  // 下面那句 toHaveCount(0) 红。四个桶在建库那一刻就摆好，因为应用持有连接时
-  // 升级数据库会被它挡住
-  await page.addInitScript(() => {
-    const request = indexedDB.open('2048', 1)
-    request.onupgradeneeded = () => {
-      const db = request.result
-      for (const name of ['settings', 'session', 'history', 'records']) {
-        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name)
-      }
-      db.transaction('records', 'readwrite')
+  await startRun(page)
+
+  // 摆一条「已结算」的记录。T17 起写入方真的存在了，而这个用例要验的仍然是
+  // 「新游戏的写入路径不碰它」，所以要摆的是一个**结算写不出来的键**
+  // （classic:material——本用例打的是 classic 风格）。形状照真的写入方给齐：
+  // version + bestScore + highestTile（records.ts 的 decodeStyleRecord），少了
+  // version 会被判成旧版记录，那时冒出来的提示会让下面那句 toHaveCount(0) 红。
+  //
+  // **等应用把库建好之后再写，而且不带版本号**。这一段原来摆在 addInitScript 里、
+  // 想抢在应用前面建库，那条路两头都堵：在 onupgradeneeded 里开事务，Chromium 直接抛
+  // `InvalidStateError: A version change transaction is running`——种子从来没写进去过；
+  // 而 addInitScript 那次连接不会关，应用接着按自己的版本升级就被它挡住，页面停在
+  // 「正在恢复上次的一局…」。不带版本号打开 = 不升级 = 既不会被挡，也不会撞
+  // VersionError（T17 把库从 1 涨到 2 之后这个用例就是这么一直红的）。
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('2048')
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('records', 'readwrite')
+      transaction
         .objectStore('records')
         .put({ version: 1, bestScore: 9999, highestTile: 2048 }, 'classic:material')
-    }
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+    db.close()
   })
 
-  await startRun(page)
   await page.locator('[data-board]').focus()
   await page.keyboard.press('ArrowUp')
 
@@ -351,7 +385,8 @@ test('新游戏不擦已结算数据：records 桶里的东西原样留在原地
   // 而 records 一个字节都没被碰
   const survived = await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('2048', 1)
+      // 也不带版本号：此刻库是应用打开的那一版（同上一条理由）
+      const request = indexedDB.open('2048')
       request.onsuccess = () => resolve(request.result)
       request.onerror = () => reject(request.error)
     })

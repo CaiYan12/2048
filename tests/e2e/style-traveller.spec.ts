@@ -1,20 +1,17 @@
 import { expect, test, type Page } from '@playwright/test'
 
 /**
- * T19 的风格旅行者：单局内切过 5 次以上风格 → 只解锁一次，刷新之后计数与解锁都在。
+ * 风格旅行者：单局内切过 5 次以上风格 → **当场**一条祝贺，刷新之后计数与解锁都还在。
  *
- * **本文件由 T19 编写、不由 T19 执行**（派发令明令：不准跑 playwright、不准开浏览器，
- * 也不准用任何驱动真实浏览器的 MCP）。期望值来自同一条规则内核的离线推演 +
- * tests/unit/style-traveller.test.ts 已经钉住的那一段：阈值钉在 5、判据 `>=`，
- * 撤销不倒回、放弃不留痕。跑不跑由控制人决定。
+ * ADR-0007 之后成就不落盘、也不等结算：切够第 5 次的那一刻就解锁（阈值钉在 5、判据
+ * `>=`，由 tests/unit/achievements.test.ts 与 tests/unit/style-traveller.test.ts 钉住）。
+ * 本文件验的是浏览器那一层：祝贺真的浮出来、只响一次、刷新不重播。
  *
- * DOM 契约沿用 T18：解锁提示是 `[data-achievement-notice]`，统计面板是
- * `[data-stats-panel]`，成就一行一个 `[data-achievement="<id>"]` 带 `data-unlocked`。
+ * DOM 契约（与 achievements.spec.ts 同一份）：祝贺是 `[data-toast]`；统计面板是
+ * `[data-stats-panel]`，成就一行一个 `[data-achievement="<id>"]`，**不带解锁状态**。
  *
- * 局面确定性来自 `?seed=` + `?board=`（开局夹具）：合出 2048 靠人手按键无法复现，
- * 而这里要断言的正是「切够次数 → 结算 → 解锁」这一路。局面铺好之后每一步仍然走
- * 真实点击与真实规则内核。四张 1024 一次左移 = 第一次达标，与
- * tests/e2e/achievements.spec.ts / run-endings.spec.ts 同款。
+ * 确定性来自 `?seed=` + `?board=`：切风格本身与局面无关，用一副铺好的局面只为让棋盘
+ * 立刻可玩（切换计数只数「活的这一局」里的真实换皮）。
  */
 
 /** 行优先局面 → board 参数值（空串 = 空格） */
@@ -22,20 +19,19 @@ function boardQuery(rows: (number | null)[][]): string {
   return rows.flat().map((value) => value ?? '').join(',')
 }
 
-/** 开局 URL：固定种子让「移动后的生成」也可预期 */
-function startUrl(rows: (number | null)[][], score = 0): string {
-  return `/?seed=20260926&board=${boardQuery(rows)}&score=${score}`
-}
-
-/** 四个 1024：一次左移合出两个 2048，正好是「第一次达标」 */
-const FOUR_1024: (number | null)[][] = [
-  [1024, 1024, 1024, 1024],
-  [null, null, null, null],
-  [null, null, null, null],
-  [null, null, null, null],
+/** 一副铺好的 4×4：怎样的按键都不至于一步就死，方便反复切风格 */
+const LAID_OUT: (number | null)[][] = [
+  [1024, 2, 4, 8],
+  [16, 32, 64, 128],
+  [256, 8, 2, 4],
+  [null, 2, 4, 8],
 ]
 
-/** 收集 console / page 错误：解锁提示是新的渲染路径，React 警告要当场看见 */
+function startUrl(): string {
+  return `/?seed=20260926&board=${boardQuery(LAID_OUT)}&score=4321`
+}
+
+/** 收集 console / page 错误：祝贺是新的渲染路径，React 警告要当场看见 */
 function watchProblems(page: Page): string[] {
   const problems: string[] = []
   page.on('console', (message) => {
@@ -45,24 +41,36 @@ function watchProblems(page: Page): string[] {
   return problems
 }
 
+/** 打开战绩与统计面板（开关：已经开着就不再点） */
+async function openStats(page: Page): Promise<void> {
+  const panel = page.locator('[data-stats-panel]')
+  if (!(await panel.isVisible())) {
+    await page.getByRole('button', { name: '战绩与统计' }).click()
+  }
+  await expect(panel).toBeVisible()
+}
+
 /**
  * 切换一次风格，返回切到的那个名字。
  *
- * **从 DOM 上推出切哪一个**，而不是写死「第 n 个按钮」：T18 的评审记着一次 Tab 顺序
- * 脆弱性——外壳上多一个选择器就把按 Tab 数按钮的用例全打断了。这里问的是
- * aria-pressed 不为 true 的那一个（StylePicker 的选中态就挂在这个属性上），
- * 于是加一套风格、或者选择器的位置变了，这个走法都还成立。
+ * **从 DOM 上推出切哪一个**，而不是写死「第 n 个按钮」：问的是 aria-pressed 不为 true
+ * 的那一个（StylePicker 的选中态就挂在这个属性上），于是加一套风格、或者选择器的位置
+ * 变了，这个走法都还成立。
+ *
+ * **等这一下真的生效再返回**：不等的话，紧跟着的下一次调用会读到还没提交的 DOM，
+ * 又把同一枚按钮当成「没被选中」再点一次——那一下是 no-op（setStyle 对同一个 id 直接
+ * 返回原 state），一次真实切换都不算。这是上一版时红时绿的来源，照旧防住。
  */
-async function switchOnce(page: Page): Promise<string> {
+async function switchOnce(page: Page): Promise<void> {
   const picker = page.getByRole('group', { name: '风格' })
   const buttons = picker.getByRole('button')
   const count = await buttons.count()
   for (let index = 0; index < count; index += 1) {
     const button = buttons.nth(index)
     if ((await button.getAttribute('aria-pressed')) !== 'true') {
-      const label = (await button.textContent()) ?? ''
       await button.click()
-      return label
+      await expect(button).toHaveAttribute('aria-pressed', 'true')
+      return
     }
   }
   throw new Error('风格选择器上应当有一个没被选中的按钮')
@@ -73,87 +81,49 @@ async function switchTimes(page: Page, count: number): Promise<void> {
   for (let index = 0; index < count; index += 1) await switchOnce(page)
 }
 
-/** 打开战绩与统计面板 */
-async function openStats(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '战绩与统计' }).click()
-  await expect(page.locator('[data-stats-panel]')).toBeVisible()
-}
-
-/** 开局（同一副四 1024），再切 count 次风格，最后左移达标 */
-async function playToWin(page: Page, switches: number): Promise<void> {
-  await page.goto(startUrl(FOUR_1024, 4321))
+test('切四次：不够，一条祝贺都没有（阈值是 5，不是 4）', async ({ page }) => {
+  const problems = watchProblems(page)
+  await page.goto(startUrl())
   await page.getByRole('button', { name: '开始游戏' }).click()
   await expect(page.locator('[data-board]')).toBeVisible()
-  await switchTimes(page, switches)
-  // 点风格按钮把焦点从棋盘上带走了，而方向键只在棋盘是事件目标时才生效
-  // （game.spec.ts 钉住的契约）。少了这一行，左移会落在按钮上、一个 Move 都不产生
-  await page.locator('[data-board]').focus()
-  await page.keyboard.press('ArrowLeft')
-  await expect(page.locator('[data-panel="win"]')).toBeVisible()
-}
 
-test('切四次：不够，风格旅行者还锁着（阈值是 5，不是 4）', async ({ page }) => {
-  const problems = watchProblems(page)
-  await playToWin(page, 4)
-  await page.getByRole('button', { name: '结束并记录' }).click()
+  await switchTimes(page, 4)
 
+  await expect(page.locator('[data-toast]')).toHaveCount(0)
+  // 面板上的那一行照实写着这个门槛
   await openStats(page)
-  await expect(page.locator('[data-achievement="style-traveller"]')).toHaveAttribute(
-    'data-unlocked',
-    'false'
-  )
-  // 锁着的那一行照实写出条件：不把条件藏起来（SPEC §3.3 的原话）
   await expect(page.locator('[data-achievement="style-traveller"]')).toContainText(
-    '单局内切换 5 次以上风格'
+    '本局切换 5 次以上风格'
   )
   expect(problems).toEqual([])
 })
 
-test('切五次解锁，切六次也只解锁一次', async ({ page }) => {
+test('切到第五次当场解锁，只响一条；再切也不多响', async ({ page }) => {
   const problems = watchProblems(page)
 
-  await playToWin(page, 5)
-  // 达标那一瞬间还没有结算，于是还没有解锁提示
-  await expect(page.locator('[data-achievement-notice]')).toHaveCount(0)
-  await page.getByRole('button', { name: '结束并记录' }).click()
+  await page.goto(startUrl())
+  await page.getByRole('button', { name: '开始游戏' }).click()
+  await expect(page.locator('[data-board]')).toBeVisible()
 
-  const notice = page.locator('[data-achievement-notice]')
-  await expect(notice).toBeVisible()
-  // 这一局同时首胜，所以那一句里两个成就都在；而它只有**一条**，不是每个成就一条
-  await expect(notice).toContainText('风格旅行者')
-  await expect(notice).toHaveCount(1)
+  await switchTimes(page, 4)
+  await expect(page.locator('[data-toast]')).toHaveCount(0)
 
-  await openStats(page)
-  await expect(page.locator('[data-achievement="style-traveller"]')).toHaveAttribute(
-    'data-unlocked',
-    'true'
-  )
+  await switchOnce(page)
+  const item = page.locator('[data-toast]')
+  await expect(item).toHaveCount(1)
+  await expect(item).toContainText('风格旅行者')
+
+  // 再切一次：集合没变，就没有新的跃迁，也就不会再响一条
+  await switchOnce(page)
+  await expect(page.locator('[data-toast]')).toHaveCount(1)
+
   expect(problems).toEqual([])
 })
 
-test('切六次同样解锁一次：多切一次不会多响一次', async ({ page }) => {
+test('局中刷新：切过的次数跟着这一局回来，补到阈值照样解锁，但不重播', async ({ page }) => {
   const problems = watchProblems(page)
 
-  await playToWin(page, 6)
-  await page.getByRole('button', { name: '结束并记录' }).click()
-  const notice = page.locator('[data-achievement-notice]')
-  await expect(notice).toHaveCount(1)
-  await expect(notice).toContainText('风格旅行者')
-
-  await openStats(page)
-  await expect(page.locator('[data-achievement="style-traveller"]')).toHaveAttribute(
-    'data-unlocked',
-    'true'
-  )
-  // 成就解锁那个数字也跟着注册表走：这一局是首胜 + 风格旅行者 = 2
-  await expect(page.locator('[data-stat="achievementUnlocks"]')).toHaveText('2')
-  expect(problems).toEqual([])
-})
-
-test('局中刷新：切过的次数跟着这一局回来，补到阈值照样解锁', async ({ page }) => {
-  const problems = watchProblems(page)
-
-  await page.goto(startUrl(FOUR_1024, 4321))
+  await page.goto(startUrl())
   await page.getByRole('button', { name: '开始游戏' }).click()
   await expect(page.locator('[data-board]')).toBeVisible()
   // 先切三次：还不够，此刻刷新一次，看这三次数不数得回来
@@ -163,47 +133,43 @@ test('局中刷新：切过的次数跟着这一局回来，补到阈值照样�
   await page.goto('/')
   await page.reload()
   await expect(page.locator('[data-board]')).toBeVisible()
+  // **等恢复落定再切**：hydrate 是异步的，棋盘一出现时 store 里的 styleId 可能还是默认的
+  // classic（刷新前是 material），于是选择器上的 aria-pressed 与 store 短暂不一致——
+  // 这时点那枚「看起来没被选中」的按钮，可能正是 store 已经选中的那一个，那一下是 no-op，
+  // 一次切换都不算。data-style 落在外壳上，是「恢复真的生效了」的那个信号。
+  await expect(page.locator('main')).toHaveAttribute('data-style', 'material')
+  // 恢复是**静默基线**：三条切换还不构成解锁，屏幕上也没有半条补放的祝贺
+  await expect(page.locator('[data-toast]')).toHaveCount(0)
 
   // 再切两次：3 + 2 = 5，正好压线。若切换计数没跟着这一局活过刷新，这里就差两次
   await switchTimes(page, 2)
-  await page.locator('[data-board]').focus()
-  await page.keyboard.press('ArrowLeft')
-  await expect(page.locator('[data-panel="win"]')).toBeVisible()
-  await page.getByRole('button', { name: '结束并记录' }).click()
-
-  await expect(page.locator('[data-achievement-notice]')).toContainText('风格旅行者')
-  await openStats(page)
-  await expect(page.locator('[data-achievement="style-traveller"]')).toHaveAttribute(
-    'data-unlocked',
-    'true'
-  )
+  await expect(page.locator('[data-toast]')).toHaveCount(1)
+  await expect(page.locator('[data-toast]')).toContainText('风格旅行者')
   expect(problems).toEqual([])
 })
 
-test('结算之后再刷新：那一句不重播，而解锁还在盘上', async ({ page }) => {
+test('切够五次之后刷新：解锁还在，但一条祝贺都不重播', async ({ page }) => {
   const problems = watchProblems(page)
 
-  await playToWin(page, 6)
-  await page.getByRole('button', { name: '结束并记录' }).click()
-  await expect(page.locator('[data-achievement-notice]')).toBeVisible()
+  await page.goto(startUrl())
+  await page.getByRole('button', { name: '开始游戏' }).click()
+  await expect(page.locator('[data-board]')).toBeVisible()
+  await switchTimes(page, 5)
+  await expect(page.locator('[data-toast]')).toHaveCount(1)
 
   await page.goto('/')
   await page.reload()
-  // 提示只由「落库前后的差」产生，而 hydrate 只读盘上那份已解锁列表——重播不会发生
-  await expect(page.locator('[data-achievement-notice]')).toHaveCount(0)
+  await expect(page.locator('[data-board]')).toBeVisible()
 
-  await openStats(page)
-  await expect(page.locator('[data-achievement="style-traveller"]')).toHaveAttribute(
-    'data-unlocked',
-    'true'
-  )
+  // 恢复建立静默基线：解锁照算（集合与刷新前一致），但一条祝贺都不补放
+  await expect(page.locator('[data-toast]')).toHaveCount(0)
   expect(problems).toEqual([])
 })
 
 test('换风格不碰这一局：同一副棋盘切五次，盘面状态一个字段都不动', async ({ page }) => {
   const problems = watchProblems(page)
 
-  await page.goto(startUrl(FOUR_1024, 4321))
+  await page.goto(startUrl())
   await page.getByRole('button', { name: '开始游戏' }).click()
   await expect(page.locator('[data-board]')).toBeVisible()
 
@@ -230,13 +196,8 @@ test('换风格不碰这一局：同一副棋盘切五次，盘面状态一个�
   const before = await readRun()
   await switchTimes(page, 5)
   // **深相等在这里不够**：换皮若把 run 重建一遍、每个值都还在，这个断言照样过——
-  // 所以 data-tile-id 的同一性与 DOM 节点的引用由 style-switch.spec.ts 单独钉，
-  // 这一条钉的是「盘面状态没变」（值）。两条一起才闭合
+  // 所以 data-tile-id 的同一性由 style-switch.spec.ts 单独钉，这一条钉的是
+  // 「盘面状态没变」（值）。两条一起才闭合
   expect(await readRun()).toBe(before)
-
-  // 换五次皮不影响胜负路径：左移照样合出 2048
-  await page.locator('[data-board]').focus()
-  await page.keyboard.press('ArrowLeft')
-  await expect(page.locator('[data-panel="win"]')).toBeVisible()
   expect(problems).toEqual([])
 })

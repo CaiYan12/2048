@@ -48,10 +48,20 @@ function watchProblems(page: Page): string[] {
   return problems
 }
 
-/** 打开战绩与统计面板 */
+/**
+ * 打开战绩与统计面板。
+ *
+ * **幂等**：那个按钮是**开关**（aria-expanded 跟着面板走），所以面板已经开着时再点一次
+ * 是把它关掉。原来这里无条件点一下，于是「面板开着的时候点新游戏、接着再 openStats」
+ * 那条路必然失败——面板没关，这一下把它关了（实测 records 的第 187 与 212 两条都很容易
+ * 踩到）。已经开着就直接断言可见，不重复点。
+ */
 async function openStats(page: Page): Promise<void> {
-  await page.getByRole('button', { name: '战绩与统计' }).click()
-  await expect(page.locator('[data-stats-panel]')).toBeVisible()
+  const panel = page.locator('[data-stats-panel]')
+  if (!(await panel.isVisible())) {
+    await page.getByRole('button', { name: '战绩与统计' }).click()
+  }
+  await expect(panel).toBeVisible()
 }
 
 /** 一条记录的两个数字 */
@@ -67,10 +77,10 @@ async function readRecord(
   }
 }
 
-/** 统计面板上的四个数字 */
+/** 统计面板上的三个数字（成就那一栏已随 ADR-0007 撤下：它答不上「谁解锁了」） */
 async function readStats(page: Page): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
-  for (const key of ['totalRuns', 'wins', 'timePlayedMs', 'achievementUnlocks']) {
+  for (const key of ['totalRuns', 'wins', 'timePlayedMs']) {
     out[key] = (await page.locator(`[data-stat="${key}"]`).textContent()) ?? ''
   }
   return out
@@ -109,8 +119,8 @@ test('死局 → 结束并记录：结算的那一刻，成绩落在经典 × �
   expect(stats.totalRuns).toBe('1')
   expect(stats.wins).toBe('0')
   expect(stats.timePlayedMs).toMatch(/^\d+:\d{2}$/)
-  // 成就归 T18，此刻恒 0
-  expect(stats.achievementUnlocks).toBe('0')
+  // 成就那一栏已经撤下（ADR-0007）：面板不再声称谁解锁了
+  await expect(page.locator('[data-stat="achievementUnlocks"]')).toHaveCount(0)
 
   expect(problems).toEqual([])
 })
@@ -136,6 +146,11 @@ test('局中切到 Material 再结算：只有 Material 的记录变化', async 
     .click()
   await expect(page.locator('main')).toHaveAttribute('data-style', 'material')
 
+  // **先把焦点交回棋盘再按键**：开局那一刻焦点是应用替我们放在棋盘上的，而上面点过风格
+  // 按钮，焦点已经落在那个按钮上——此时按方向键改的是按钮的焦点/页面滚动，棋盘一步不动，
+  // 于是死局面板永远不出现（实测就是这么红的）。reachDeadlock 那条路没有中途点按钮，
+  // 所以它不需要这一句。
+  await page.locator('[data-board]').focus()
   await page.keyboard.press('ArrowRight')
   await expect(page.locator('[data-panel="gameover"]')).toBeVisible()
   await page.getByRole('button', { name: '结束并记录' }).click()
@@ -239,10 +254,76 @@ test('战绩与统计面板键盘可达，而且不打扰棋盘自己的行为',
   await expect(page.locator('[data-stats-panel]')).toHaveCount(0)
 
   // 收摊之后棋盘照旧推得动：两枚开局方块 + 新生成的一枚 = 3
+  //
+  // **四个方向依次试，不假定 ArrowLeft 一定推得动**：新游戏的盘面是随机的，两枚方块本来
+  // 就靠左时左移是一次无效移动——无效移动不生成（CONTEXT.md 的 Spawn），方块数停在 2，
+  // 于是这条断言会时红时绿（实测隔离跑 3/3 过、整批跑偶发红）。
   await page.locator('[data-board]').focus()
-  await page.keyboard.press('ArrowLeft')
+  for (const key of ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown']) {
+    await page.keyboard.press(key)
+    if ((await page.locator('[data-tile-id]').count()) === 3) break
+  }
   await expect(page.locator('[data-tile-id]')).toHaveCount(3)
   await expect(page.locator('[data-stats-panel]')).toHaveCount(0)
+
+  expect(problems).toEqual([])
+})
+
+test('上一版写下的统计（带已退休的成就 id）照旧显示，不整条作废', async ({ page }) => {
+  const problems = watchProblems(page)
+
+  // 先让应用把库与桶建出来——下面那个 open 不带版本号，等于「用已有的那个库」，
+  // 而不是把「库里有哪几个桶」这个实现细节抄进测试（session.spec.ts 同一条路子）
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: '开始游戏' })).toBeVisible()
+
+  // 往 stats 桶里放一条**上一版形状**的记录：版本号是对的，但多了一个 achievements 块，
+  // 里面还写着两个已经退休的成就 id。ADR-0007 要的是「退休一个成就不该让玩家丢掉战绩」，
+  // 所以这条记录必须读得出来，而不是被整条拒绝
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('2048')
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('stats', 'readwrite')
+      transaction.objectStore('stats').put(
+        {
+          version: 1,
+          totalRuns: 4,
+          wins: 2,
+          timePlayedMs: 3600000,
+          achievements: {
+            unlocked: ['mode-collector', 'daily-stand'],
+            modesWon: ['classic', 'fibonacci'],
+            highestTile: 4096,
+            bestMerges: 250,
+            bestTimeAttackScore: 21000,
+            dailyStreakDate: '2026-09-07',
+            dailyStreakLength: 7,
+          },
+          lastRunStartedAt: null,
+        },
+        'current'
+      )
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error)
+    })
+    db.close()
+  })
+
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: '开始游戏' })).toBeVisible()
+  // 桌面上没有「统计读不出来」那句话：认不得的字段被丢掉，三个数字照旧认
+  await expect(page.locator('[data-storage-notice]')).toHaveCount(0)
+
+  await openStats(page)
+  const stats = await readStats(page)
+  expect(stats.totalRuns).toBe('4')
+  expect(stats.wins).toBe('2')
+  // 3600000ms → '1:00:00'
+  expect(stats.timePlayedMs).toBe('1:00:00')
 
   expect(problems).toEqual([])
 })

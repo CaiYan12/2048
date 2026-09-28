@@ -27,20 +27,33 @@ async function watchFontState(page: Page): Promise<void> {
     const seen: string[] = []
     const bank = window as unknown as { __fontStates: string[] }
     bank.__fontStates = seen
+    // 观察 **document**（subtree）而不是 document.documentElement：initScript 跑在「文档刚
+    // 建起来、根元素可能还没生成」的那一刻，那时对 null 调 observe 会抛 TypeError，整个
+    // initScript 静默失效——`__fontStates` 已经在上一行挂好了，所以断言读到的是一个**空数组**
+    // （不是 undefined），看起来像「状态机没动过」，其实是观察者根本没装上（实测三个用例 × 两个视口）。
+    // 观察 document + subtree 既能覆盖 <html> 上的属性变化，又不依赖根元素当时在不在。
     new MutationObserver(() => {
-      seen.push(document.documentElement.dataset.fontState ?? '')
-    }).observe(document.documentElement, {
+      seen.push(document.documentElement?.dataset.fontState ?? '')
+    }).observe(document, {
       attributes: true,
+      subtree: true,
       attributeFilter: ['data-font-state'],
     })
   })
 }
 
-/** 记录归零：之后的断言只看接下来发生的事（首屏那一轮已经单独断过） */
+/**
+ * 记录归零：之后的断言只看接下来发生的事（首屏那一轮已经单独断过）。
+ *
+ * **就地清空，不能重新赋值**：MutationObserver 的回调闭包握着 `watchFontState` 里那个
+ * 数组，`bank.__fontStates = []` 只是把 window 上的引用换成一个新数组，观察者会继续往
+ * 旧数组里推——而断言读的是新的那个，于是**永远是空的**（`[]` 而不是 `['ready']`，
+ * 实测三个用例、两个视口全红）。长度清零才是同一个数组。
+ */
 async function resetFontStateTrace(page: Page): Promise<void> {
   await page.evaluate(() => {
     const bank = window as unknown as { __fontStates: string[] }
-    bank.__fontStates = []
+    bank.__fontStates.length = 0
   })
 }
 

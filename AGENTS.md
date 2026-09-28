@@ -4,7 +4,7 @@
 
 We have compiled a set of "skills": folders of best practices for different forms of work. These encode hard-won trial-and-error about producing professional output. Several may apply to one task, so don't read just one. You need always be smart to use skills like:
 
-- /grill-me on big changes sessions or any other you need to know.
+- /grill-me on big changes sessions or any informations you need to know. PS: You need to call the agent's internal qa tool for grilling session.
 
 - /design-flow on every ui/ux designing, changing or frontend processing. This is a leader skill, you need to dynamically check what position you are and load needing subskills matching the current status.
 
@@ -324,3 +324,70 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 - The merge value of 80ms is the total CSS scale-transition budget (40ms up + 40ms down). Browser wall-clock measurements were 130–160ms because React commits the second phase after `transitionend`; do not describe 80ms as end-to-end duration.
 - Shared `150ms ease-out` motion across Classic, Material, and Claude is an accepted stability decision. Revisit it only with fresh frame-level evidence.
 - Final verification: 738 unit tests, typecheck, production build, the full tile-motion Playwright suite, and the final targeted desktop/mobile preview cases passed. Playwright remains headless as required above.
+
+### Style catalog status (2026-09-28)
+
+- ADR-0006 shipped as SC-01 → SC-03. The approved plan, the three tickets, the open-items list
+  and every evidence figure live in `.scratch/style-catalog/`. Project memory for this work is
+  in `.codex/memories/` (start at its `INDEX.md`).
+- Style identity has exactly one source: `src/shared/styleCatalog.ts` (a zero-import table of
+  id + label; array order is display order). `StyleId` derives from it,
+  `src/shared/types.ts` only re-exports it and imports no React, storage validation
+  (`session.ts` / `records.ts`) asks the catalog rather than the renderer, and the browser
+  matrix imports the catalog directly instead of parsing registry source.
+- The renderer registry is **derived, not maintained**: `themes/index.ts` discovers folders with
+  `import.meta.glob('./*/config.ts', { eager: true })` and `resolveThemes()` maps them onto the
+  catalog, throwing when a catalog entry has no folder or a folder is missing one of its three
+  slots (never silently omitted, never falling back to Classic). Each `config.ts` exports only
+  `boardOverlay` / `tileOverlay` / `toast` plus its own CSS imports.
+- Adding a style is two things: one line in the catalog + one `themes/<id>/` folder holding
+  `DESIGN.md`, `tokens.css`, `styles.css`, `config.ts`, `contrast.json` and `toast.tsx`. The
+  registry, picker, persistence and matrix need no edit. Style IDs are persistent identities;
+  retiring one needs a storage migration.
+- `import.meta.glob` arguments must be literals (Vite docs, Features → Glob Import), so discovery
+  happens at module scope while the pure half `resolveThemes(modules)` is what unit tests drive.
+  Never write a glob pattern inside a block comment: its `*/` closes the comment.
+- Close-of-ticket verification: `npm run typecheck`, 759 unit tests across 39 files,
+  `npm run build` (76 modules, unchanged from before), `npm run check:contrast` (3 styles,
+  65 pairs), and the **full Playwright suite: 378 passed / 14 skipped / 0 failed**.
+- **Standing practice, from this date:** every completed fix is distilled into `.codex/memories/`
+  (add the file, then a line in `INDEX.md`) and into this section before moving on. Symptom-level
+  detail — expected vs actual values, which cases are red — belongs in
+  `.scratch/style-catalog/open-items.md`, not here.
+- The e2e suite was taken from "red across eleven spec files" to fully green on 2026-09-28, and
+  **every one of those failures turned out to be a test-side defect** — not one product bug.
+  The trap catalogue (symptom → root cause → the check that proved it) is in
+  `.codex/memories/e2e-debt.md`; read it before touching these specs. Three rules that would have
+  prevented most of the churn: take a `git stash` baseline before calling anything a regression;
+  write a throwaway probe to read the real value before deciding who is wrong; and when a spec's
+  premise is wrong, fix the premise rather than loosening the assertion.
+
+### 无法移动音效状态 (2026-09-28)
+
+- T20 点名了四个音效事件（移动 / 合并 / 胜利 / 失败）。应项目所有者要求补上第五个
+  `blocked`（无法移动）作为**占位代码**，理由写进 `README.md` 的 TODO 了：将来的音效下拉框
+  要能列出它。落地在 `src/renderer/audio/tone.ts`（事件 + 占位音色）与
+  `src/renderer/stores/useGameStore.ts`（`soundOfBlocked`）；完整交接见
+  `.codex/memories/audio-events.md`。
+- 它**只在 `phase === 'playing'` 时响**：won / stuck / ended 三个阶段是面板在接管输入，出声
+  等于把「点不动」说成「走不了」。这条守卫由 `tests/unit/audio-store.test.ts` 钉着。
+- T20 的旧契约「无效移动一个音都没有」被本改动**取代**，钉它的那条单测是故意改写的，
+  不是被改绿。占位音色为 A2 / 0.05 s / 峰值 0.08，三项都低于移动音——这一声说的是
+  「什么都没发生」。
+- 「震动等特效」的简单实现已作为独立一项写进 README TODO，未实现。
+- 收官验证：`npm run typecheck` 通过、763 unit tests / 39 files、`npm run build` 通过。
+
+### 成就单局化状态 (2026-09-28)
+
+- **已实现、已验收。** 决策在 `docs/adr/0007-achievements-are-earned-in-a-single-run.md`
+  与 `docs/adr/0002-style-as-folder-with-decoration-slots.md`（就地修订），完整规格与
+  Evidence 在 `docs/specs/single-run-achievements.md`，票据与逐项回填在
+  `.scratch/achievements-single-run/`，设计结论在各风格 `DESIGN.md` §10。
+- 一句话：成就条件**单局可自证**（撤下模式收藏家与每日坚守，8 → 6），祝贺由**每套风格自己
+  实现**的 toast 呈现（呈现插槽，与两个装饰插槽分列），宿主按「锁定 → 解锁」的跃迁发号、
+  撤销会收回（`style-traveller` 是写明理由的例外）。
+- 三条测试缝都还在原处：纯判定与解码器（`achievements.test.ts` / `records.test.ts`）、宿主
+  状态机（`achievement-host.test.ts`，假后端 + 假 synth 的既有接法）、浏览器共享契约
+  （`tests/e2e/toast-contract.spec.ts` 对三套风格各跑一遍）。**没有新增测试缝。**
+- 收官验证：typecheck 0 错、739 unit tests / 40 files、build 通过、check:contrast 3 风格
+  65 对、全量 Playwright（见 06 票据的 Evidence 数字）。

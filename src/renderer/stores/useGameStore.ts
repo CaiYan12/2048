@@ -36,12 +36,20 @@ import {
 import {
   decodeRecords,
   decodeStats,
+  highestTileOf,
   settlementOf,
   settlementWriteFailureMessage,
   type RecordEntry,
   type StatsRecord,
 } from './records'
-import type { AchievementId } from '../../game/achievements'
+import {
+  countMergesAlongPath,
+  mergeCountBetween,
+  unlockedAchievements,
+  type AchievementId,
+  type AchievementToast,
+  type RunFacts,
+} from '../../game/achievements'
 import {
   clearRun,
   readHistoryRaw,
@@ -182,16 +190,37 @@ export interface GameStore {
   /** 基础统计（stats 桶）；null = 一次都还没结算过 */
   stats: StatsRecord | null
   /**
-   * 这一次结算新解锁的成就；null = 没有待提示的解锁
+   * 本局合并次数。**增量维护**：一次有效移动加上那一步消失的方块身份数，一次撤销按
+   * **同一对状态**再算一遍把它减回去（achievements.mergeCountBetween）。于是每步都与
+   * 撤销栈深度无关，`GameState` 与存档形状一个字节都不用动。
    *
-   * 它**不落盘**：解锁本身在 stats 桶里（Refresh 之后照旧看得到），而这一个字段只是
-   * 「刚才多出来的那几个」。落盘的话，刷新之后它会再响一次——那正是验收标准 3 要禁的。
-   * 也不从 stats 反推：反推就要比较「上一份」与「这一份」，而上一份在刷新之后就没了。
-   * 唯一来源是写盘那一层返回的差值，而结算只执行一次，于是提示也只可能响一次。
+   * 为什么它必须活在内存里而不能结算时现数：成就现在是**对局进行中**判定的——第 200 次
+   * 合并那一瞬间就该有祝贺，而不是等到收工。它不落盘，但**能从盘上恢复**：hydrate 时沿
+   * 撤销路径数一遍（countMergesAlongPath），与刷新前那个数一致。
    */
-  achievementNotice: readonly AchievementId[] | null
-  /** 收起解锁提示。提示是一次性事件，收起不是撤销解锁 */
-  dismissAchievementNotice(): void
+  runMerges: number
+  /**
+   * 本局此刻解锁的成就集合，**从对局状态派生**（ADR-0007）。它不落盘、也不跨局累积。
+   *
+   * 派生保证了两件事：同一份对局事实永远给出同一份集合；撤销改动了事实就把它收回
+   * （唯一例外见 achievements.unlockedAchievements 的注释）。所以「解锁了没有」这个问题
+   * 的答案永远来自眼前的棋盘，而不是某个桶里的一份记录。
+   */
+  unlocked: readonly AchievementId[]
+  /**
+   * 待呈现的祝贺，最多三条（第四条到达时丢最旧）。宿主只决定「什么时候该有一条」与
+   * 「一次跃迁里几个成就合成一条」；长相与消失表现归当前风格的呈现插槽（ADR-0002）。
+   *
+   * 刷新不重播：hydrate 只建立静默基线（集合照算、一条祝贺都不发），而它本身不落盘。
+   */
+  toasts: readonly AchievementToast[]
+  /**
+   * 下一条祝贺的编号。只给 `toasts` 一个稳定的身份（React 的 key 与「本条已结束」
+   * 的回调都认它），界面不读它。**只在开局那一刻归零**，其余时候单调递增
+   */
+  nextToastKey: number
+  /** 一条祝贺已经结束（自己消失）：宿主据此把它移出栈 */
+  dismissToast(key: number): void
   /** 换开局界面上选中的模式（T16：写 settings 桶）。不改动已经开的那一局 */
   selectMode(id: ModeId): void
   /**
@@ -320,6 +349,21 @@ function soundOfMove(before: GameState, after: GameState, muted: boolean): void 
 }
 
 /**
+ * 一次走不动的按键（第五个事件，T20 之后应项目所有者要求补上）
+ *
+ * **只在 playing 里响**：won / stuck / ended 三个阶段引擎一律早退，那是面板在接管
+ * 输入，不是玩家试了一个走不动的方向——给那些按键配这一声，等于把「点不动」说成
+ * 「走不了」。判据用 phase 而不是 `outcome.changed`，正因为那个 false 把两种
+ * 「什么都没发生」混在了一起。
+ *
+ * 它不带数值：无法移动没有大小可言（tone.ts 的 blocked 分支连 value 都不看）。
+ */
+function soundOfBlocked(game: GameState, muted: boolean): void {
+  if (game.phase !== 'playing') return
+  synth.play('blocked', { muted, value: 0 })
+}
+
+/**
  * 一次结算的声音（T20 的第四个事件）
  *
  * deadlock 与 timeout 都响：两者都是「这一局没赢着结束」，只是死法不同，而音效
@@ -336,6 +380,105 @@ function soundOfSettlement(endReason: GameState['endReason'], muted: boolean): v
   if (endReason === 'deadlock' || endReason === 'timeout') {
     synth.play('loss', { muted, value: 0 })
   }
+}
+
+/** 同时最多三条祝贺：第四条到达时丢最旧（用户故事 6：最新那一条永远看得见） */
+const TOAST_STACK_LIMIT = 3
+
+/**
+ * 成就宿主能改动的三个字段。它们是同一台状态机的输出，所以总是一起给出——
+ * 而且**永远只给这三个**：调用点把它展开进 set() 的 patch 里，多一个键就会把
+ * 别的字段一起覆盖掉（一次「什么都没变」的推进会把 game / history 也写回去）。
+ */
+interface AchievementState {
+  unlocked: readonly AchievementId[]
+  toasts: readonly AchievementToast[]
+  /** 下一条祝贺的编号。只在开局那一刻归零，其余时候单调递增 */
+  nextToastKey: number
+}
+
+/** 这一局此刻的事实。`null` = 还没有局（开局界面 / 已清空），那就什么成就都谈不上 */
+function runFactsOf(
+  game: GameState | null,
+  runMerges: number,
+  styleSwitches: number
+): RunFacts | null {
+  if (game === null) return null
+  return {
+    modeId: game.modeId,
+    score: game.score,
+    // 最高方块问 records.highestTileOf：记录那份成绩用的是同一把尺子，两处不能各算一套
+    highestTile: highestTileOf(game.board),
+    reachedTarget: game.reachedTarget,
+    merges: runMerges,
+    styleSwitches,
+  }
+}
+
+/**
+ * 建立**静默基线**：集合照算，但一条祝贺都不发。
+ *
+ * 两个时刻用它——开局（startRun / newGame）与恢复（hydrate）。两者都不是「玩家刚刚
+ * 做成了什么」：开局带着 `?board=` 夹具时盘上可能已经有 4096，刷新恢复的那一局更是早就
+ * 解锁过好几个。给它们补放祝贺，等于把「我上次打成的事」说成「你刚才做到了」
+ * （用户故事 10：刷新不该变成一场吹号）。
+ */
+function baselineOf(facts: RunFacts | null): Pick<AchievementState, 'unlocked' | 'toasts'> {
+  return { unlocked: facts === null ? [] : unlockedAchievements(facts), toasts: [] }
+}
+
+/** 两个集合是不是同一份（逐项比）。为真就不换引用，省掉一次无谓的重渲染 */
+function sameUnlocked(a: readonly AchievementId[], b: readonly AchievementId[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index])
+}
+
+/**
+ * 推进成就状态机：重算集合、认出**锁定 → 解锁**的跃迁、把一次跃迁里的几个成就合成
+ * 一条祝贺、并按上限截掉最旧的。
+ *
+ * 判据只有集合的差集，所以「一直解锁着」不会重复发号（用户故事：解开一次只祝贺一次）、
+ * 撤销让条件不再成立时集合自己缩回去（用户故事 8）、重新达成又是一次新的跃迁
+ * （用户故事 9）。**这里不做任何持久化**：集合是派生的，祝贺是瞬时的。
+ */
+function advanceAchievements(
+  previous: AchievementState,
+  facts: RunFacts | null
+): AchievementState {
+  const unlocked = facts === null ? [] : unlockedAchievements(facts)
+  // 集合原样：三个字段**原引用**还回去。zustand 的浅比较因此一个都不算变
+  if (sameUnlocked(previous.unlocked, unlocked)) {
+    return {
+      unlocked: previous.unlocked,
+      toasts: previous.toasts,
+      nextToastKey: previous.nextToastKey,
+    }
+  }
+  // 集合变了但没有新解锁 = 撤销收回了某个成就。不发号，只把集合回退
+  const gained = unlocked.filter((id) => !previous.unlocked.includes(id))
+  if (gained.length === 0) {
+    return { unlocked, toasts: previous.toasts, nextToastKey: previous.nextToastKey }
+  }
+  const key = previous.nextToastKey + 1
+  const stack = [...previous.toasts, { key, ids: gained }]
+  return {
+    unlocked,
+    toasts: stack.length > TOAST_STACK_LIMIT ? stack.slice(stack.length - TOAST_STACK_LIMIT) : stack,
+    nextToastKey: key,
+  }
+}
+
+/**
+ * 一次状态迁移之后推进成就。三个入参恒同行（局 / 本局合并数 / 本局切换次数），
+ * 所以包成一处调用：每个动作各拼一遍 `advanceAchievements(state, runFactsOf(...))`
+ * 只会让「哪两个数字配对」在多处各自成立，而那是错一次就悄悄错下去的地方。
+ */
+function advance(
+  state: GameStore,
+  game: GameState | null,
+  runMerges: number,
+  styleSwitches: number
+): AchievementState {
+  return advanceAchievements(state, runFactsOf(game, runMerges, styleSwitches))
 }
 
 /**
@@ -361,10 +504,10 @@ function clearPersistedRun(): void {
 /**
  * 结算的写入半边（T17）。
  *
- * **它在 session 存档被作废之前被调用**，终态、起始时刻、撤销路径、Daily 日期与切换
- * 次数都是当场从 store 取的：T16 把「已结算的一局」定义为没有可恢复的东西，于是结算
- * 之后 session 就没了，能读到这局是什么的时刻只有作废之前。所以记录不是从内存里
- * 「补」出来的——它是这一局终止那一刻的快照，与刷新后会看到的终局是同一个东西。
+ * **它在 session 存档被作废之前被调用**，终局与起始时刻都是当场从 store 取的：T16 把
+ * 「已结算的一局」定义为没有可恢复的东西，于是结算之后 session 就没了，能读到这局是
+ * 什么的时刻只有作废之前。所以记录不是从内存里「补」出来的——它是这一局终止那一刻的
+ * 快照，与刷新后会看到的终局是同一个东西。
  *
  * 「结算只执行一次」有两层，缺一不可：
  *   1. 引擎的早退（`settle` 对已结算的局原样返回同一个对象）挡住同一个对象被结算两次；
@@ -374,27 +517,9 @@ function clearPersistedRun(): void {
 function persistSettlement(
   game: GameState,
   styleId: StyleId,
-  startedAt: number | null,
-  /** 结算那一刻的撤销路径：合并次数只能沿它数，而它随 session 存档一起作废 */
-  prior: readonly GameState[],
-  /** 本局的 Daily UTC 日期串；非 Daily 为 null（SessionRecord.dailyDate） */
-  dailyDate: string | null,
-  /**
-   * 本局真实切换过几次风格（T19 的风格旅行者读它）。
-   * 与 prior / dailyDate 同一条理由：它住在 session 桶里，结算即作废，所以只能在
-   * 这一刻从 store 取（SessionRecord.styleSwitches）
-   */
-  styleSwitches: number
+  startedAt: number | null
 ): void {
-  const settlement = settlementOf(
-    game,
-    styleId,
-    startedAt,
-    Date.now(),
-    prior,
-    dailyDate,
-    styleSwitches
-  )
+  const settlement = settlementOf(game, styleId, startedAt, Date.now())
   void writeSettlement(settlement)
     .then((result) => {
       if (result.kind === 'rejected') {
@@ -408,14 +533,7 @@ function persistSettlement(
       // 的两份真相——那正是 T16 那批测试要抓的形态
       void loadSettled()
         .then((loaded) => {
-          useGameStore.setState({
-            records: loaded.records,
-            stats: loaded.stats,
-            // 解锁提示只在这里出现一次：`unlocked` 是落库前后的进度相减，只在**真的
-            // 写了盘**的那一次存在。刷新之后 hydrate 只读盘上那份已解锁列表，谁也不再
-            // 算一次差——所以它不可能第二次响（T18 验收标准 3）
-            achievementNotice: result.unlocked.length > 0 ? result.unlocked : null,
-          })
+          useGameStore.setState({ records: loaded.records, stats: loaded.stats })
         })
         .catch(reportWriteFailure)
     })
@@ -545,13 +663,30 @@ async function doHydrate(): Promise<void> {
       // 起始时刻与 game 一起恢复：否则这一局结算时算不出本局时长
       runStartedAt: restored?.startedAt ?? null,
       // 切换计数与 game 一起恢复（T19）：它跟着这一局活在 session 桶里，刷新之后
-      // 从零数起就等于把玩家已经切够的次数判成没切过——成就该在结算那一刻照旧解锁
+      // 从零数起就等于把玩家已经切够的次数判成没切过——风格旅行者该照旧解锁
       styleSwitches: restored?.styleSwitches ?? 0,
+      // 没有可恢复的一局 = 这一段什么都没打过：合并数、集合与祝贺都从零起。
+      // 有那一局时下面的 restored 分支会把这三个字段覆盖成派生出来的那一份
+      runMerges: 0,
+      unlocked: [],
+      toasts: [],
     }
     if (restored !== null) {
       patch.game = restored.game
       patch.history = restored.history
       patch.dailyDate = restored.dailyDate
+      // 恢复一局时**先建立静默基线**（`docs/specs/single-run-achievements.md` 的架构决策 12）：
+      //   · 合并次数是那个「读不出状态」的事实，而整条撤销路径就在盘上——沿它数一遍
+      //     得到的正是刷新前那个数，合并机器的解锁因此不被一次刷新抹掉（用户故事 11）；
+      //   · 解锁集合照算，但**一条祝贺都不补放**：这些成就是玩家刷新前就打成的，
+      //     重新播一遍就是把「上次的事」说成「刚才的事」（用户故事 10）。
+      // 合并数与集合一起派生，所以恢复之后「已经拿到了什么」与刷新前逐项一致
+      const runMerges = countMergesAlongPath(restored.history, restored.game)
+      patch.runMerges = runMerges
+      Object.assign(
+        patch,
+        baselineOf(runFactsOf(restored.game, runMerges, restored.styleSwitches))
+      )
       // 拾取态与选择态刻意不恢复：它们是一次做了一半的编辑，不是这一局的规则数据
       // （swapArmed / swapSelection 的注释写的就是这件事）。恢复一个
       // swapArmed: true 会让刷新后的每枚方块都挂着可选中样式，却没有任何
@@ -580,8 +715,11 @@ export const useGameStore = create<GameStore>()((set) => ({
   // 开局时两个新桶已经在 hydrate 里读过；这里是「还没读过」的诚实初值
   records: [],
   stats: null,
-  // 还没有解锁可提示：这个字段只在结算写盘成功的那一刻被填上（见 persistSettlement）
-  achievementNotice: null,
+  // 还没开局：没有合并次数、没有解锁、没有待呈现的祝贺
+  runMerges: 0,
+  unlocked: [],
+  toasts: [],
+  nextToastKey: 0,
   // 开局界面上的选中项与风格同一性质：刷新之后该还选着玩家上次选的那个（T16 的
   // settings 桶）。它不随开局清空，也不受新游戏影响——选过什么模式是「设置」，
   // 不是「这一局在打哪个模式」
@@ -624,7 +762,13 @@ export const useGameStore = create<GameStore>()((set) => ({
           { kind: 'none' }
         )
       }
-      return { styleId: id, styleSwitches }
+      // 换皮可能正是「风格旅行者」跨过阈值的那一次：这个计数只增不减，所以成就集合
+      // 只会因为这一行**变大**（ADR-0007 记的就是这处不对称），于是这里也只发号不回退
+      return {
+        styleId: id,
+        styleSwitches,
+        ...advance(state, state.game, state.runMerges, styleSwitches),
+      }
     })
   },
   setMute: (muted) => {
@@ -684,6 +828,9 @@ export const useGameStore = create<GameStore>()((set) => ({
         // 一次拾取只完成一次交换：收摊。ESC、一次移动、撤销同样收摊（见各动作）
         swapArmed: false,
         swapSelection: null,
+        // 交换是重新摆放：身份集合一字不变（一个都不合并），分数与最高方块也不动。
+        // 集合照算一遍只为「派生值永远与事实一致」这条不变量，实际一个成就都不会变
+        ...advance(state, swapped, state.runMerges, state.styleSwitches),
       }
     })
   },
@@ -691,6 +838,14 @@ export const useGameStore = create<GameStore>()((set) => ({
     set((state) =>
       state.swapArmed || state.swapSelection !== null
         ? { swapArmed: false, swapSelection: null }
+        : state
+    )
+  },
+  dismissToast: (key) => {
+    // 只把这一条移出栈：解锁集合是派生的，收起一句祝贺不改变任何事实
+    set((state) =>
+      state.toasts.some((toast) => toast.key === key)
+        ? { toasts: state.toasts.filter((toast) => toast.key !== key) }
         : state
     )
   },
@@ -730,6 +885,12 @@ export const useGameStore = create<GameStore>()((set) => ({
       // （styleSwitches 的注释），所以开局这一刻必须把它按回 0，而不是接着开局前
       // 那几次往上加——否则玩家在开局界面抖几下，新一局就凭空多出几次切换
       styleSwitches: 0,
+      // 新一局：合并数从零、集合重新派生，但**不发祝贺**——开局不是「玩家刚做成了什么」。
+      // 夹具（?board= / ?score=）给出一副已经达标的局面时，这条基线把那些成就直接
+      // 记成「一开始就有」，而不是补一场吹号（用户故事 10 的同一条道理）
+      runMerges: 0,
+      ...baselineOf(runFactsOf(game, 0, 0)),
+      nextToastKey: 0,
     })
     // reset：上一局的撤销历史整条作废。这是「新游戏不擦除已结算数据」的另一半——
     // 被擦的只有 session 与 history 两个桶，records / stats（T17）一个字节都不碰
@@ -744,10 +905,15 @@ export const useGameStore = create<GameStore>()((set) => ({
       const outcome = move(state.game, direction)
       // 无效移动连 state 都不换：React 看到同一个对象就直接跳过重渲染。
       // 面板挡着（won / stuck / ended）时 move 也返回同一个对象，同理。
-      if (!outcome.changed) return state
-      // 音效（T20）写在 changed 判定**之后**：无效移动一个音都没有。引擎对无效移动
-      // 原样返回同一个对象，所以「什么都没发生」这个信号现成就有，声音这一侧只要
-      // 搭个便车，不必自己再比一次棋盘
+      if (!outcome.changed) {
+        // 走不动的那一下有它自己的一声（第五个事件，T20 之后补）：这一声由
+        // soundOfBlocked 自己判断阶段——面板挡着时它什么都不响
+        soundOfBlocked(state.game, state.mute)
+        return state
+      }
+      // 音效（T20）写在 changed 判定**之后**：这一步真的走了，才轮到 move / merge / win。
+      // 引擎对无效移动原样返回同一个对象，所以「什么都没发生」这个信号现成就有，
+      // 声音这一侧只要搭个便车，不必自己再比一次棋盘
       soundOfMove(state.game, outcome.state, state.mute)
       // 只有真的走通了一步，才把**移动前**那个状态收进历史。判据就是 changed：
       // 无效移动时引擎原样返回同一个引用（engine.move 的两条早退），所以「棋盘
@@ -776,11 +942,16 @@ export const useGameStore = create<GameStore>()((set) => ({
         },
         { kind: 'push', index: history.length - 1, game: state.game }
       )
+      // 本局合并数 += 这一步消失的方块身份数（O(棋盘格数)，与撤销栈深度无关）。
+      // 成就判定随后用这个新数：跨过 200 的那一步就是「合并机器」该响的那一步
+      const runMerges = state.runMerges + mergeCountBetween(state.game, outcome.state)
       return {
         game: outcome.state,
         history,
         swapArmed: false,
         swapSelection: null,
+        runMerges,
+        ...advance(state, outcome.state, runMerges, state.styleSwitches),
       }
     })
   },
@@ -819,11 +990,20 @@ export const useGameStore = create<GameStore>()((set) => ({
         },
         { kind: 'pop', index: history.length }
       )
+      // 本局合并数按**这一步的差值**回退：`mergeCountBetween(被搬回的前态, 当前态)`
+      // 与那一步走了之后加进去的正是同一个数（同一对状态），所以来回走多少遍都不会漂。
+      // 夹一道 0 只是为了让任何未来的不变量破坏不至于造出一个负数
+      const restored = state.history[state.history.length - 1]
+      const undone = mergeCountBetween(restored, state.game)
+      const runMerges = Math.max(0, state.runMerges - undone)
       return {
-        game: state.history[state.history.length - 1],
+        game: restored,
         history,
         swapArmed: false,
         swapSelection: null,
+        runMerges,
+        // 事实跟着回退，集合于是自己收回（用户故事 8）；重新达成时又是一条新的祝贺
+        ...advance(state, restored, runMerges, state.styleSwitches),
       }
     })
   },
@@ -846,7 +1026,12 @@ export const useGameStore = create<GameStore>()((set) => ({
           { kind: 'none' }
         )
       }
-      return { game: next }
+      // 「继续玩」不改变任何成就事实（棋盘、分数、合并数都没动），但集合照算一遍：
+      // 它是派生的，任何一次状态迁移之后都该与事实对得上。没有新解锁就不会发号
+      return {
+        game: next,
+        ...advance(state, next, state.runMerges, state.styleSwitches),
+      }
     })
   },
   settle: () => {
@@ -868,14 +1053,7 @@ export const useGameStore = create<GameStore>()((set) => ({
         // abandoned 不写记录（mode-contract §3），而 settle 只从 stuck / won 进来，
         // 所以这道判断不是防御，是把「只有 ended 且不是放弃」这句话钉在写入点上
         if (next.endReason !== 'abandoned') {
-          persistSettlement(
-            next,
-            state.styleId,
-            state.runStartedAt,
-            state.history,
-            state.dailyDate,
-            state.styleSwitches
-          )
+          persistSettlement(next, state.styleId, state.runStartedAt)
         }
         clearPersistedRun()
       } else {
@@ -915,14 +1093,7 @@ export const useGameStore = create<GameStore>()((set) => ({
       if (next.phase === 'ended') {
         // 超时结算同样写记录（T17），理由见上：它是一条结算路径，不是放弃
         if (next.endReason !== 'abandoned') {
-          persistSettlement(
-            next,
-            state.styleId,
-            state.runStartedAt,
-            state.history,
-            state.dailyDate,
-            state.styleSwitches
-          )
+          persistSettlement(next, state.styleId, state.runStartedAt)
         }
         clearPersistedRun()
       } else {
@@ -993,16 +1164,16 @@ export const useGameStore = create<GameStore>()((set) => ({
         swapSelection: null,
         runStartedAt: now,
         styleSwitches: 0,
+        // 新一局：合并数归零、集合重新派生，同样只建立静默基线（见 startRun）
+        runMerges: 0,
+        ...baselineOf(runFactsOf(game, 0, 0)),
+        nextToastKey: 0,
       }
     })
   },
-  // 还没有提示，也还没有在读存档（false 由 hydrate 在读完之后落）
+  // 还没有存档读不出来的提示，也还没有在读存档（false 由 hydrate 在读完之后落）
   storageNotice: null,
   restoring: true,
-  dismissAchievementNotice: () => {
-    // 只收摊这一句提示：解锁本身已经在盘上，收起它不碰 stats
-    useGameStore.setState({ achievementNotice: null })
-  },
   hydrate: () => {
     // 记一次正在进行的读：React StrictMode 会把挂载效果跑两遍，两遍读同一份
     // 才不会有两次 IndexedDB 读、两次 setState。读完就清空，之后还想再读可以再调

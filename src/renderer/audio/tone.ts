@@ -15,8 +15,14 @@ import type { Board, GameState, Tile } from '../../shared/types'
  * **这里没有任何一句「规则」**：引擎已经发生的事情是唯一的输入，输出只有声音。
  */
 
-/** 一次发声的事件种类：ticket 点名的那四个（移动 / 合并 / 胜利 / 失败） */
-export type SoundEvent = 'move' | 'merge' | 'win' | 'loss'
+/**
+ * 一次发声的事件种类
+ *
+ * 前四个是 T20 点名的（移动 / 合并 / 胜利 / 失败）；`blocked`（无法移动）是此后应项目
+ * 所有者要求补上的**第五个**——README 的 TODO 已把它列进「各类音效调整下拉框」，而
+ * 一个下拉框能列出的选项，首先得是一个事件。它的音色是占位（见 planFor 的 blocked 分支）。
+ */
+export type SoundEvent = 'move' | 'merge' | 'win' | 'loss' | 'blocked'
 
 /** 一个振荡器的规格。synth.ts 照它建振荡器与增益包络，一个数字都不自己加 */
 export interface ToneSpec {
@@ -58,10 +64,21 @@ const SEMITONES_PER_DOUBLING = 2
 
 // ─── 四个事件的音色 ──────────────────────────────────────────────────────────
 
-/** 移动音的固定频率（F3）：最低、最软、最短——它响得最勤，不能是声音最大的那个 */
+/** 移动音的固定频率（F3）：它响得最勤，所以音量与时长都压在合并音之下 */
 const MOVE_FREQUENCY = 174.61
 const MOVE_DURATION = 0.06
 const MOVE_PEAK_GAIN = 0.1
+
+/**
+ * 无法移动的占位音色：A2（比移动音低一个八度多一点），且更短、更轻
+ *
+ * 「更闷、更短、更轻」就是这一声的全部设计：它要说的是「什么都没发生」，所以三样
+ * 都压在移动音之下——走得动的那一下已经够轻了，走不动的不该比它更响。
+ * 音色本身是占位：README 的 TODO 把「震动等特效」留给后来者，那才是这一声的最终形态。
+ */
+const BLOCKED_FREQUENCY = 110
+const BLOCKED_DURATION = 0.05
+const BLOCKED_PEAK_GAIN = 0.08
 
 /** 合并音时长与音量。音高不在这里定，它由方块数值算出来 */
 const MERGE_DURATION = 0.16
@@ -173,8 +190,8 @@ export function planFor(event: SoundEvent, value: number, reduced: boolean): Voi
   const gainScale = reduced ? REDUCED_GAIN_SCALE : 1
   const durationScale = reduced ? REDUCED_DURATION_SCALE : 1
   switch (event) {
-    // 移动：一声短促低沉的正弦。它是这四个事件里最勤的一个（每一次按键），
-    // 所以刻意做成最不显眼的那一个——否则响得最多的会是声音最大的
+    // 移动：一声短促低沉的正弦。它是这五个事件里最勤的一个（每一次按键），
+    // 所以刻意做得轻——否则响得最多的会是声音最大的
     case 'move': {
       const duration = MOVE_DURATION * durationScale
       return planOf([
@@ -217,6 +234,20 @@ export function planFor(event: SoundEvent, value: number, reduced: boolean): Voi
       return planOf(arpeggio(WIN_NOTES, NOTE_DURATION, NOTE_STAGGER, reduced))
     case 'loss':
       return planOf(arpeggio(LOSS_NOTES, LOSS_NOTE_DURATION, LOSS_NOTE_STAGGER, reduced))
+    // 无法移动：一个极短的低音。它不排第二个音、也不带数值——这一声只回答
+    // 「你按的那个方向走不动」，没有第二件事要说
+    case 'blocked': {
+      const duration = BLOCKED_DURATION * durationScale
+      return planOf([
+        {
+          waveform: 'sine',
+          frequency: BLOCKED_FREQUENCY,
+          peakGain: BLOCKED_PEAK_GAIN * gainScale,
+          delay: 0,
+          duration,
+        },
+      ])
+    }
   }
 }
 

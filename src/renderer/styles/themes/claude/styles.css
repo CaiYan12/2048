@@ -211,3 +211,77 @@
     --tile-spawn-duration: 0ms;
   }
 }
+
+/* 成就祝贺（设计卡 §10）：贴视口右上角的一叠纸。
+   它是**呈现插槽**（ADR-0002）——结构、长相与消失表现都归这套风格，而「什么时候该有
+   一条」在 store。position: fixed 是硬要求：流内的一条提示会把棋盘整体推下去，
+   正在打的一局当场错位。容器 pointer-events: none，只有卡片自己接指针，
+   于是卡片之外的点击穿透到下面的控件（「不拦操作」）。 */
+[data-style='claude'] .toast-stack {
+  position: fixed;
+  z-index: 4;
+  top: 0.75rem;
+  left: 0.75rem;
+  right: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+/* 一张撕下来的纸，不是一张卡片：底色就是纸面（不透明，压在别的内容上也读得清），
+   上面压一条 1px 细线——与 .panel 同一条语言。没有投影：本套全壳零投影。 */
+[data-style='claude'] .toast {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  max-width: min(22rem, calc(100vw - 1.5rem));
+  padding: 0.75rem 1.5rem;
+  border-radius: 3px;
+  border-top: 1px solid var(--rule);
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  line-height: 1.35;
+  text-align: left;
+  pointer-events: auto;
+  opacity: 1;
+  transition: opacity 180ms ease-out;
+}
+
+/* 起点：不可见的一帧。它在第一帧就画出来（所以过渡真的会跑），而那一帧看不见 */
+[data-style='claude'] .toast--entering {
+  opacity: 0;
+}
+
+/* 出场：只淡出，不做位移——本套的安静感来自「不加动作」（设计卡 §10） */
+[data-style='claude'] .toast--leaving {
+  opacity: 0;
+  transition-duration: 200ms;
+  pointer-events: none;
+}
+
+[data-style='claude'] .toast__label {
+  color: var(--ink-variant);
+}
+
+/* 成就名用展示衬线：全壳除标题、面板数值与方块数字之外，衬线第四次出现 */
+[data-style='claude'] .toast__names {
+  font-family: var(--font-display);
+  font-weight: 600;
+}
+
+/* 焦点环：暖色 3px + 外移 2px，与控件、板面同一条（§9 的 4.98:1） */
+[data-style='claude'] .toast:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* reduced-motion：进 / 出时长归零（直接出现、直接消失），细线与字体一律不变 */
+@media (prefers-reduced-motion: reduce) {
+  [data-style='claude'] .toast {
+    transition-duration: 0ms;
+  }
+}

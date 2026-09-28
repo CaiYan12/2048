@@ -9,6 +9,8 @@
 .mimosa/
 .learnings/
 .playwright-cli/
+# design-flow 的进度/决策状态：本机工具状态，不是仓库内容
+.design-flow.json
 
 # --- IDE local state ---
 .idea/

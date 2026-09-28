@@ -73,7 +73,7 @@ export function StatusBar({ game, swapArmed, swapSelection, onToggleSwap }: Prop
 
             T12 落下这句话时刻意**没有**定 live region 策略（原话「屏幕阅读器验收归
             T22，抢先造一套机制届时会变成第二套与它打架的」）。T22 定的策略就是上面
-            那一条：内容按当前状态推导、一句一事、与 StorageNotice / AchievementNotice
+            那一条：内容按当前状态推导、一句一事、与 StorageNotice / 各风格的成就祝贺
             共用 role="status" 这个机制——所以这里补的只是 role 与 data-swap-prompt
             这两个钩子，话本身还是同一句，而且由 swapPrompt 这一个纯函数出（内容因此
             可单测，见 tests/unit/announcement.test.ts）。

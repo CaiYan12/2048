@@ -1,12 +1,11 @@
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { GameState, StyleId } from '../../src/shared/types'
-import { move } from '../../src/game/engine'
 import { NOW, stateWithBoard } from './support'
 import { useGameStore } from '../../src/renderer/stores/useGameStore'
 import type { SessionRecord } from '../../src/renderer/stores/session'
 
 /**
- * T19 的风格旅行者：切换计数的**后半段**——它怎么被数、怎么活着跨过刷新、怎么进结算。
+ * T19 的风格旅行者：切换计数的**前半段**——它怎么被数、怎么活着跨过刷新。
  *
  * 判定本身（阈值钉在 5、判据是 `>=`）在 tests/unit/achievements.test.ts 里按纯函数钉住；
  * 本文件钉的是那一层之外的四件事，也都是 T18 摔过的坑的邻居：
@@ -14,12 +13,14 @@ import type { SessionRecord } from '../../src/renderer/stores/session'
  *   · 它是**发生过的事件**，撤销一步不许把它带回那一步的数（T18 的「本局曾经撤销过」
  *     至今不可恢复，而切换次数是廉价可数的事实，没理由再摔一次）；
  *   · 它跟着这一局活在 session 桶里，于是「刷新之后从零数起」这件事不会发生；
- *   · 放弃了的一局不留半点痕迹，结算之后也不给任何未来的风格成就添数。
+ *   · 放弃了的一局不留半点痕迹。
+ *
+ * **结算之后没有「成就进度」可查了**（ADR-0007）：解锁是从对局状态派生的，所以本文件
+ * 断言的是 store 上的 `unlocked` 与 `toasts`，而不是某个桶里的一份记录。切够五次那一刻
+ * 就该解锁——不是等到收工。
  *
  * 假后端用内存 Map 替掉真的 IndexedDB（`vi.mock`），而**合并与拒绝调用真的纯函数**
- * （records.ts）——于是「递进来的结算怎么变成一条记录」这一段是本票的代码在被测，
- * 与 tests/unit/records-settle.test.ts 同一个路子。真的 IndexedDB 那半边由
- * tests/e2e/style-traveller.spec.ts 覆盖（跑它的是控制人的 sweep）。
+ * （records.ts）。真的 IndexedDB 那半边由 tests/e2e/style-traveller.spec.ts 覆盖。
  */
 
 /** 第一局的起始时刻：给一个与 NOW 不同的值，让结算载荷里的数都认得出是哪一个 */
@@ -74,13 +75,11 @@ vi.mock('../../src/renderer/stores/sessionStore', async () => {
         key,
         records.applySettlement(parsedRecord.kind === 'ok' ? parsedRecord.record : null, settlement)
       )
-      const outcome = records.applyRunToStats(
-        parsedStats.kind === 'ok' ? parsedStats.record : null,
-        settlement
+      fake.store.stats.set(
+        'current',
+        records.applyRunToStats(parsedStats.kind === 'ok' ? parsedStats.record : null, settlement)
       )
-      fake.store.stats.set('current', outcome.stats)
-      // 「这一次新解锁了哪些」跟着一次真正的写盘一起回来（与真的 writeSettlement 同一条路）
-      return { kind: 'written', unlocked: outcome.unlocked }
+      return { kind: 'written' }
     },
     saveRun: async (
       record: unknown,
@@ -144,9 +143,12 @@ function pristineStore(): void {
     selectedModeId: 'classic',
     runStartedAt: null,
     styleSwitches: 0,
+    runMerges: 0,
+    unlocked: [],
+    toasts: [],
+    nextToastKey: 0,
     records: [],
     stats: null,
-    achievementNotice: null,
     storageNotice: null,
     restoring: true,
   })
@@ -172,15 +174,6 @@ function mount(
 /** 盘上那条 session 记录（读出来给断言用） */
 function sessionOnDisk(): SessionRecord | null {
   return (fake.store.session.get('current') as SessionRecord | undefined) ?? null
-}
-
-/** 盘上那条统计（读出来给断言用） */
-function statsOnDisk(): { achievements: { unlocked: readonly string[] } } | null {
-  return (
-    (fake.store.stats.get('current') as
-      | { achievements: { unlocked: readonly string[] } }
-      | undefined) ?? null
-  )
 }
 
 /** 依次切到这些风格。每一格都必须与切换时的当前风格不同——写重复的那一格不叫切换 */
@@ -212,7 +205,7 @@ describe('切换计数：只数活的这一局里真实的换皮', () => {
   })
 
   test('重复选当前风格一次都不加，连 state 都不换', () => {
-    // 验收标准 1 的后半句。同一 id 重复调用在 T13 就已经是「连 state 都不换」——
+    // 同一 id 重复调用在 T13 就已经是「连 state 都不换」——
     // 这里补的是：它也不许被算成一次切换，否则「停在原地不动」会变成刷成就最便宜的路
     mount(stuckRun())
     switchStyles(ROUND)
@@ -239,10 +232,12 @@ describe('切换计数：只数活的这一局里真实的换皮', () => {
     expect(useGameStore.getState().styleSwitches).toBe(0)
     // 一局都没开，也就没有 session 可写（setStyle 的既有行为）
     expect(sessionOnDisk()).toBeNull()
+    // 也就没有成就可言
+    expect(useGameStore.getState().unlocked).toEqual([])
   })
 
   test('已结算的一局不再计数：这一局已经结束了', () => {
-    // 验收标准 2 的后半句。结算只执行一次，所以结算之后多换几次皮碰不到任何战绩——
+    // 结算只执行一次，所以结算之后多换几次皮碰不到任何战绩——
     // 但计数不许跟着长，否则下一个读它的地方会拿到一个说不清属于哪一局的数
     mount(stuckRun({ phase: 'ended', endReason: 'deadlock' }), { styleSwitches: 5 })
     useGameStore.getState().setStyle('material')
@@ -285,16 +280,54 @@ describe('切换计数：只数活的这一局里真实的换皮', () => {
   })
 })
 
+describe('解锁就发生在切够的那一刻', () => {
+  test('切四次还不够、切五次当场解锁，并浮出一条祝贺', () => {
+    // ADR-0007：成就的判定跟着对局状态走，不等结算。所以断言的对象是 store 上的
+    // `unlocked` 与 `toasts`——不是某个桶里的一份记录（那东西已经不落盘了）
+    mount(stuckRun())
+    switchStyles([...ROUND, 'material'])
+    expect(useGameStore.getState().styleSwitches).toBe(4)
+    expect(useGameStore.getState().unlocked).toEqual([])
+    expect(useGameStore.getState().toasts).toEqual([])
+
+    switchStyles(['claude'])
+    const unlocked = useGameStore.getState()
+    expect(unlocked.styleSwitches).toBe(5)
+    expect(unlocked.unlocked).toEqual(['style-traveller'])
+    expect(unlocked.toasts).toEqual([{ key: 1, ids: ['style-traveller'] }])
+  })
+
+  test('再多切几次不会多响一条：集合没变就没有新的跃迁', () => {
+    mount(stuckRun())
+    switchStyles([...ROUND, 'material', 'claude'])
+    expect(useGameStore.getState().toasts).toHaveLength(1)
+
+    switchStyles(['classic'])
+    const after = useGameStore.getState()
+    expect(after.styleSwitches).toBe(6)
+    expect(after.toasts).toHaveLength(1)
+    expect(after.unlocked).toEqual(['style-traveller'])
+  })
+
+  test('收掉那一句祝贺不改变解锁集合：集合是从对局派生的', () => {
+    mount(stuckRun())
+    switchStyles([...ROUND, 'material', 'claude'])
+    const key = useGameStore.getState().toasts[0].key
+    useGameStore.getState().dismissToast(key)
+    expect(useGameStore.getState().toasts).toEqual([])
+    expect(useGameStore.getState().unlocked).toEqual(['style-traveller'])
+  })
+})
+
 describe('这一局的切换计数跨过刷新活着', () => {
-  test('走一步、撤一步、再刷新：切过的次数一次都不少', async () => {
+  test('走一步、撤一步、再刷新：切过的次数与解锁都还在，但**不重放祝贺**', async () => {
     // 验收标准 2 的主场景，也是这个字段非得住进 session 桶不可的理由：结算那一刻
-    // session 存档连同撤销历史一起作废，「这一局切过几次」只有跟着这一局活到那一刻
-    // 才读得出来。若刷新之后从零数起，玩家切够五次仍拿不到成就。
-    // 中间那一次撤销是刻意的：它是「把计数当成位置的属性」这个误读唯一能钻的缝，
-    // 于是刷新这一条必须带着撤销一起断，否则一个只在刷新上成立的实现也能全绿
+    // session 存档连同撤销历史一起作废，「这一局切过几次」只有跟着这一局活才读得出来。
+    // 中间那一次撤销是刻意的：它是「把计数当成位置的属性」这个误读唯一能钻的缝
     mount(stuckRun(), { styleSwitches: 3, styleId: 'material' })
     switchStyles(['claude', 'classic'])
     expect(useGameStore.getState().styleSwitches).toBe(5)
+    expect(useGameStore.getState().unlocked).toEqual(['style-traveller'])
     useGameStore.getState().move('left')
     expect(useGameStore.getState().history).toHaveLength(1)
     useGameStore.getState().undo()
@@ -315,78 +348,62 @@ describe('这一局的切换计数跨过刷新活着', () => {
     expect(restored.styleSwitches).toBe(5)
     // 观感也跟着这一局回来：session 桶存的是「这一局的观感」，而最后切到的是经典
     expect(restored.styleId).toBe('classic')
-
-    // 结算：恢复回来的还是活跃局，先把它终局化（与引擎判死局同一件事），
-    // 于是 settle 走得通，而阈值 5 刚刚够——这一局解锁风格旅行者
-    useGameStore.setState({ game: { ...(restored.game as GameState), phase: 'stuck' } })
-    vi.setSystemTime(SETTLE_AT)
-    useGameStore.getState().settle()
-    await settleWrites()
-
-    expect(fake.store.settlements).toBe(1)
-    expect(useGameStore.getState().achievementNotice).toEqual(['style-traveller'])
-    expect(statsOnDisk()?.achievements.unlocked).toContain('style-traveller')
+    // 单局成就规格的架构决策 12：恢复**建立静默基线**——集合照算（用户故事 11：刷新不丢解锁），
+    // 但一条祝贺都不补放（用户故事 10：刷新不是一场吹号）
+    expect(restored.unlocked).toEqual(['style-traveller'])
+    expect(restored.toasts).toEqual([])
   })
 
-  test('刷新已经结过算的一局：那一局连同计数一起消失，解锁留在盘上', async () => {
-    // 结算即作废 session（T16），所以刷新之后计数回到 0——这是对的：那一局已经结束，
-    // 计数跟着它走。而解锁是 stats 桶里的东西，谁都没有擦它。两句合起来才是
-    // 验收标准 2 的「切换计数与已解锁状态保持」
-    mount(stuckRun({ phase: 'stuck' }), { styleSwitches: 5 })
+  test('刷新已经结过算的一局：那一局连同计数一起消失，也就没有解锁可言', async () => {
+    // 结算即作废 session（T16），所以刷新之后计数回到 0；而这一局已经不在了，
+    // 成就集合从「没有任何一局」派生出来就是空的（ADR-0007：成就不跨局）
+    mount(stuckRun({ phase: 'stuck' }))
+    // 真的切够五次，让解锁发生（mount 直接摆状态，不走状态机）
+    switchStyles([...ROUND, 'material', 'claude'])
+    expect(useGameStore.getState().unlocked).toEqual(['style-traveller'])
     vi.setSystemTime(SETTLE_AT)
     useGameStore.getState().settle()
     await settleWrites()
-    expect(statsOnDisk()?.achievements.unlocked).toContain('style-traveller')
+    // 结算之后集合照旧在：它是从这一局派生的，而结算没有动任何事实
+    expect(useGameStore.getState().unlocked).toEqual(['style-traveller'])
 
     pristineStore()
     useGameStore.getState().hydrate()
     await settleWrites()
 
     expect(useGameStore.getState().styleSwitches).toBe(0)
-    expect(useGameStore.getState().stats?.achievements.unlocked).toContain('style-traveller')
+    expect(useGameStore.getState().unlocked).toEqual([])
+    expect(useGameStore.getState().toasts).toEqual([])
+    // 而结算把战绩照旧写了下来（成绩与成就是两件事）
+    expect(fake.store.settlements).toBe(1)
   })
 
-  test('那一句提示不会被刷新重播，而解锁照旧看得见', async () => {
-    // 与 T18 同一条规矩：提示由「落库前后相减」得到，只在真的写了盘的那一次存在。
-    // hydrate 只读盘上那份已解锁列表，谁也不再算一次差——所以它不可能第二次响。
-    // **刻意不为它补一个「已经播过了」的持久标记**：为了一句话再养一份真相，
-    // 两份真相对不上的时候没有裁判
-    mount(stuckRun({ phase: 'stuck' }), { styleSwitches: 5 })
-    vi.setSystemTime(SETTLE_AT)
-    useGameStore.getState().settle()
-    await settleWrites()
-    expect(useGameStore.getState().achievementNotice).toEqual(['style-traveller'])
-
-    useGameStore.getState().dismissAchievementNotice()
-    pristineStore()
-    useGameStore.getState().hydrate()
-    await settleWrites()
-
-    expect(useGameStore.getState().achievementNotice).toBeNull()
-    expect(useGameStore.getState().stats?.achievements.unlocked).toContain('style-traveller')
-  })
-
-  test('没解锁的一局结算完：提示保持 null，盘上也没有这个成就', async () => {
+  test('没解锁的一局结算完：集合仍然是空的', async () => {
     mount(stuckRun({ phase: 'stuck' }), { styleSwitches: 4 })
     vi.setSystemTime(SETTLE_AT)
     useGameStore.getState().settle()
     await settleWrites()
-    expect(useGameStore.getState().achievementNotice).toBeNull()
-    expect(statsOnDisk()?.achievements.unlocked).not.toContain('style-traveller')
+    expect(useGameStore.getState().unlocked).toEqual([])
+    expect(useGameStore.getState().toasts).toEqual([])
   })
 })
 
 describe('放弃了的一局与结算之后：都不留半点进度', () => {
-  test('切过五次之后放弃并开新局：计数归零，两个战绩桶一个字节都没写', async () => {
+  test('切过五次之后放弃并开新局：计数归零、集合清空，两个战绩桶一个字节都没写', async () => {
     mount(stuckRun())
     switchStyles([...ROUND, 'material', 'claude'])
     expect(useGameStore.getState().styleSwitches).toBe(5)
+    expect(useGameStore.getState().unlocked).toEqual(['style-traveller'])
 
     useGameStore.getState().newGame()
     await settleWrites()
 
-    // 计数归零：被放弃的那一局切过几次跟着它一起消失
-    expect(useGameStore.getState().styleSwitches).toBe(0)
+    // 计数归零、集合清空：被放弃的那一局切过几次、解锁过什么，跟着它一起消失
+    const fresh = useGameStore.getState()
+    expect(fresh.styleSwitches).toBe(0)
+    expect(fresh.unlocked).toEqual([])
+    expect(fresh.toasts).toEqual([])
+    expect(fresh.runMerges).toBe(0)
     // 而「放弃不写任何记录」（mode-contract §3）：两个战绩桶连一次都没碰过
     expect(fake.store.settlements).toBe(0)
     expect(fake.store.stats.size).toBe(0)
@@ -408,10 +425,7 @@ describe('放弃了的一局与结算之后：都不留半点进度', () => {
     expect(useGameStore.getState().styleSwitches).toBe(3)
   })
 
-  test('结算之后：战绩里没有任何「切换过几次」的字段', async () => {
-    // 验收标准 2 的后半句钉在形状上：这一局切过几次不进 records / stats，
-    // 于是「给未来的风格成就攒进度」这件事在结构上就办不到。日后谁往
-    // AchievementProgress 里加一个 bestStyleSwitches，这句会当场红
+  test('结算之后：战绩里没有任何「切换过几次」的字段，也没有成就', async () => {
     mount(stuckRun({ phase: 'stuck' }), { styleSwitches: 6 })
     vi.setSystemTime(SETTLE_AT)
     useGameStore.getState().settle()
@@ -419,11 +433,12 @@ describe('放弃了的一局与结算之后：都不留半点进度', () => {
 
     // 这一局的存档连同计数一起作废（T16）：能读到它的时刻只有结算之前
     expect(sessionOnDisk()).toBeNull()
-    const progress = statsOnDisk()?.achievements as unknown as Record<string, unknown>
-    expect(Object.keys(progress)).not.toContain('styleSwitches')
-    expect(Object.keys(progress)).not.toContain('bestStyleSwitches')
-    // 解锁本身在，而且只靠 unlocked 那一个 id 说话（与 first-win 同一条路子）
-    expect(progress.unlocked).toContain('style-traveller')
+    const stats = fake.store.stats.get('current') as Record<string, unknown>
+    expect(Object.keys(stats).sort()).toEqual(
+      ['lastRunStartedAt', 'timePlayedMs', 'totalRuns', 'version', 'wins'].sort()
+    )
+    expect(Object.keys(stats)).not.toContain('achievements')
+    expect(Object.keys(stats)).not.toContain('styleSwitches')
   })
 })
 

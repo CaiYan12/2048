@@ -73,7 +73,7 @@ src/
 │   │   ├── index.css           Tailwind 入口 + 全局
 │   │   ├── board.css           棋盘 / 方块层（不用 Tailwind utility）
 │   │   └── themes/             index.ts 注册表 + 每套风格文件夹
-│   │       └── <id>/           DESIGN.md + tokens.css + styles.css + config.ts + contrast.json
+│   │       └── <id>/           DESIGN.md + tokens.css + styles.css + config.ts + contrast.json + toast.tsx
 │   └── App.tsx                 唯一 default export
 ├── main.tsx
 tests/

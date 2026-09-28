@@ -207,8 +207,15 @@ async function readActiveRing(page: Page): Promise<Ring> {
 
     // box-shadow 的一层层环：`rgb(...) 0px 0px 0px 4px`。颜色在前的那种才认——
     // Material 的 elevation 把颜色写在偏移后面，它本来就不是环，不该被算进来
+    //
+    // 颜色**切到右括号**为止，不能切到第一个空格：`rgb(74, 68, 63) 0px ...` 里第一个
+    // 空格在括号内（逗号后面），那样切出来的是 `'rgb(74,'` —— 一个认不出的颜色，
+    // 于是 channels() 抛错、整条用例红（实测 7 条用例 × 两个视口）
     const layers = [...style.boxShadow.matchAll(/rgba?\([^)]*\)\s+(?:-?\d+(?:\.\d+)?px\s+){3}(\d+(?:\.\d+)?)px/g)]
-      .map((layer) => ({ colour: layer[0].slice(0, layer[0].indexOf(' ')), spread: Number(layer[1]) }))
+      .map((layer) => ({
+        colour: layer[0].slice(0, layer[0].indexOf(')') + 1),
+        spread: Number(layer[1]),
+      }))
     if (layers.length === 0) return { width: 0, colour: null }
     const widest = layers.reduce((a, b) => (b.spread > a.spread ? b : a))
     return { width: widest.spread, colour: widest.colour }
@@ -469,22 +476,32 @@ test('拾取态下方向键仍然移动、Enter 仍然选中（两条路互不�
 
 test('结果播报：里程碑才说话，一次 Move 什么都不播', async ({ page }) => {
   const problems = watchProblems(page)
-  await page.goto(startUrl(FOUR_1024, 4321))
-  await expect(page.getByRole('button', { name: '开始游戏' })).toBeVisible()
 
-  // 活跃局：一局的结果什么都不是，所以一条播报都没有
+  // **普通合并那一半用 MERGE 而不是 FOUR_1024**：后者四个 1024 一合**就是 2048**、
+  // 当场达标，那次 Move 本来就该播「达成目标」——拿它来验「一次 Move 什么都不播」
+  // 与下面那句 `[data-run-status="won"]` 自相矛盾（实测：`toHaveCount(0)` 收到 1）。
+  // MERGE 是 2 2 → 合出 4、得 4 分，离目标还远，才是「普通一次 Move」。
+  await page.goto(startUrl(MERGE, 4321))
   await page.getByRole('button', { name: '开始游戏' }).click()
   await expect(page.locator('[data-board]')).toBeVisible()
+  // 活跃局：一局的结果什么都不是，所以一条播报都没有
   await expect(page.locator('[data-run-status]')).toHaveCount(0)
 
   // 一次 Move（合并、得分从 4321 涨上去）之后仍然一条都没有：
   // SPEC §3.4 的「without duplicating every intermediate value」守的就是这一条
   await page.locator('[data-board]').focus()
   await page.keyboard.press('ArrowLeft')
-  // 8417 = 4321 + 2048 + 2048：四个 1024 左移合出两个 2048，一次合并的产物不在
-  // 同一动里再合（mode-contract §2）。同 run-endings.spec.ts 的那个局面
-  await expect(page.locator('[data-score]')).toHaveText('8417')
+  // 4325 = 4321 + 4：2 2 左移合出一个 4，一次合并的产物不在同一动里再合（mode-contract §2）
+  await expect(page.locator('[data-score]')).toHaveText('4325')
   await expect(page.locator('[data-run-status]')).toHaveCount(0)
+
+  // 达标那一半：四个 1024 左移合出两个 2048（8417 = 4321 + 2048 + 2048），正好第一次达标
+  await page.goto(startUrl(FOUR_1024, 4321))
+  await page.getByRole('button', { name: '开始游戏' }).click()
+  await expect(page.locator('[data-board]')).toBeVisible()
+  await page.locator('[data-board]').focus()
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.locator('[data-score]')).toHaveText('8417')
 
   // 达标：一句话说出目标值与「这不是终局」
   await expect(page.locator('[data-panel="win"]')).toBeVisible()
@@ -649,7 +666,19 @@ test('结构与语义：读屏软件能拿到的名字全部在位', async ({ pa
   const tile = page.locator('[data-tile-id="1"]')
   await expect(tile).toHaveAttribute('role', 'button')
   await expect(tile).toHaveAttribute('aria-pressed', 'false')
-  await expect(tile).toHaveAttribute('aria-label', /第 1 行第 1 列的方块，数值 \d+，按 Enter 选择/)
+  // 名字里的行列**从元素自己的 data-row / data-col 推**（两者都是零基，名字是一基）：
+  // 原来写死「第 1 行第 1 列」，那是假定 id=1 的那枚正好落在 (0,0)——而开局两枚方块的位置
+  // 由种子决定的随机流生成，这次它在第 3 行第 1 列（实测 data-row="2"），于是断言红。
+  // 断言强度没变：它验的仍是「名字里的行列与数值跟元素自己报的一致」。
+  const position = await tile.evaluate((element) => ({
+    row: Number(element.getAttribute('data-row')) + 1,
+    col: Number(element.getAttribute('data-col')) + 1,
+    value: element.getAttribute('data-value'),
+  }))
+  await expect(tile).toHaveAttribute(
+    'aria-label',
+    new RegExp(`第 ${position.row} 行第 ${position.col} 列的方块，数值 ${position.value}，按 Enter 选择`)
+  )
 
   // 战绩面板的开关：aria-expanded 说它开着没有；面板是棋盘兄弟，不盖棋盘
   const toggle = page.getByRole('button', { name: '战绩与统计' })

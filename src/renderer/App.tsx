@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ModeId } from '../shared/modes'
 import type { Direction } from '../shared/types'
-import { AchievementNotice } from './components/AchievementNotice'
 import { Board } from './components/Board'
 import { Countdown } from './components/Countdown'
 import { DailyDateLabel } from './components/DailyDateLabel'
@@ -16,6 +15,7 @@ import { StartScreen } from './components/StartScreen'
 import { StylePicker } from './components/StylePicker'
 import { WinPanel } from './components/WinPanel'
 import { recheckEffectiveFont } from './styles/fontState'
+import { getTheme } from './styles/themes'
 import { useGameStore } from './stores/useGameStore'
 
 /**
@@ -40,8 +40,9 @@ import { useGameStore } from './stores/useGameStore'
  * 一次「我的一局好像没了」的闪烁。
  * T17 起同一批读取把记录与统计（records / stats 两个桶）一起带回来，外壳上多一个
  * 「战绩与统计」入口：开局前与局中都能看，它不盖棋盘、不抢焦点。
- * T18 起同一个位置多一条**成就解锁提示**：一次解锁只出现一次（它由写盘那一次产生，
- * 刷新不会重播），收起它不动盘上任何数据。
+ * ADR-0007 起外壳上多一个**呈现插槽**（ADR-0002）：成就祝贺由**当前风格自己渲染**
+ * （`getTheme(styleId).toast`），宿主只把「待呈现的几条 + 本条已结束」递过去。
+ * 它挂在 `.board` 之外（设计卡 §10：fixed 贴视口右上角），所以不遮棋盘、不压方向按钮。
  */
 export default function App(): JSX.Element {
   // 外壳元素本身。字体重探需要它：这一套风格的字体栈挂在 data-style 上，
@@ -71,8 +72,8 @@ export default function App(): JSX.Element {
   const clearSwap = useGameStore((state) => state.clearSwap)
   const records = useGameStore((state) => state.records)
   const stats = useGameStore((state) => state.stats)
-  const achievementNotice = useGameStore((state) => state.achievementNotice)
-  const dismissAchievementNotice = useGameStore((state) => state.dismissAchievementNotice)
+  const toasts = useGameStore((state) => state.toasts)
+  const dismissToast = useGameStore((state) => state.dismissToast)
   const moveSequence = useRef(0)
   const boardRef = useRef<HTMLDivElement>(null)
   const moveContext = useRef<{
@@ -157,6 +158,9 @@ export default function App(): JSX.Element {
     statsToggleRef.current?.focus()
   }, [statsOpen])
 
+  // 当前风格的呈现插槽。身份只有一份（目录），实现由那一套风格自己交（themes/<id>/toast.tsx）
+  const Toast = getTheme(styleId).toast
+
   return (
     <main
       ref={shellRef}
@@ -168,12 +172,10 @@ export default function App(): JSX.Element {
           棋盘都看得到的地方——写入失败是在打一局的过程中冒出来的，只在开局界面
           提示等于在玩家唯一还在玩的时刻闭嘴 */}
       {storageNotice !== null && <StorageNotice notice={storageNotice} />}
-      {/* 成就解锁提示（T18）。与存档那句同一个位置：结算发生在打一局的过程中，
-          只在开局界面提示等于在玩家唯一还在玩的时刻闭嘴。它由写盘结果带来，
-          一次解锁只出现一次，刷新不会重播（见 AchievementNotice 的头注） */}
-      {achievementNotice !== null && (
-        <AchievementNotice ids={achievementNotice} onDismiss={dismissAchievementNotice} />
-      )}
+      {/* 成就祝贺（ADR-0007 · 呈现插槽 ADR-0002）：当前风格自己渲染的一条短提示。
+          位置/长相/消失表现全在 themes/<id>/styles.css 与 toast.tsx（设计卡 §10），
+          这里只把「待呈现的几条 + 本条已结束」递过去。 */}
+      <Toast toasts={toasts} onDone={dismissToast} />
       {restoring ? (
         <section className="flex flex-col items-center gap-2 py-8">
           <h1 className="shell__title text-6xl">2048</h1>

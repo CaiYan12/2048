@@ -300,12 +300,26 @@ async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<v
   if (hovered.length > 0) {
     await page.locator(hovered[0].probe?.selector ?? '').first().hover()
     for (const pair of hovered) await expectPair(page, pair)
+    // 读完之后把指针移开：悬停是**这一步故意制造**的状态，而下一步「静止态的环」按定义
+    // 要在没有悬停、没有焦点的状态下读。不移开的话，同一枚 .control 会带着悬停底色被读到
+    // ——Claude 的表上两对都探 `.control`（悬停对 #e3dccc / 静止描边对纸面 #f0eee6），
+    // 于是描边那一对读到的是悬停底色，报「背景对不上」（实测红了两个视口）。
+    await page.mouse.move(0, 0)
   }
 
   // 静止态的环（Claude 控件那一圈 1px 描边）要在键盘导航**之前**读：Tab 之后同一边的
   // outline 会被焦点环覆盖，那时读到的就不再是表上声明的那个颜色
+  //
+  // **方块上的环不归这一档**：它要先开交换拾取、再点一枚方块才存在，那套动作在最后。
+  // 原来这里只按「read === 'ring'、选择器不带 :focus-visible」筛，于是方块环也被夹进来，
+  // 在没有选中方块的那一刻去读——必然是「页面上找不到这个元素」（Classic / Material 各两个视口）。
+  const tileRing = (pair: ContrastPair): boolean =>
+    pair.probe?.read === 'ring' && (pair.probe?.selector ?? '').startsWith('.board__tile')
   const restingRings = pairs.filter(
-    (pair) => pair.probe?.read === 'ring' && !(pair.probe?.selector ?? '').includes(':focus-visible')
+    (pair) =>
+      pair.probe?.read === 'ring' &&
+      !(pair.probe?.selector ?? '').includes(':focus-visible') &&
+      !tileRing(pair)
   )
   for (const pair of restingRings) await expectPair(page, pair)
 
@@ -331,9 +345,7 @@ async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<v
   }
 
   // 选中环要先开交换拾取再点一枚方块（board.css 的 [data-selected='true']）
-  const tileRings = pairs.filter(
-    (pair) => pair.probe?.read === 'ring' && pair.probe?.selector.startsWith('.board__tile')
-  )
+  const tileRings = pairs.filter(tileRing)
   if (tileRings.length > 0) {
     await page.getByRole('button', { name: '交换' }).click()
     await page.locator('[data-tile-id="1"]').click()

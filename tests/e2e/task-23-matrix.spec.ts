@@ -1,6 +1,6 @@
-import { readFileSync, readdirSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 import { MODES, type ModeDefinition } from '../../src/shared/modes'
+import { STYLE_CATALOG } from '../../src/shared/styleCatalog'
 import { createBoardLayout, fitCellSize } from '../../src/renderer/components/BoardLayout'
 import { valueLadder } from '../../src/renderer/components/ValueLadder'
 
@@ -14,7 +14,7 @@ import { valueLadder } from '../../src/renderer/components/ValueLadder'
  * 不靠谁记得加命令行参数）。
  *
  * **本文件证什么**
- *   1. 18 个组合（清单由 MODES × THEMES 推导，不手抄）在两个视口下都可加载、可操作、
+ *   1. 18 个组合（清单由 MODES × 风格目录推导，不手抄）在两个视口下都可加载、可操作、
  *      无控制台错误、无横向溢出；
  *   2. 六模式各自的特殊状态：5×5、障碍、长数值、终局结算、缩放（SPEC §3.2 的
  *      「rendered desktop and mobile review」的结构侧半边）；
@@ -41,48 +41,25 @@ const SETTLED_SCORE = 1234
 /** 缩放用例的视口宽度：320 是最窄的真实设备（BoardLayout.ts 的地板就按它留的余量） */
 const ZOOM_WIDTHS: readonly number[] = [320, 393, 520, 768, 1280]
 
-interface ThemeInfo {
+interface StyleInfo {
   id: string
   label: string
 }
 
 /**
- * 风格注册表的运行时快照（SPEC §3.2：注册表改动只发生在 themes/index.ts）。
+ * 风格清单直接来自共享目录（ADR-0006 / SC-02）。
  *
- * **为什么读源码文本而不是 import**：每套风格的 config.ts 顶部都 `import './tokens.css'`，
- * 而 Playwright 的模块加载器是 Node ESM——.css 会当场 ERR_UNKNOWN_FILE_EXTENSION
- * （本票实测：node 直接 import config.ts 就炸在这一行），注册表在 e2e 里 import 不
- * 进来，只能按它稳定的源码形状读：index.ts 给出顺序与常量名，各家 config.ts 给出
- * 字面量。解析与真实注册表脱钩的那一天，`注册表解析与界面一致` 那条守卫用例会先炸，
- * 而不是安静地少跑几个组合——所以这里允许朴素，不允许无声失败。
+ * **为什么这里现在可以 import 了**：原先这段读的是源码文本 + 正则（themes/index.ts
+ * 给顺序与常量名，各家 config.ts 给字面量），因为 config.ts 顶层 `import
+ * './tokens.css'`，而 Playwright 的模块加载器是 Node ESM——.css 当场
+ * ERR_UNKNOWN_FILE_EXTENSION，注册表在 e2e 里 import 不进来。共享目录是一张零 import
+ * 的表，Node ESM 直接 import 得进来；这正是把风格身份从渲染层拆出去的收益之一，
+ * 那层「朴素、但会与真实能力静默脱钩」的源码解析也一起消失了。
+ *
+ * 顺序 / id / label 全由目录给出。目录与**界面**是否一致由下面那条守卫用例负责
+ * （界面此刻仍由渲染注册表驱动，注册表拆掉是 SC-03 的事）。
  */
-function readThemeRegistry(): readonly ThemeInfo[] {
-  const themesDir = new URL('../../src/renderer/styles/themes/', import.meta.url)
-  const index = readFileSync(new URL('index.ts', themesDir), 'utf8')
-  // 条目形如 `id: classicStyleId,\n    label: classicLabel,`
-  const entries = [...index.matchAll(/id:\s*(\w+StyleId),\s*label:\s*(\w+Label)/g)]
-  // 解析不出东西就让本次收集直接失败：矩阵少跑几个组合比 collection error 更糟——
-  // 后者当场看得见，前者要等有人在报告里问「18 个组合在哪」
-  if (entries.length === 0) {
-    throw new Error('从 themes/index.ts 里解析不出任何风格，注册表的源码形状变了')
-  }
-  const values = new Map<string, string>()
-  for (const item of readdirSync(themesDir, { withFileTypes: true })) {
-    if (!item.isDirectory()) continue
-    const source = readFileSync(new URL(`${item.name}/config.ts`, themesDir), 'utf8')
-    for (const match of source.matchAll(
-      /export const (\w+)(?::\s*StyleId)?\s*=\s*'([^']+)'/g
-    )) {
-      values.set(match[1], match[2])
-    }
-  }
-  return entries.map(([, idName, labelName]) => ({
-    id: values.get(idName) ?? '',
-    label: values.get(labelName) ?? idName,
-  }))
-}
-
-const THEMES: readonly ThemeInfo[] = readThemeRegistry()
+const STYLES: readonly StyleInfo[] = STYLE_CATALOG
 
 /** 风格身份用例用的展示局面取第一个模式（4×4，阶梯最密的那一个） */
 const SHOWCASE_MODE: ModeDefinition = MODES[0]
@@ -211,6 +188,26 @@ function boardSignature(page: Page): Promise<string> {
 }
 
 /**
+ * 从界面选一个模式再开局。
+ *
+ * **这一下不能省**：模式没有 URL 入口，而 `?board=` 由**开局那一刻选中的模式**解释
+ * （fixture.ts 的 fixtureFromQuery 拿的是当前模式的 size 与合并表）。漏掉它，夹具会被
+ * 默认的 Classic 解释，两种后果都很难从症状看回原因：
+ *   · 尺寸不同的（5×5 的 25 格 vs Classic 的 16 格）——夹具**解析失败、退回随机开局**，
+ *     于是 `?score=` 与盘面一起丢掉（现象是「分数期望 1234 实测 0」「目标块不在盘上」）；
+ *   · 尺寸相同但阶梯不同的（斐波那契也是 4×4）——夹具照收，但档位按 Classic 的阶梯取
+ *     （现象是「目标块期望第 11 档实测第 12 档」）。
+ * 缩放、终局结算、长数值这三条用例各踩过一次同一个坑，所以收成一个帮手。
+ */
+async function startRun(page: Page, mode: ModeDefinition): Promise<void> {
+  await page
+    .getByRole('group', { name: '模式' })
+    .getByRole('button', { name: mode.label })
+    .click()
+  await page.getByRole('button', { name: '开始游戏' }).click()
+}
+
+/**
  * 一次合法操作：四个方向依次试，直到有一个真的推动棋盘。
  *
  * 判据是「棋盘真的变了」而不是「按了一个键」——无效移动连 state 都不换（store 的
@@ -258,17 +255,19 @@ async function expectNoOverflow(page: Page, where: string): Promise<void> {
   expect(metrics.boardWidth, `${where}：棋盘宽过内容区`).toBeLessThanOrEqual(metrics.clientWidth)
 }
 
-test.describe('18 组合矩阵（MODES × THEMES × 桌面/手机）', () => {
-  test('注册表解析与界面一致：选择器列出的就是 THEMES，顺序也一样', async ({ page }) => {
-    // 这条守卫钉的是上面 readThemeRegistry 的解析：解析与界面脱钩时先在这里炸，
-    // 而不是让矩阵安静地少跑几个组合
+test.describe('18 组合矩阵（MODES × 目录 × 桌面/手机）', () => {
+  test('目录与界面一致：选择器列出的就是目录里的三套，id、label、顺序都一样', async ({
+    page,
+  }) => {
+    // 这条守卫钉的是「目录 == 界面」：界面此刻由渲染注册表驱动（SC-03 才会拆它），
+    // 注册表与目录一旦分叉就先在这里炸，而不是让矩阵安静地少跑几个组合
     await page.goto(`/?seed=${SEED}`)
     const picker = page.getByRole('group', { name: '风格' })
     const buttons = picker.getByRole('button')
-    await expect(buttons).toHaveCount(THEMES.length)
+    await expect(buttons).toHaveCount(STYLES.length)
 
-    const fromDom: ThemeInfo[] = []
-    for (let index = 0; index < THEMES.length; index += 1) {
+    const fromDom: StyleInfo[] = []
+    for (let index = 0; index < STYLES.length; index += 1) {
       // 点一下再读 main[data-style]：界面上的 id 就在那里（换肤机制唯一的钩子）
       await buttons.nth(index).click()
       fromDom.push({
@@ -276,11 +275,11 @@ test.describe('18 组合矩阵（MODES × THEMES × 桌面/手机）', () => {
         label: ((await buttons.nth(index).textContent()) ?? '').trim(),
       })
     }
-    expect(fromDom).toEqual([...THEMES])
+    expect(fromDom).toEqual([...STYLES])
   })
 
   for (const mode of MODES) {
-    for (const theme of THEMES) {
+    for (const theme of STYLES) {
       test(`${theme.label} × ${mode.label}：可加载、可操作、无控制台错误、无横向溢出`, async ({
         page,
       }) => {
@@ -336,7 +335,7 @@ test.describe('代表局面：六模式的特殊状态（SPEC §3.2 的 rendered
     test(`${mode.label}：终局结算后面板与分数都在，棋盘不在面板后面位移`, async ({ page }) => {
       const problems = watchProblems(page)
       await page.goto(startUrl(deadlockFixture(mode), SETTLED_SCORE))
-      await page.getByRole('button', { name: '开始游戏' }).click()
+      await startRun(page, mode)
       await expect(page.locator('[data-board]')).toBeVisible()
       await expect(page.locator('[data-score]')).toHaveText(String(SETTLED_SCORE))
 
@@ -364,13 +363,44 @@ test.describe('代表局面：六模式的特殊状态（SPEC §3.2 的 rendered
       ).toBe(2)
 
       // 面板是不透明满盖（.overlay 的 inset:0 + 实底），它是 .board 的**兄弟**节点：
-      // 盖得住棋盘，但不该把棋盘推走。面板露头时量与结算之后量，两个矩形必须一样
-      const boardRect = async (): Promise<{ x: number; y: number; width: number; height: number }> =>
-        page.locator('[data-board]').evaluate((el) => {
-          const box = el.getBoundingClientRect()
-          return { x: box.x, y: box.y, width: box.width, height: box.height }
-        })
-      const withPanel = await boardRect()
+      // 盖得住棋盘，但不该把棋盘推走。「不占布局」这件事直接断言机制，而不是比代理量：
+      //   · 它必须脱离布局（position: absolute），否则会参与排版、把棋盘往下推；
+      //   · 它的矩形必须与棋盘逐像素相同——盖的正是棋盘那一块，不多不少。
+      //
+      // 为什么不比「结算前后的棋盘矩形」（那是这里原来的写法）：那个代理量会被与面板
+      // **无关**的变化污染，实测（探针，2026-09-28）——
+      //   · 大棋盘桌面：结算后页面**滚了 22px**，视口坐标的 y 因此变小，而文档坐标没变；
+      //   · 限时两个视口：结算后**倒计时那一行消失**，整页矮 72px，棋盘在文档坐标里真的上移。
+      // 两者都不是面板干的，却都让那个代理量红——测的不是它想测的东西。
+      const geometry = await page.evaluate(() => {
+        const round = (value: number): number => Math.round(value * 10) / 10
+        const box = (
+          selector: string
+        ): { x: number; y: number; width: number; height: number } | null => {
+          const element = document.querySelector(selector)
+          if (element === null) return null
+          const rect = element.getBoundingClientRect()
+          return {
+            x: round(rect.x),
+            y: round(rect.y),
+            width: round(rect.width),
+            height: round(rect.height),
+          }
+        }
+        const overlay = document.querySelector('[data-panel="gameover"]')
+        return {
+          position: overlay === null ? 'none' : getComputedStyle(overlay).position,
+          board: box('[data-board]'),
+          overlay: box('[data-panel="gameover"]'),
+        }
+      })
+      expect(geometry.position, `${mode.label}：终局面板必须脱离布局，否则它会推走棋盘`).toBe(
+        'absolute'
+      )
+      expect(
+        geometry.overlay,
+        `${mode.label}：终局面板的矩形必须与棋盘逐像素相同`
+      ).toEqual(geometry.board)
 
       // 结束并记录 → 结算（mode-contract §3：endReason 从 phase 反推，死局收工 = deadlock）
       await panel.getByRole('button', { name: '结束并记录' }).click()
@@ -379,8 +409,7 @@ test.describe('代表局面：六模式的特殊状态（SPEC §3.2 的 rendered
       await expect(panel).toContainText('死局')
       // 分数还在：StatusBar 在 ended 之后照旧渲染，面板说的就是这一局的最后一分
       await expect(page.locator('[data-score]')).toHaveText(String(SETTLED_SCORE))
-      // 棋盘一个像素都没动，格子一枚都没少
-      expect(await boardRect()).toEqual(withPanel)
+      // 格子一枚都没少
       await expect(page.locator('.board__cell')).toHaveCount(mode.size * mode.size)
 
       await expectNoOverflow(page, `${mode.label} 终局`)
@@ -391,7 +420,7 @@ test.describe('代表局面：六模式的特殊状态（SPEC §3.2 的 rendered
   for (const mode of MODES) {
     test(`${mode.label}：长数值落在字号档位上，每一位都还读得清、不溢出格子`, async ({ page }) => {
       await page.goto(startUrl(showcaseFixture(mode)))
-      await page.getByRole('button', { name: '开始游戏' }).click()
+      await startRun(page, mode)
       await expect(page.locator('[data-board]')).toBeVisible()
 
       // 目标值在第 11 档、超过目标的值在 beyond 档（board.css 的兜底档，data-bucket='12'）：
@@ -446,7 +475,7 @@ test.describe('代表局面：六模式的特殊状态（SPEC §3.2 的 rendered
       try {
         for (const mode of SIZE_REPRESENTATIVES) {
           await page.goto(startUrl(openingFixture(mode)))
-          await page.getByRole('button', { name: '开始游戏' }).click()
+          await startRun(page, mode)
           await expect(page.locator('[data-board]')).toBeVisible()
 
           const measured = await page.evaluate(() => {
@@ -494,6 +523,23 @@ test.describe('设计卡与视觉复核（SPEC §3.2 的 human review 结构侧�
    * 扩展的是组合清单，不是另一个人的配色裁决。加第四套风格时把它的设计卡抄进来，
    * 忘了抄会由用例里的 toBeDefined 当场说一句「先抄设计卡」。
    */
+  /**
+   * 「方块上有没有看得见的投影」。
+   *
+   * **不能用 `boxShadow !== 'none'` 当判据**：board.css 给方块永远留着一个 box-shadow 槽
+   * （`var(--tile-elevation, 0 0 #0000)`），兜底值是**全透明**的一层——因为拾取环要与主题
+   * 自己的 elevation 合成同一层，两者不能互相顶掉（board.css 里那段说明）。于是没声明
+   * `--tile-elevation` 的风格 computed 出来是 `rgba(0, 0, 0, 0) 0px 0px 0px 0px`，
+   * **永远不等于 'none'**，那个写法会把 Classic / Claude 误判成「有投影」。
+   * 实测（探针）：三套里只有 Material 声明了这个变量，另两套读出来是空串。
+   *
+   * 真判据是「这一层看不看得见」：颜色有没有不透明度。带颜色的层哪怕半透明也算。
+   */
+  function hasVisibleShadow(shadow: string): boolean {
+    if (shadow === 'none') return false
+    return !/rgba?\(\s*0,\s*0,\s*0,\s*0\s*\)/.test(shadow)
+  }
+
   interface ThemeCard {
     /** 纸面（页面底） */
     page: string
@@ -527,16 +573,18 @@ test.describe('设计卡与视觉复核（SPEC §3.2 的 human review 结构侧�
       tileElevation: true,
     },
     claude: {
-      page: 'rgb(240, 238, 226)',
+      // 纸面照 tokens.css / DESIGN.md §2 / contrast.json 的 #f0eee6（= 240,238,230）。
+      // 这里原来写 226，是把 e6 抄成 e2，与那三处都对不上
+      page: 'rgb(240, 238, 230)',
       font: 'Source Sans 3',
       board: { background: 'rgb(250, 248, 242)', elevation: false, rule: true },
-      control: 'rgb(240, 238, 226)',
+      control: 'rgb(240, 238, 230)',
       tile: { family: 'Playfair Display', weight: '700', numeric: ['lining-nums', 'tabular-nums'] },
       tileElevation: false,
     },
   }
 
-  for (const theme of THEMES) {
+  for (const theme of STYLES) {
     test(`${theme.label}：设计卡的身份特征（不是只换颜色）`, async ({ page }) => {
       const card = DESIGN_CARDS[theme.id]
       expect(
@@ -594,7 +642,7 @@ test.describe('设计卡与视觉复核（SPEC §3.2 的 human review 结构侧�
       )
       expect(board.outline !== '', `${theme.label} 的板面细线与设计卡不符`).toBe(card.board.rule)
       expect(control, `${theme.label} 的控件底色与设计卡不符`).toBe(card.control)
-      expect(tile.shadow !== 'none', `${theme.label} 的方块投影与设计卡不符`).toBe(
+      expect(hasVisibleShadow(tile.shadow), `${theme.label} 的方块投影与设计卡不符`).toBe(
         card.tileElevation
       )
       expect(tile.family, `${theme.label} 方块数字的字族与设计卡不符`).toContain(card.tile.family)
