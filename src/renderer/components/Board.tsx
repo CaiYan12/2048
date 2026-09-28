@@ -47,14 +47,16 @@ interface Props {
   }
   /** 当前风格（T13）：只决定两个装饰插槽取哪一套的配置。data-style 挂在外壳上 */
   styleId: StyleId
+  /**
+   * 推一下棋盘。指针路径（滑动与轻点）走它；**键盘那条路 2026-09-28 起不在这一层了**——
+   * 键盘住在 App（整页、连开局界面一起），见 App.tsx 里那段 effect
+   */
   onMove(direction: Direction): void
-  onUndo(): void
   /** 交换拾取中（T12）：true 时方块才进 Tab 序列、才认轻点 */
   swapArmed: boolean
   /** 等第二枚的那一枚（T12）；null = 没有待确认的选择 */
   swapSelection: Coordinate | null
   onSelectCell(coordinate: Coordinate): void
-  onExitSwap(): void
 }
 
 type MergePulsePhase = 'pending' | 'up' | 'down'
@@ -93,59 +95,10 @@ function settleMergePulse(current: ActiveMotion, id: number): ActiveMotion | nul
   return { ...current, motion, mergePulses }
 }
 
-/**
- * 移动键 → 方向。方向键（SPEC §3.4）+ WASD（用户故事 2 的原文就是「arrow keys or WASD」）。
- * 只用小写查找，Shift 的大写与方向键都能命中。
- */
-const MOVE_KEYS: Readonly<Record<string, Direction>> = {
-  arrowup: 'up',
-  arrowdown: 'down',
-  arrowleft: 'left',
-  arrowright: 'right',
-  w: 'up',
-  s: 'down',
-  a: 'left',
-  d: 'right',
-}
-
-/**
- * 撤销键（T11，ADR-0003）。与 MOVE_KEYS 并排放，为的是让两条键位** visibly 共用
- * 同一条查表路子**：查表前先 toLowerCase，所以 Shift+Z 的 `Z` 自动命中同一个键，
- * WASD 的大写也是这样命中的——不必为大写单列一行。加撤销键只改这一处。
- *
- * **为什么不是 Ctrl+Z**：那个组合在浏览器与操作系统里已经被占用（多数桌面是文本
- * 撤销，有的路径被浏览器自身吃掉），而本项目的撤销不是文本编辑撤销，是把一局游戏
- * 推回上一步；共用一个手势只会让玩家在「不知道哪一个会生效」的地方按错。处理器里
- * 因此另有一条「带 Ctrl / Meta / Alt 的 z 一律不撤销」，把这个决定做到底。
- * `u` 也考虑过：它不撞车，但读起来像菜单助记键，不像一个游戏动作。
- */
-const UNDO_KEYS: Readonly<Record<string, boolean>> = { z: true }
-
 /** 指针事件落在交互控件上就放行：它们要保留原生行为（SPEC §3.4） */
 function isInteractiveTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false
   return target.closest('button, select, input, a[href]') !== null
-}
-
-/**
- * 键盘事件要放行给浏览器的目标（2026-09-28 键盘改挂 window 之后新增的一条守卫）。
- *
- * 监听从「棋盘元素」搬到「整页」以后，够得着的目标多了一整个页面，所以放行条件必须比
- * 原来那条 `isInteractiveTarget` 更准——它当时只需照看棋盘里那几个控件：
- *
- *   · **文本入口一律放行**：方向键在 `input` / `textarea` / `select` / `contenteditable`
- *     里是「移光标、换选项」，不是「推棋盘」。README TODO 里的设置界面会有一排下拉框，
- *     就是这条守卫要保住的场景。
- *   · **棋盘区内的交互控件放行**：它们在棋盘里面，方向键归它们（T03 就钉过这条）。
- *     棋盘**之外**的按钮不在此列——面板上的「继续玩」按方向键照样会去推棋盘，挡不挡得住
- *     是 store 的 phase 说了算。这正是所有者要的「全局」。
- */
-function allowsNativeKeys(target: EventTarget | null, board: HTMLElement | null): boolean {
-  if (!(target instanceof Element)) return false
-  if (target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') !== null) {
-    return true
-  }
-  return board !== null && board.contains(target) && target.closest('button, a[href]') !== null
 }
 
 /**
@@ -223,11 +176,9 @@ export function Board({
   moveContext,
   styleId,
   onMove,
-  onUndo,
   swapArmed,
   swapSelection,
   onSelectCell,
-  onExitSwap,
 }: Props): JSX.Element {
   const mode = getMode(game.modeId)
   const theme = getTheme(styleId)
@@ -596,47 +547,6 @@ export function Board({
     rootRef.current?.focus({ preventScroll: true })
   }, [game, swapArmed, swapSelection])
 
-  // 键盘住在 **window** 上（2026-09-28 应所有者要求）。
-  //
-  // 以前它挂在棋盘元素上，于是「点一下棋盘以外的空白」就等于把键盘弄丢了：焦点落到 body，
-  // 方向键既推不动棋盘，还把页面一起滚走。现在整页都是棋盘的操作区，只有两类例外放行给
-  // 浏览器（见 allowsNativeKeys），而方向键的默认滚动由 preventDefault 挡掉——页面上
-  // 只剩下滚轮能滚。开局界面还没有棋盘，也就没有这个监听，那边方向键仍是浏览器的。
-  useEffect(() => {
-    // `globalThis.KeyboardEvent`：这个文件里的 `KeyboardEvent` 是 React 的同名类型，
-    // 而 window 上收到的是原生事件——写全了才不会把两者混成一个
-    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
-      if (allowsNativeKeys(event.target, rootRef.current)) return
-      // 带修饰键的组合整键放行：Alt+← 是「后退」、Ctrl/⌘+← 是文字导航。挂在棋盘上时
-      // 范围小、撞得少（旧注释说「移动键不改这条」），搬到整页之后必须让开。
-      if (event.ctrlKey || event.metaKey || event.altKey) return
-      const key = event.key.toLowerCase()
-      // Esc：取消选择并退出交换拾取（用户故事 16 的「不用指针退出」）。键名与移动键
-      // 同一条 lowercase 查表路子（'Escape'.toLowerCase() === 'escape'）。
-      // 顺序在移动键之前：拾取中按 Esc 只该收摊，不该顺手推一下棋盘。
-      // **只在真的收着摊时才拦**：全局吞掉 Esc 会顺手吃掉浏览器的停止加载与退出全屏
-      if (key === 'escape') {
-        if (swapArmed || swapSelection !== null) {
-          event.preventDefault()
-          onExitSwap()
-        }
-        return
-      }
-      const direction = MOVE_KEYS[key]
-      if (direction) {
-        // 就这一句让方向键不再滚页面。所有者要的是「页面上只留滚轮」
-        event.preventDefault()
-        onMove(direction)
-        return
-      }
-      if (UNDO_KEYS[key]) {
-        event.preventDefault()
-        onUndo()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onMove, onUndo, onExitSwap, swapArmed, swapSelection])
 
   // 手势起点只进 ref，不进 state：拖动过程中没有任何东西要显示它，而每帧
   // setState 会让 5×5 棋盘白重渲染一遍。「派生显示状态按需进 React」——这里

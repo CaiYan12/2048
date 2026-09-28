@@ -305,9 +305,14 @@ SDD ledger 的「依赖版本走当前」裁决。Node 需 `>=22.12.0`（`engine
 
 ### 键盘作用域（2026-09-28）
 
-- 键盘监听从**棋盘元素**搬到 **`window`**（`Board.tsx` 的一个 effect）。起因是所有者实测：
+- 键盘监听从**棋盘元素**搬到 **`App.tsx`**（先到 window，再往上到 App）。起因是所有者实测：
   鼠标点一下棋盘以外的空白，焦点落到 body，方向键就既推不动棋盘、又把页面滚走。现在整页
   都是棋盘的操作区，**方向键一律 `preventDefault`**——页面只由滚轮滚动。
+- **住在 App 而不是 Board，是因为所有者把范围又扩了一格**：开局界面（还没有棋盘，Board
+  根本没挂）方向键也要吃掉。App 比 Board 活得久，于是那条 `game === null` 分支只做
+  `preventDefault`、什么都不推。`MOVE_KEYS` / `UNDO_KEYS` / `allowsNativeKeys` 跟着搬家；
+  Board 只留指针路径要用的 `isInteractiveTarget`，`onUndo` / `onExitSwap` 两个 prop 随之取消
+  （`onMove` 留着——滑动手势走它）。
 - 三道让路（`allowsNativeKeys`）：文本入口（`input` / `textarea` / `select` /
   `contenteditable`）、**棋盘区内**的交互控件（T03 就钉过这条）、以及带 Ctrl / ⌘ / Alt 的
   组合（Alt+← 仍是后退；挂在棋盘上时范围小没管，搬到整页必须让开）。`Esc` 也收紧了：
@@ -316,7 +321,8 @@ SDD ledger 的「依赖版本走当前」裁决。Node 需 `>=22.12.0`（`engine
   e2e（`game.spec.ts`）是**故意改写**的，不是被改绿：现在断言焦点离开棋盘照样推得动，并新增
   一条「方向键被吃掉、`scrollY` 不动、滚轮照旧能滚」。`run-endings.spec.ts` 里那条注释也据实
   改写——面板按钮上的键现在真的走到处理器，拦住它的是 store 的 `phase`（`move` 对 won 拒绝）。
-- 开局界面还没有棋盘，也就没有这个监听，那边方向键仍是浏览器的。
+- **开局界面也在范围内**（2026-09-28 追加）：那边方向键被吃掉但没有棋盘可推，按键就是
+  什么都不做。留白的只有空格 / PageDown / Home / End——它们照旧能滚页面。
 - 收官验证：typecheck 0 错、741 unit tests / 40 files、build 通过、全量 Playwright
   **436 passed / 14 skipped / 0 failed**（`game.spec.ts` 另跑 `--repeat-each=4`，40/40 绿）。
 

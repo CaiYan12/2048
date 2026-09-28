@@ -42,8 +42,60 @@ import { useGameStore } from './stores/useGameStore'
  * 「战绩与统计」入口：开局前与局中都能看，它不盖棋盘、不抢焦点。
  * ADR-0007 起外壳上多一个**呈现插槽**（ADR-0002）：成就祝贺由**当前风格自己渲染**
  * （`getTheme(styleId).toast`），宿主只把「待呈现的几条 + 本条已结束」递过去。
- * 它挂在 `.board` 之外（设计卡 §10：fixed 贴视口右上角），所以不遮棋盘、不压方向按钮。
+ * 它挂在 `.board` 之外（设计卡 §10：fixed 贴视口**上方正中**），所以不遮棋盘、不压方向按钮。
+ * 2026-09-28 起**键盘也住在这里**：整页、从页面加载那一刻起，方向键都是游戏的键，
+ * 而且一律不让浏览器拿去滚页面（理由见下面那段 effect）。
  */
+
+/**
+ * 移动键 → 方向。方向键（SPEC §3.4）+ WASD（用户故事 2 的原文就是「arrow keys or WASD」）。
+ * 只用小写查找，Shift 的大写与方向键都能命中。
+ */
+const MOVE_KEYS: Readonly<Record<string, Direction>> = {
+  arrowup: 'up',
+  arrowdown: 'down',
+  arrowleft: 'left',
+  arrowright: 'right',
+  w: 'up',
+  s: 'down',
+  a: 'left',
+  d: 'right',
+}
+
+/**
+ * 撤销键（T11，ADR-0003）。与 MOVE_KEYS 并排放，为的是让两条键位** visibly 共用
+ * 同一条查表路子**：查表前先 toLowerCase，所以 Shift+Z 的 `Z` 自动命中同一个键，
+ * WASD 的大写也是这样命中的——不必为大写单列一行。加撤销键只改这一处。
+ *
+ * **为什么不是 Ctrl+Z**：那个组合在浏览器与操作系统里已经被占用（多数桌面是文本
+ * 撤销），抢过来会让玩家在别处按 Ctrl+Z 时推回上一步。撤销键因此是裸 `z`，
+ * 而带 Ctrl / Meta / Alt 的组合整个放行（见 effect 里那一条）。
+ */
+const UNDO_KEYS: Readonly<Record<string, boolean>> = { z: true }
+
+/**
+ * 键盘事件要放行给浏览器的目标。
+ *
+ * 监听挂在 window 上，够得着的目标是一整个页面，所以放行条件必须准：
+ *
+ *   · **文本入口一律放行**：方向键在 `input` / `textarea` / `select` / `contenteditable`
+ *     里是「移光标、换选项」，不是「推棋盘」。README TODO 里的设置界面会有一排下拉框，
+ *     就是这条守卫要保住的场景。
+ *   · **棋盘区内的交互控件放行**：它们在棋盘里面，方向键归它们（T03 就钉过这条）。
+ *     棋盘**之外**的按钮不在此列——面板上的「继续玩」按方向键照样会去推棋盘，挡不挡得住
+ *     是 store 的 phase 说了算。这正是所有者要的「全局」。
+ */
+function allowsNativeKeys(target: EventTarget | null, board: HTMLElement | null): boolean {
+  if (!(target instanceof Element)) return false
+  if (
+    target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') !==
+    null
+  ) {
+    return true
+  }
+  return board !== null && board.contains(target) && target.closest('button, a[href]') !== null
+}
+
 export default function App(): JSX.Element {
   // 外壳元素本身。字体重探需要它：这一套风格的字体栈挂在 data-style 上，
   // 只有这个元素算得出来（fontState.ts 的 effectiveFamilies）
@@ -158,6 +210,50 @@ export default function App(): JSX.Element {
     statsToggleRef.current?.focus()
   }, [statsOpen])
 
+  // 键盘住在 **App** 上（2026-09-28）。
+  //
+  // 它先在棋盘元素上，后来搬到 window，现在再往上搬到 App——因为所有者要求把「方向键不再
+  // 滚页面」扩到**开局界面**，而那时还没有棋盘可挂。App 比 Board 活得久，正是这条契约该住
+  // 的地方：整页、从页面加载那一刻起，方向键都是游戏的键。开局界面没有棋盘，于是前面的几个
+  // 分支自然什么都不做——但**滚动照旧被挡掉**，这就是这次改动的全部内容。
+  useEffect(() => {
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (allowsNativeKeys(event.target, boardRef.current)) return
+      // 带修饰键的组合整键放行：Alt+← 是「后退」、Ctrl/⌘+← 是文字导航。挂在棋盘上时
+      // 范围小、撞得少，搬到整页之后必须让开。
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      // 开局界面（还没有这一局）与恢复中：没有棋盘可推，但方向键照样吃掉——纯观感需求，
+      // 所有者要的是「页面只由滚轮滚动」，而他明确说过这一条要覆盖开局界面
+      if (game === null) {
+        if (MOVE_KEYS[event.key.toLowerCase()]) event.preventDefault()
+        return
+      }
+      const key = event.key.toLowerCase()
+      // Esc：取消选择并退出交换拾取（用户故事 16 的「不用指针退出」）。
+      // **只在真的收着摊时才拦**：全局吞掉 Esc 会顺手吃掉浏览器的停止加载与退出全屏
+      if (key === 'escape') {
+        if (swapArmed || swapSelection !== null) {
+          event.preventDefault()
+          clearSwap()
+        }
+        return
+      }
+      const direction = MOVE_KEYS[key]
+      if (direction) {
+        // 就这一句让方向键不再滚页面。所有者要的是「页面上只留滚轮」
+        event.preventDefault()
+        move(direction)
+        return
+      }
+      if (UNDO_KEYS[key]) {
+        event.preventDefault()
+        undo()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [game, move, undo, clearSwap, swapArmed, swapSelection])
+
   // 当前风格的呈现插槽。身份只有一份（目录），实现由那一套风格自己交（themes/<id>/toast.tsx）
   const Toast = getTheme(styleId).toast
 
@@ -227,11 +323,9 @@ export default function App(): JSX.Element {
               styleId={styleId}
               moveContext={moveContext}
               onMove={move}
-              onUndo={undo}
               swapArmed={swapArmed}
               swapSelection={swapSelection}
               onSelectCell={selectCell}
-              onExitSwap={clearSwap}
             />
             {game.phase === 'won' && (
               <WinPanel onContinue={continueRun} onSettle={settle} onNewGame={newGame} />
