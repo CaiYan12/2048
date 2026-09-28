@@ -146,11 +146,14 @@ test('Tile 身份不随位置变化（data-tile-id 在移动后仍然是同一�
   expect(movedFour).toEqual({ id: four?.id, value: 4, row: 0, col: 3 })
 })
 
-test('移动键只在棋盘是预定目标时生效', async ({ page }) => {
+test('移动键整页都在线：焦点离开棋盘照样推得动（点一下空白之后就是这种处境）', async ({
+  page,
+}) => {
   await page.goto(SEED_URL)
 
   // 开局界面：聚焦「开始游戏」按方向键，按钮保留原生键盘行为（方向键不激活它），
-  // 也不会凭空长出棋盘
+  // 也不会凭空长出棋盘。**这一格现在还有一个新理由**：开局界面没有棋盘，也就没有
+  // 那个 window 监听——那边方向键仍旧是浏览器的
   const start = page.getByRole('button', { name: '开始游戏' })
   await start.focus()
   await page.keyboard.press('ArrowDown')
@@ -160,19 +163,51 @@ test('移动键只在棋盘是预定目标时生效', async ({ page }) => {
 
   await start.click()
   await expect(page.locator('[data-board]')).toBeVisible()
-  const before = await readBoard(page)
 
-  // 焦点离开棋盘（落到页面上）时，方向键不该再推动棋盘
+  // 焦点落到页面上——点一下棋盘以外的空白就是这个效果。2026-09-28 之前这里方向键
+  // 是死的（键盘挂在棋盘元素上，够不着），所有者实测报的就是这一条
   await page.evaluate(() => {
     ;(document.activeElement as HTMLElement | null)?.blur()
   })
+  const before = await readBoard(page)
   await page.keyboard.press('ArrowLeft')
-  expect(await readBoard(page)).toEqual(before)
+  expect(await readBoard(page), '焦点不在棋盘上时方向键推不动棋盘').not.toEqual(before)
+})
 
-  // 焦点回到棋盘，同一个键立刻生效
-  await page.locator('[data-board]').focus()
-  await page.keyboard.press('ArrowLeft')
-  expect(await readBoard(page)).not.toEqual(before)
+test('方向键归棋盘、不再滚动页面；滚轮照旧能滚（只有滚轮能滚）', async ({ page }) => {
+  // 逼仄的视口：页面一定比它高，于是「滚不滚」是可观测的
+  await page.setViewportSize({ width: 1100, height: 420 })
+  await page.goto(SEED_URL)
+  await page.getByRole('button', { name: '开始游戏' }).click()
+  await expect(page.locator('[data-board]')).toBeVisible()
+  // 焦点故意丢到页面上，正是「点一下棋盘以外」之后的处境
+  await page.evaluate(() => {
+    ;(document.activeElement as HTMLElement | null)?.blur()
+    window.scrollTo(0, 0)
+  })
+
+  // 结构侧的证据：这一下**被应用吃掉了**（preventDefault）。探针监听器注册在应用的
+  // window 监听**之后**，所以它看到的 defaultPrevented 就是应用上报的那个值。
+  // 注册这一步必须**等它落地**再按键——不等就是一个竞态（上一版就是这么写的，
+  // 实测报了一次 flaky）
+  await page.evaluate(() => {
+    ;(window as typeof window & { __keyPrevented?: boolean }).__keyPrevented = undefined
+    window.addEventListener('keydown', (event) => {
+      ;(window as typeof window & { __keyPrevented?: boolean }).__keyPrevented =
+        event.defaultPrevented
+    })
+  })
+  await page.keyboard.press('ArrowDown')
+  const consumed = await page.evaluate(
+    () => (window as typeof window & { __keyPrevented?: boolean }).__keyPrevented
+  )
+  expect(consumed, '方向键没有被吃掉，浏览器会拿它去滚页面').toBe(true)
+  expect(await page.evaluate(() => window.scrollY), '方向键把页面滚走了').toBe(0)
+
+  // 行为侧的证据（所有者那半句「仅允许鼠标滚轮滚动」）：滚轮照旧
+  await page.mouse.move(550, 200)
+  await page.mouse.wheel(0, 400)
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
 })
 
 test('键位落在棋盘区内的控件上时不移动棋盘（守卫未来插槽控件的路径）', async ({

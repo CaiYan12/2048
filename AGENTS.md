@@ -303,6 +303,23 @@ SDD ledger 的「依赖版本走当前」裁决。Node 需 `>=22.12.0`（`engine
 
 
 
+### 键盘作用域（2026-09-28）
+
+- 键盘监听从**棋盘元素**搬到 **`window`**（`Board.tsx` 的一个 effect）。起因是所有者实测：
+  鼠标点一下棋盘以外的空白，焦点落到 body，方向键就既推不动棋盘、又把页面滚走。现在整页
+  都是棋盘的操作区，**方向键一律 `preventDefault`**——页面只由滚轮滚动。
+- 三道让路（`allowsNativeKeys`）：文本入口（`input` / `textarea` / `select` /
+  `contenteditable`）、**棋盘区内**的交互控件（T03 就钉过这条）、以及带 Ctrl / ⌘ / Alt 的
+  组合（Alt+← 仍是后退；挂在棋盘上时范围小没管，搬到整页必须让开）。`Esc` 也收紧了：
+  只在真的收着交换摊时才拦，免得吃掉浏览器的停止加载与退出全屏。
+- **旧契约「移动键只在棋盘是预定目标时生效」由本次取代**，SPEC §3.4 就地修订。钉它的那条
+  e2e（`game.spec.ts`）是**故意改写**的，不是被改绿：现在断言焦点离开棋盘照样推得动，并新增
+  一条「方向键被吃掉、`scrollY` 不动、滚轮照旧能滚」。`run-endings.spec.ts` 里那条注释也据实
+  改写——面板按钮上的键现在真的走到处理器，拦住它的是 store 的 `phase`（`move` 对 won 拒绝）。
+- 开局界面还没有棋盘，也就没有这个监听，那边方向键仍是浏览器的。
+- 收官验证：typecheck 0 错、741 unit tests / 40 files、build 通过、全量 Playwright
+  **436 passed / 14 skipped / 0 failed**（`game.spec.ts` 另跑 `--repeat-each=4`，40/40 绿）。
+
 ## Agent skills
 
 ### Issue tracker

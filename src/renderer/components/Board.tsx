@@ -121,10 +121,31 @@ const MOVE_KEYS: Readonly<Record<string, Direction>> = {
  */
 const UNDO_KEYS: Readonly<Record<string, boolean>> = { z: true }
 
-/** 键盘事件落在交互控件上就放行：它们要保留原生键盘行为（SPEC §3.4） */
+/** 指针事件落在交互控件上就放行：它们要保留原生行为（SPEC §3.4） */
 function isInteractiveTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false
   return target.closest('button, select, input, a[href]') !== null
+}
+
+/**
+ * 键盘事件要放行给浏览器的目标（2026-09-28 键盘改挂 window 之后新增的一条守卫）。
+ *
+ * 监听从「棋盘元素」搬到「整页」以后，够得着的目标多了一整个页面，所以放行条件必须比
+ * 原来那条 `isInteractiveTarget` 更准——它当时只需照看棋盘里那几个控件：
+ *
+ *   · **文本入口一律放行**：方向键在 `input` / `textarea` / `select` / `contenteditable`
+ *     里是「移光标、换选项」，不是「推棋盘」。README TODO 里的设置界面会有一排下拉框，
+ *     就是这条守卫要保住的场景。
+ *   · **棋盘区内的交互控件放行**：它们在棋盘里面，方向键归它们（T03 就钉过这条）。
+ *     棋盘**之外**的按钮不在此列——面板上的「继续玩」按方向键照样会去推棋盘，挡不挡得住
+ *     是 store 的 phase 说了算。这正是所有者要的「全局」。
+ */
+function allowsNativeKeys(target: EventTarget | null, board: HTMLElement | null): boolean {
+  if (!(target instanceof Element)) return false
+  if (target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') !== null) {
+    return true
+  }
+  return board !== null && board.contains(target) && target.closest('button, a[href]') !== null
 }
 
 /**
@@ -575,32 +596,47 @@ export function Board({
     rootRef.current?.focus({ preventScroll: true })
   }, [game, swapArmed, swapSelection])
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
-    if (isInteractiveTarget(event.target)) return
-    const key = event.key.toLowerCase()
-    // Esc：取消选择并退出交换拾取（用户故事 16 的「不用指针退出」）。键名与移动键
-    // 同一条 lowercase 查表路子（'Escape'.toLowerCase() === 'escape'）。
-    // 顺序在移动键之前：拾取中按 Esc 只该收摊，不该顺手推一下棋盘
-    if (key === 'escape') {
-      event.preventDefault()
-      onExitSwap()
-      return
+  // 键盘住在 **window** 上（2026-09-28 应所有者要求）。
+  //
+  // 以前它挂在棋盘元素上，于是「点一下棋盘以外的空白」就等于把键盘弄丢了：焦点落到 body，
+  // 方向键既推不动棋盘，还把页面一起滚走。现在整页都是棋盘的操作区，只有两类例外放行给
+  // 浏览器（见 allowsNativeKeys），而方向键的默认滚动由 preventDefault 挡掉——页面上
+  // 只剩下滚轮能滚。开局界面还没有棋盘，也就没有这个监听，那边方向键仍是浏览器的。
+  useEffect(() => {
+    // `globalThis.KeyboardEvent`：这个文件里的 `KeyboardEvent` 是 React 的同名类型，
+    // 而 window 上收到的是原生事件——写全了才不会把两者混成一个
+    const onKeyDown = (event: globalThis.KeyboardEvent): void => {
+      if (allowsNativeKeys(event.target, rootRef.current)) return
+      // 带修饰键的组合整键放行：Alt+← 是「后退」、Ctrl/⌘+← 是文字导航。挂在棋盘上时
+      // 范围小、撞得少（旧注释说「移动键不改这条」），搬到整页之后必须让开。
+      if (event.ctrlKey || event.metaKey || event.altKey) return
+      const key = event.key.toLowerCase()
+      // Esc：取消选择并退出交换拾取（用户故事 16 的「不用指针退出」）。键名与移动键
+      // 同一条 lowercase 查表路子（'Escape'.toLowerCase() === 'escape'）。
+      // 顺序在移动键之前：拾取中按 Esc 只该收摊，不该顺手推一下棋盘。
+      // **只在真的收着摊时才拦**：全局吞掉 Esc 会顺手吃掉浏览器的停止加载与退出全屏
+      if (key === 'escape') {
+        if (swapArmed || swapSelection !== null) {
+          event.preventDefault()
+          onExitSwap()
+        }
+        return
+      }
+      const direction = MOVE_KEYS[key]
+      if (direction) {
+        // 就这一句让方向键不再滚页面。所有者要的是「页面上只留滚轮」
+        event.preventDefault()
+        onMove(direction)
+        return
+      }
+      if (UNDO_KEYS[key]) {
+        event.preventDefault()
+        onUndo()
+      }
     }
-    const direction = MOVE_KEYS[key]
-    if (direction) {
-      event.preventDefault()
-      onMove(direction)
-      return
-    }
-    // 带修饰键的 z 不算撤销：Ctrl+Z / Cmd+Z 是浏览器与操作系统的文本撤销，本项目
-    // 刻意不给它让路（见 UNDO_KEYS 的说明）。放行的意义是让浏览器照旧处理它自己的
-    // 组合，而不是被棋盘吃掉。移动键不改这条——那是既有行为，这票不动它。
-    if (event.ctrlKey || event.metaKey || event.altKey) return
-    if (UNDO_KEYS[key]) {
-      event.preventDefault()
-      onUndo()
-    }
-  }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onMove, onUndo, onExitSwap, swapArmed, swapSelection])
 
   // 手势起点只进 ref，不进 state：拖动过程中没有任何东西要显示它，而每帧
   // setState 会让 5×5 棋盘白重渲染一遍。「派生显示状态按需进 React」——这里
@@ -699,11 +735,12 @@ export function Board({
       data-mode={mode.id}
       data-skip-tile-transition={skipTileTransition || undefined}
       tabIndex={0}
-      // application：方向键要交给游戏本身处理，而不是被读屏软件的浏览模式吃掉
+      // application：方向键要交给游戏本身处理，而不是被读屏软件的浏览模式吃掉。
+      // 键盘现在挂在 window 上，这个 role 仍然成立——它说的是「这一块里的键归应用」，
+      // 而焦点图与「焦点掉到 body 就还给棋盘」那条 effect 也都靠它有个可停靠的目标
       role="application"
       aria-label={`${mode.label}棋盘，方向键或 WASD 移动方块`}
       style={style}
-      onKeyDown={handleKeyDown}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}

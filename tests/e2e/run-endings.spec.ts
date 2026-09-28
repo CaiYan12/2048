@@ -316,10 +316,11 @@ test('面板按钮上的方向键不动棋盘，收起面板后同一个键立�
   await expect(page.locator('[data-score]')).toHaveText('8417')
 
   // 焦点落在面板按钮上，四个方向键 + WASD 一概不动棋盘。
-  // 注意：这不是在验 Board 里那个 isInteractiveTarget 守卫——面板是 .board 的**兄弟**
-  // （ADR-0002 的固定 DOM 不许往棋盘里塞东西），从按钮出发的 keydown 根本冒泡不到
-  // Board 的 handler，守卫压根没被问过。这里断言的是「面板挡着时按键推不动棋盘」这个
-  // 用户可见的事实，别把标题写成守卫。
+  //
+  // 2026-09-28 之后键盘挂在 window 上，所以这一串按键**确实走到了** Board 的处理函数
+  // （面板是 .board 的兄弟，ADR-0002 的固定 DOM 不许往棋盘里塞东西；从前正是靠这一点
+  // 让按键够不着）。现在让棋盘不动的是另一道闸：`move` 对 won 一律返回原 state。
+  // 断言的是「面板挡着时按键推不动棋盘」这个用户可见的事实，与守卫无关——别把标题写成守卫。
   await page.getByRole('button', { name: '继续玩' }).focus()
   for (const key of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'w', 'd']) {
     await page.keyboard.press(key)
