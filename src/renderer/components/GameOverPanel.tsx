@@ -1,15 +1,27 @@
 import type { JSX } from 'react'
-import type { GameState } from '../../shared/types'
-import { runEndLabel } from './runEndLabel'
+import type { ResultReadout } from '../stores/records'
+import type { ResultLayerSpec } from './ResultPresence'
+import { ResultLayer } from './ResultLayer'
+import { endReasonLabel, STUCK_LABEL } from './runEndLabel'
 
 interface Props {
-  game: GameState
+  /**
+   * **持有中的那一层**（T27）：三档、哪一处、为什么结束全由它说，不跟活的 `game.phase` 走。
+   * 换层连击那 150ms 里 phase 已经是下一档了，而场上正在离开的还是上一档——按 phase 画
+   * 的话，一个正在退场的层会被描述成当前档（架构决策 10 点名要避免的那件事）。
+   */
+  spec: ResultLayerSpec
+  readout: ResultReadout
   onSettle(): void
   onNewGame(): void
   /** 撤销一步（T11）。只摆在还没结算的死局面板上——ended 之后一律不可用 */
   onUndo(): void
   /** 进入交换拾取（T12）。同 StatusBar 的「交换」按钮，调的是 store 里同一个动作 */
   onSwap(): void
+  /** 正在退场（T27）。原样转交 ResultLayer：它只决定 `data-result-leaving` 在不在 */
+  leaving?: boolean
+  /** 退场播完了（T27）。原样转交 ResultLayer，由它从动画结束事件上捡起来 */
+  onExited?(): void
 }
 
 /**
@@ -19,7 +31,7 @@ interface Props {
  * deadlock（死局收工）、won（达成目标后主动收工）、以及 abandoned（在 store 里紧跟着
  * createGame，界面永远来不及露它）。
  *
- * 「为什么结束」从 game.endReason 读，不靠面板自己推断（SPEC 用户故事 7）：
+ * 「为什么结束」从 spec.endReason 读，不靠面板自己推断（SPEC 用户故事 7）：
  * 死局与超时必须是两句不同的话，读懂 endReason 即可。
  *
  * T04 只给「结束并记录」和「新游戏」。T11 在这里补「撤销」——mode-contract §3 的
@@ -33,26 +45,39 @@ interface Props {
  * 根本不冒泡到 Board 的 onKeyDown——它受的是 DOM 作用域保护，**不是**那道守卫。
  * 别在这里写「守卫保护了面板按钮」，T11 上那句话是错的：守卫只保护 `.board`
  * *内部*的控件（Board.tsx 的 isInteractiveTarget）。
+ *
+ * T26：结构归 ResultLayer（半透明遮罩 + 不透明卡片，ADR-0008），本文件只留自己的标题、
+ * 那一句话与四个按钮——三项逐字节未改。读数由 App 用 records.ts 的纯函数算好递进来。
+ * T27：App 经 `leaving` 递进退场旗标、经 `onExited` 接「退场播完了」（何时退场、何时
+ * 摘层全由 ResultPresence.ts 算），本文件只转交。
  */
 export function GameOverPanel({
-  game,
+  spec,
+  readout,
   onSettle,
   onNewGame,
   onUndo,
   onSwap,
+  leaving,
+  onExited,
 }: Props): JSX.Element {
-  const settled = game.phase === 'ended'
+  // 三档与哪一处的映射只有一份：ResultPresence.ts 的 layerForPhase（App 拿它算「此刻
+  // 意味着哪一层」，而这个 spec 就是那一刻被持有下来的答案）。这里只按它决定露哪半套
+  // 按钮、说哪句话——本文件只可能是 stuck 与 ended 两档。
+  const settled = spec.tier === 'ended'
 
   return (
-    <section
-      className="overlay"
-      data-panel="gameover"
-      data-end-reason={game.endReason}
-    >
-      <h2 className="overlay__title">{settled ? '本局已结束' : '死局'}</h2>
-      <p className="overlay__text">{runEndLabel(game)}</p>
-      <div className="flex gap-2">
-        {settled ? (
+    <ResultLayer
+      tier={spec.tier}
+      panel={spec.panel}
+      endReason={spec.endReason}
+      readout={readout}
+      title={settled ? '本局已结束' : '死局'}
+      sentence={settled ? endReasonLabel(spec.endReason) : STUCK_LABEL}
+      leaving={leaving}
+      onExited={onExited}
+      actions={
+        settled ? (
           <button type="button" className="control" onClick={onNewGame}>
             新游戏
           </button>
@@ -84,8 +109,8 @@ export function GameOverPanel({
               新游戏
             </button>
           </>
-        )}
-      </div>
-    </section>
+        )
+      }
+    />
   )
 }

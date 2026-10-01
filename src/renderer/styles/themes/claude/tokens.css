@@ -27,6 +27,19 @@
 
   /* 文字 */
   --ink: #26241f;
+  /* 结果层的遮罩三档（T26 · ADR-0008）：stuck / won / ended 各一档，强度按「还剩多少
+     决定可做」排——死局最亮（玩家得看清棋盘才选得出撤销、交换还是认命），达标居中
+     （棋盘是奖励，玩家正要回到它上面），结算最暗（什么都不用决定了）。
+     写成 rgba() 字面量而不是 color-mix(in srgb, var(--ink) …)：混出来的颜色在
+     getComputedStyle 里读不到 alpha，而 e2e 契约（tests/e2e/result-layer.spec.ts）
+     断的正是三档各自的 alpha。
+     方向是**压暗**：这一套是印刷品，一层墨洒在纸上就是它自己的比喻。用的就是调色盘里
+     已有那块墨（--ink = #26241f，三档只是它的三个浓度），**不是第二块暖色填充**：
+     暖色仍是稀缺品（见 --control-bg-selected 与 §7 的禁令）。三套风格的 alpha 互不相同
+     ——各家墨色明度不同，同一个 alpha 在三张纸面上不是同一种压暗。 */
+  --result-scrim-stuck: rgba(38, 36, 31, 0.34);
+  --result-scrim-won: rgba(38, 36, 31, 0.46);
+  --result-scrim-ended: rgba(38, 36, 31, 0.62);
   /* 次要正文：显式声明的色值，不用 opacity 调明度（Classic 的 .panel__label 当年正是那么
      做的，T15 换掉；Material 与 Claude 从第一版起就没有这个弯）。 */
   --ink-variant: #5d584e;

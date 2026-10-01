@@ -434,7 +434,8 @@ test('死局之后的交换：换开了就回到活跃局，还能接着走', as
 
   // 死局面板上的「交换」：mode-contract §3 的 stuckRecoveryMoves 第二条
   await panel.getByRole('button', { name: '交换' }).click()
-  // 面板收起——它是不透明满盖，不收起点不到底下的方块
+  // 面板收起——T26 起它是半透明遮罩 + 不透明卡片（ADR-0008），「看得见棋盘」不等于
+  // 「点得到棋盘」：遮罩照旧把指针接得牢牢的，不收起点不到底下的方块
   await expect(panel).toHaveCount(0)
   await expect(page.getByText('请选择第一枚方块，Esc 退出')).toBeVisible()
 

@@ -8,6 +8,7 @@ import { DirectionPad } from './components/DirectionPad'
 import { GameOverPanel } from './components/GameOverPanel'
 import { MuteToggle } from './components/MuteToggle'
 import { RunAnnouncer } from './components/RunAnnouncer'
+import { layerForPhase, useResultLayerPresence } from './components/ResultPresence'
 import { StatsPanel } from './components/StatsPanel'
 import { StatusBar } from './components/StatusBar'
 import { StorageNotice } from './components/StorageNotice'
@@ -16,19 +17,95 @@ import { StylePicker } from './components/StylePicker'
 import { WinPanel } from './components/WinPanel'
 import { recheckEffectiveFont } from './styles/fontState'
 import { getTheme } from './styles/themes'
+import { resultReadout } from './stores/records'
 import { useGameStore } from './stores/useGameStore'
+
+/* ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+   ＝＝＝＝＝＝＝＝＝＝ 临时调试钩子「一念神魔」的纯函数（已注释掉） ＝＝＝＝＝＝＝＝＝＝
+   ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+
+   与下面 JSX 里那一块是一套：要重新打开，把这里、JSX 里那一块、以及这三行 import
+   一起取消注释即可（不需要碰 store）。
+
+   import { getMode } from '../shared/modes'
+   import type { Cell, GameState } from '../shared/types'
+   import { MERGE } from '../game/merge'
+   import { valueLadder } from './components/ValueLadder'
+
+   export function plantDebugTargetPair(game: GameState): GameState {
+     const mode = getMode(game.modeId)
+     const merge = MERGE[mode.mergeFamily]
+     const ladder = valueLadder(mode)
+
+     // 那一对：合起来正好是目标块。阶梯只有 11–17 项，双重循环比「按家族各推一条公式」
+     // 短，且公式在那儿本身就是两份真相
+     let pair: readonly [number, number] | null = null
+     for (const a of ladder) {
+       for (const b of ladder) {
+         if (merge(a, b) === mode.target) {
+           pair = [a, b]
+           break
+         }
+       }
+       if (pair !== null) break
+     }
+     if (pair === null) return game
+
+     // 一对横向相邻、可摆得下的格子。先找空格，找不到就照字面「把两处相邻的方块改掉」
+     // （晚局盘子快满时它仍该能用）。障碍格一律跳过（T07：永不持数值）
+     const spot = findAdjacentSpot(game, true) ?? findAdjacentSpot(game, false)
+     if (spot === null) return game
+     const [first, second] = spot
+     const board = game.board.map((row, r) =>
+       row.map((cell, c): Cell => {
+         if (r === first[0] && c === first[1]) return { id: game.nextTileId, value: pair[0] }
+         if (r === second[0] && c === second[1]) return { id: game.nextTileId + 1, value: pair[1] }
+         return cell
+       })
+     )
+
+     // 只动棋盘与 id 分配：分数、步数、reachedTarget、phase、撤销历史一个字节都不碰。
+     // reachedTarget 留给 move 自己判——「曾经达标」的判据只有一处（engine.ts），
+     // 在这儿先设成 true 会让胜利面板在这一步之前就冒出来。
+     return { ...game, board, nextTileId: game.nextTileId + 2 }
+   }
+
+   function findAdjacentSpot(
+     game: GameState,
+     emptyOnly: boolean
+   ): readonly [readonly [number, number], readonly [number, number]] | null {
+     const size = game.board.length
+     for (let r = 0; r < size; r += 1) {
+       for (let c = 0; c + 1 < size; c += 1) {
+         const left = game.board[r][c]
+         const right = game.board[r][c + 1]
+         if (left === 'wall' || right === 'wall') continue
+         if (emptyOnly && (left !== null || right !== null)) continue
+         return [
+           [r, c],
+           [r, c + 1],
+         ]
+       }
+     }
+     return null
+   }
+   ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝ */
 
 /**
  * 外壳：开局前是模式 / 风格选择，开局后是棋盘 + 信息条 + 终局面板。
  *
  * 这里只做编排——规则在 src/game/，呈现规则在 themes/<id>/，状态在单 store。
  * T04 起按 phase 挂面板：won → 胜利里程碑，stuck / ended → 死局与终局。
+ * T26 起两处面板共用 ResultLayer（半透明遮罩 + 不透明卡片，ADR-0008）。
+ * T27 起「这一刻场上该有哪一层」由 ResultPresence.ts 算：phase 只回答「此刻**意味着**」
+ * 哪一层，而层要比 phase 多活一段退场时间（ADR-0008 的架构决策 9 / 10）。
  * T09 起按 deadline 挂倒计时：限时模式才读表，其余模式的 deadline 是 null。
  * T11 起把撤销接到死局面板与键盘 z 上：面板只在 stuck 时给它留入口（ended 之后
  * 不可用，那道判断在 store 的 undo 里），键盘那条路在 won 阶段同样有效——
  * mode-contract §3 只禁 ended 之后的撤销。
- * T12 起把作弊交换接到 StatusBar 与死局面板：拾取中先收起死局面板，否则它那层
- * 不透明满盖会把方块挡住，指针那条路点不到东西（理由见下面板那一段）。
+ * T12 起把作弊交换接到 StatusBar 与死局面板：拾取中先收起结果层，否则它那层盖在棋盘上
+ * 会把方块挡住，指针那条路点不到东西（理由见下面板那一段；T26 起它是半透明遮罩，
+ * 但「看得见」不等于「点得到」，那条理由一字未改）。
  * T13 起把风格切换接到外壳上：`data-style` 是整套换肤机制的根——每套风格的
  * tokens.css / styles.css 都把自己的规则挂在 `[data-style='<id>']` 之下，所以多套风格的
  * CSS 同时活在同一个产物里也不互相覆盖。它挂在外壳而不是 .board 上：ADR-0002 规定棋盘
@@ -123,6 +200,8 @@ export default function App(): JSX.Element {
   const selectCell = useGameStore((state) => state.selectCell)
   const clearSwap = useGameStore((state) => state.clearSwap)
   const records = useGameStore((state) => state.records)
+  // 这一局结算那一刻的归属（T26）：结果层的「最高分」读哪一条记录由它说了算
+  const settlementAttribution = useGameStore((state) => state.settlementAttribution)
   const stats = useGameStore((state) => state.stats)
   const toasts = useGameStore((state) => state.toasts)
   const dismissToast = useGameStore((state) => state.dismissToast)
@@ -143,6 +222,19 @@ export default function App(): JSX.Element {
   // 开关状态的上一个值：只为分辨「刚收起」与「从没开过」。挂载那一遍 StatsOpen
   // 本来就是 false，不分辨的话它会被当成一次「收起」而在载入时抢走焦点
   const previousStatsOpen = useRef(statsOpen)
+
+  // 结果层的在场（T27 · ADR-0008 的架构决策 9 / 10）。T26 是「phase 一到就挂、一走就
+  // 没」，T27 要它播完退场再走——于是「场上该有哪一层」由这一个 hook 说，phase 只回答
+  // 「此刻**意味着**哪一层」。它住在渲染层：这段延迟没有第二个消费者（理由写在
+  // ResultPresence.ts 的文件头）。
+  //
+  // 拾取中整层**当场**收起（`instantHide`）：那是一个进得快出得也快的模式，给它加一段
+  // 淡出只会让「看清两枚方块」变卡——T12 / T26 的行为一字不改。注意 ended 那一侧不
+  // 收起：store 的 selectCell 直接拒绝已终局的一局，`swapArmed` 陪 `ended` 出现时结果层
+  // 照旧在（T26 的条件就是只有 `stuck` 才看 swapArmed）。
+  const instantHide = game !== null && swapArmed && game.phase === 'stuck'
+  const implied = game === null || instantHide ? null : layerForPhase(game.phase, game.endReason)
+  const presence = useResultLayerPresence(implied, instantHide)
 
   const handleStart = (modeId: ModeId): void => {
     startRun(modeId)
@@ -209,6 +301,25 @@ export default function App(): JSX.Element {
     if (document.activeElement !== document.body) return
     statsToggleRef.current?.focus()
   }, [statsOpen])
+
+  // 结果层真被卸载时，把焦点还给棋盘（T22 的同一条约定 · T27 新添的一半）。
+  //
+  // T22 抓到的是「面板上的按钮随面板一起消失，焦点掉到 body，方向键从此失灵」。那条
+  // 修在 Board.tsx 里，判据是「焦点真的掉了」，依赖里带 `game`。T27 之后它**不够**了：
+  // 延迟卸载让层比 phase 多活 150ms，于是 Board 那个 effect 在 phase 变的那一刻跑起来
+  // 时，被聚焦的按钮还在 DOM 上（它正跟着层一起淡出），判据不成立、提前返回；等层真的
+  // 卸载、焦点掉到 body 时，`game` 已经不再变，那个 effect 不再跑——键盘每用一次结果层
+  // 就断一次，T22 修好的那个坑被同一个改动挖了回来。
+  //
+  // 所以这一半放在这里，依赖换成 presence.layer：它从「有层」翻成「没有层」的那一次提交，
+  // 正是层从 DOM 上消失的那一次（React 先摘节点、再跑 effect，所以此时焦点已经掉到 body）。
+  // 判据与守卫抄 Board 那条：焦点没掉就不动手；拾取进行中不还（那时焦点该留给可 Tab
+  // 的方块，提前拽走会把交换的键盘路径打断）。
+  useEffect(() => {
+    if (swapArmed || swapSelection !== null) return
+    if (document.activeElement !== document.body) return
+    boardRef.current?.focus({ preventScroll: true })
+  }, [presence.layer, swapArmed, swapSelection])
 
   // 键盘住在 **App** 上（2026-09-28）。
   //
@@ -313,9 +424,9 @@ export default function App(): JSX.Element {
               它是「这一局的观感」，不是「这一局的状态」。与开局界面共用同一个
               StylePicker，列表来自 THEMES 注册表。 */}
           <StylePicker value={styleId} onChange={setStyle} />
-          {/* 棋盘与面板共用一个相对定位的壳。面板是外壳元素（Tailwind 也只在外壳这侧），
+          {/* 棋盘与结果层共用一个相对定位的壳。它是外壳元素（Tailwind 也只在外壳这侧），
               不能塞进 .board：那层是 ADR-0002 的固定 DOM 结构。w-fit 让这个壳正好
-              裹住棋盘，面板 inset:0 才只盖住棋盘，不会横铺整个页面。 */}
+              裹住棋盘，结果层 inset:0 才只盖住棋盘，不会横铺整个页面。 */}
           <div className="relative w-fit">
             <Board
               game={game}
@@ -327,23 +438,34 @@ export default function App(): JSX.Element {
               swapSelection={swapSelection}
               onSelectCell={selectCell}
             />
-            {game.phase === 'won' && (
-              <WinPanel onContinue={continueRun} onSettle={settle} onNewGame={newGame} />
-            )}
-            {/* 死局可恢复面板。**拾取中先收起**：.overlay 是不透明满盖
-                （styles.css 的 inset:0 + 实底），它挡着棋盘就点不到方块，指针那条
-                交换路径会整个断掉。收起不等于规则变了一步——phase 仍是 stuck，
-                拾取收摊（完成 / Esc / 一次移动）若还死着，面板自己回来。
-                ended 那一侧没有「拾取中」可言：store 的 selectCell 直接拒绝它，
-                所以它不受这个条件影响。 */}
-            {((game.phase === 'stuck' && !swapArmed) || game.phase === 'ended') && (
-              <GameOverPanel
-                game={game}
-                onSettle={settle}
-                onNewGame={newGame}
-                onUndo={undo}
-                onSwap={toggleSwap}
-              />
+            {/* 结果层（T26 的结构 · T27 的进出动效）：**一次只在场一层**，是哪一层由
+                presence 说——它比 phase 多记住一段退场时间。T26 的两条 phase 条件合成
+                这一条：`won` 与 `stuck`/`ended` 各是自己的那一处，`leaving` 是这段多出来
+                的时间，原样递进 ResultLayer（它只负责把 data-result-leaving 挂上）。
+                读数仍在两处各自现算（与 T26 逐字节相同）：退场那一刻**不**冻结它。
+                「拾取中整层收起」那条分支没有消失——它搬进了 instantHide（见上面那段）。 */}
+            {presence.layer !== null && game !== null && (
+              presence.layer.panel === 'win' ? (
+                <WinPanel
+                  readout={resultReadout(game, records, settlementAttribution, styleId)}
+                  onContinue={continueRun}
+                  onSettle={settle}
+                  onNewGame={newGame}
+                  leaving={presence.leaving}
+                  onExited={presence.drop}
+                />
+              ) : (
+                <GameOverPanel
+                  spec={presence.layer}
+                  readout={resultReadout(game, records, settlementAttribution, styleId)}
+                  onSettle={settle}
+                  onNewGame={newGame}
+                  onUndo={undo}
+                  onSwap={toggleSwap}
+                  leaving={presence.leaving}
+                  onExited={presence.drop}
+                />
+              )
             )}
           </div>
           {/* 屏幕方向按钮（T10）：外壳元素，与 Board 平级——ADR-0002 的棋盘固定
@@ -399,6 +521,31 @@ export default function App(): JSX.Element {
           )}
         </div>
       )}
+
+      {/* ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+          ＝＝＝＝＝＝＝＝＝＝ 临时调试钩子「一念神魔」（已注释掉） ＝＝＝＝＝＝＝＝＝＝
+          ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
+
+          给项目所有者肉眼验收成功与失败界面用的：点一下就在盘上摆一对「合一次就达标」
+          的方块，于是一次方向键就能看见胜利界面，省掉手打上百步。**不是产品功能**——
+          它不进 README、不进任何验收、也没有测试。所有者确认界面可用之后整块注释在此，
+          不留成一条暗径：暗道比不给按钮更糟，下一个人只会以为它是特性。
+
+          纯函数住在下面的注释块里（plantDebugTargetPair），按钮在 JSX 更下面那一块。
+          要重新打开：把下面两块与 plantDebugTargetPair 的 import 一起取消注释即可，
+          **不需要碰 store**——它绕开 store 直接改 game  Tree 上那一份，
+          而这是一次性的调试路径，不值得为它在单 store 里开一个常驻动作。
+
+          摆的值不写死 1024：只有经典模式的目标块是 2048，斐波那契的 2584 跟 1024
+          根本合不上，大棋盘的是 4096。所以从模式**已经声明的**数据（valueLadder +
+          MERGE）推出那一对，六模式通用；将来改目标块只改模式声明一处。
+          ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝ */}
+
+      {/* ＝＝＝＝＝＝＝／临时调试按钮 ＝＝＝＝＝＝＝＝
+      <button type="button" className="control" onClick={plantDebugTargetPair}>
+        一念神魔
+      </button>
+      ＝＝＝＝＝＝＝／临时调试按钮 ＝＝＝＝＝＝＝＝ */}
     </main>
   )
 }

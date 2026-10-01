@@ -28,7 +28,12 @@
 | [T22](https://github.com/CaiYan12/2048/issues/23) · [本地](22-accessibility-acceptance.md) | 完成键盘、触屏与屏幕阅读器验收 | P10 | T09, T10, T12, T19, T20, T21 |
 | [T23](https://github.com/CaiYan12/2048/issues/24) · [本地](23-style-matrix-acceptance.md) | 完成全部模式 × 风格的浏览器矩阵验收 | P5、P10 | T05, T06, T07, T08, T09, T15, T22 |
 | [T24](https://github.com/CaiYan12/2048/issues/25) · [本地](24-publish-pages.md) | 完成 CI 闸门、README 与 Pages 发布验收 | P10 | T16, T17, T18, T19, T20, T21, T22, T23 |
+| [T25](https://github.com/CaiYan12/2048/issues/27) · [本地](25-result-layer-semantics.md) | 立起「结果层」术语与它的裁决记录 | README TODO | none |
+| [T26](https://github.com/CaiYan12/2048/issues/28) · [本地](26-result-layer-scrim.md) | 交付结果层的两件套与卡片读数 | README TODO | T25 |
+| [T27](https://github.com/CaiYan12/2048/issues/29) · [本地](27-result-layer-motion.md) | 交付结果层的进出动效并跑完全量验收 | README TODO | T26 |
 
 执行时先完成无阻塞的 T01 与 T02，再从依赖已关闭的 ticket 中选择。T03 是第一个可玩纵向切片；T13 用 Material 证明可在局中切换，T15 交付第三套 Claude 风格。T23 验收 6 × 3 = 18 组合，T24 才发布。本次未列入的九套特色风格保留在 [README TODO](../../README.md#todo远期规划)。
 
-远端按拓扑顺序创建了 24 张票和 65 条原生依赖。当前仅 T02 标记 `ready-for-agent`；T01 标记 `ready-for-human`，规则选择需先由项目所有者确认。后续关闭 blocker 时，再按真实依赖状态更新可执行标签；不要把父级 SPEC issue 当作子票完成状态。
+T25–T27 是 **README TODO「成功与失败界面变更」** 这一组，父级规格是结果层 spec（[#26](https://github.com/CaiYan12/2048/issues/26)），与上表 P 阶段那一套无关。它们是线性链：T25（术语与裁决记录，无阻塞）→ T26（两件套与读数）→ T27（动效与全量验收）。
+
+远端按拓扑顺序创建了 27 张票和 67 条原生依赖。T25–T27 均标记 `ready-for-agent`；T01 标记 `ready-for-human`，规则选择需先由项目所有者确认。后续关闭 blocker 时，再按真实依赖状态更新可执行标签；不要把父级 SPEC issue 当作子票完成状态。

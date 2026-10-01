@@ -77,7 +77,7 @@ export const EFFECT_DURATION_TOKEN: Readonly<Record<TileEffect, string>> = {
  *               只有生成会插入新元素（新 key → 新节点）。
  *   · merge   — transition。上升 / 回落两段各是一次 scale 状态变化，下一步输入能从
  *               当前比例平滑重定向，不会重播一条过时的关键帧。
- *   · win     — animation。胜利面板标题入场一次，方块自身保留目标状态标记。
+ *   · win     — animation。结果层标题入场一次，方块自身保留目标状态标记。
  */
 export const EFFECT_MECHANISM: Readonly<Record<TileEffect, string>> = {
   move: 'transition',
@@ -99,13 +99,13 @@ export const EFFECT_MECHANISM: Readonly<Record<TileEffect, string>> = {
  *              data-spawn 的那一枚描一圈 --focus，下一次移动时记号跟着新的一批走。
  *   · merge   图「这一枚是两枚合出来的」→ 同样换成记号。reduced-motion 不渲染飞行载体，
  *              只给规则棋盘里的合并产物描边。
- *   · win     图「你到目标了」→ 标题只淡入，不缩放；胜利面板保持不透明。
+ *   · win     图「你到目标了」→ 标题只淡入，不缩放；卡片照旧不透明、遮罩照旧压暗棋盘。
  */
 export const EFFECT_REDUCED_MOTION: Readonly<Record<TileEffect, string>> = {
   move: 'transition: none，方块直接落在新格',
   spawn: 'data-spawn 的静止描边',
   merge: 'data-merge 的静止描边',
-  win: '面板标题只淡入，棋盘保持覆盖',
+  win: '标题只淡入，棋盘透过遮罩仍可见',
 }
 
 /** 单枚方块在这一帧该带的动效旗标。三个互不排斥，但 spawn 与 merge 实际不会同时为真 */

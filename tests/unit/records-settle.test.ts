@@ -143,6 +143,8 @@ function pristineStore(): void {
     selectedModeId: 'classic',
     runStartedAt: null,
     styleSwitches: 0,
+    // T26：上一局结算那一刻的归属。显式归零，否则上一个用例结过的算会漏进下一个用例
+    settlementAttribution: null,
     runMerges: 0,
     unlocked: [],
     toasts: [],

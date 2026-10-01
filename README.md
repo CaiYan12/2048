@@ -28,7 +28,7 @@ tiles.
 | `docs/primal-setup-plan.md`| The original P0–P10 blueprint and its ticket mapping |
 | `docs/SPEC.md`           | Buildable behavior, user stories, architecture and verification contract |
 | `docs/tickets/`          | Small, dependency-linked implementation tickets with acceptance checks |
-| `docs/adr/`                | Five architecture decisions, each with the trade-off that produced it |
+| `docs/adr/`                | Eight architecture decisions, each with the trade-off that produced it |
 | `AGENTS.md`                | Coding rules, tech stack, two hard architectural constraints       |
 | `docs/agents/`             | Per-repo config the engineering skills read                        |
 | `LICENSE`                  | MIT                                                                |
@@ -96,14 +96,30 @@ SPEC、tickets 与计划文档来推进。本节只记录方向与约定，不�
 
 ### 成功与失败界面变更
 
-将另建独立 SPEC 与 tickets 推进。
+已发布为独立 SPEC 与 tickets：结果层 [spec](docs/specs/result-layer.md)（GitHub
+[#26](https://github.com/CaiYan12/2048/issues/26)），纵向票 **T25–T27**
+（[#27](https://github.com/CaiYan12/2048/issues/27) / [#28](https://github.com/CaiYan12/2048/issues/28) /
+[#29](https://github.com/CaiYan12/2048/issues/29)）。
 
-- [ ] 结算界面不再遮挡整个画面，改为半透明覆盖，仍可见结束时的 Board。
-- [ ] 达成目标块后选择继续游戏，则继续正常游戏。
+- [ ] 结果层改为**半透明遮罩 + 不透明卡片**：遮罩是半透明的，于是暂停那一刻的棋盘始终可见；
+      卡片不透明，所以它上面的字与按钮和今天一样可读、一样过对比度闸门。原题干的「结算界面
+      不再遮挡整个画面」不准确——这一层从来不遮挡视口，它是棋盘那个
+      `position: absolute; inset: 0` 的兄弟节点，遮挡的一直是**棋盘**，而且是不透明地遮挡；
+      本次要改的正是这件事。
+- [x] 达成目标块后选择继续游戏，则继续正常游戏。**这是现行已有行为，不是待办**——原题干的
+      第二条早已由 T04 交付，本组不碰它。
 
 **约定**
 
-- 「胜利后可继续」属现行已有行为，本组只涉及结算界面的**呈现方式**，不改变恢复路径与结算时机。
+- 术语统一为**结果层（Result layer）**，词条见 `CONTEXT.md`。不用「结算界面」指 `won` 阶段
+  （合出目标块不是结算，那一局还在继续），也不用「面板」（它已禁给棋盘用，又是记分卡的
+  CSS 类名）。
+- 遮罩强度按阶段分三档：越是没有决定可做越暗——`stuck` 最亮（要不要 Undo 得看着棋盘定），
+  `ended` 最暗（没什么可决定了）。压暗还是起雾，由各套风格自己在设计过程里定。
+- 只改呈现：规则、阶段、恢复路径、结算时机、撤销历史、记录语义一个字都不动。
+- **本组推翻了一条已经写下来的旧裁决**：三处 `styles.css` 注释与三张设计卡 §6 当年以
+  「半透明会把棋盘上的方块透出来，只会让人以为还能动它」为由选了不透明底色。这次推翻与它的
+  答复记在 **ADR-0008**——读到那些旧论证时，不要以为该把实现改回去。
 
 ### 设置界面引入
 
@@ -138,9 +154,8 @@ SPEC、tickets 与计划文档来推进。本节只记录方向与约定，不�
   试了一个走不动的方向，那三种情形不该出声。
 - 规则量（分数、步数、生成、撤销历史）一个字都不因此改变。
 
-- [ ] 无法移动时给出**震动等特效**的简单实现：支持 `navigator.vibrate` 的设备上震一下，
-  并配一个短促的视觉提示（例如方块层的一次极轻回弹），同样受 `prefers-reduced-motion`
-  与静音设置约束。
+- [ ] 无法移动时给出**震动等特效**的简单实现：棋盘轻微的视觉上在移动方向上震一下（不是设备真实震动），
+  配一个短促的视觉提示（例如方块层的一次极轻回弹）。
 
 ## License
 

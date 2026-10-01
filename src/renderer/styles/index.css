@@ -79,3 +79,169 @@
     animation: win-panel-title-fade var(--win-title-duration, 180ms) ease-out 1 both;
   }
 }
+
+/* —— 结果层（T26 · ADR-0008）：两件套 ——
+   结构与三档映射放在这一层（共享外壳），颜色与内边距在各风格自己的 styles.css 里。
+   分界线与棋盘层同一条：换风格不动结构，加风格只出 token 与 CSS。
+   `.overlay` 本身仍住在 themes/<id>/styles.css ——它是外壳元素，颜色（如果有）走主题
+   token；现在它一个颜色都不带，只剩定位与排布，所以圆角归遮罩与卡片各自声明
+   （它自己没有背景也没有边框，一条 border-radius 画不出一个像素）。 */
+.overlay__scrim {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--board-radius);
+}
+
+/* 三档遮罩：按 `data-result-tier`（= 此刻的 phase）取该风格自己的那一档。
+   为什么映射只在这一处：三个文件各写一遍 `[data-result-tier='won'] { … }` 必然漂开，
+   而这里与 win-title 那条关键帧同一条路子——都按测试钩子选择，不按风格选择。 */
+[data-result-tier='stuck'] .overlay__scrim {
+  background-color: var(--result-scrim-stuck);
+}
+
+[data-result-tier='won'] .overlay__scrim {
+  background-color: var(--result-scrim-won);
+}
+
+[data-result-tier='ended'] .overlay__scrim {
+  background-color: var(--result-scrim-ended);
+}
+
+/* 卡片上的四项读数：**脚注，不是主角**（frontend-design 的那条提醒在这里订成正字）。
+   小一档的字、标签用次要墨色、数字等宽；不用全大写标签、不用序号、不用间隔点、
+   不用「数据一览」之类的小标题——一列标签就够，读数是这句标题与那一句话的注脚。
+   三套共用这一段：结构是外壳的事，颜色靠各风格自己的 --ink-variant 分岔。 */
+.overlay__readout {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.125rem 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.overlay__readout > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.overlay__readout dt {
+  color: var(--ink-variant);
+}
+
+/* 等宽数字：一局里步数会一位一位地长，宽度抖动的行读起来像在闪。
+   margin: 0 是因为 dd 在 UA 样式表里带一个 margin-inline-start: 40px——第一对「分数 12」
+   会被顶出去一截，而其余两对不会，一行三对就此错位。 */
+.overlay__readout dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 新纪录标记：一行话，只在真的刷新了时在场。
+   用本套的主墨色而不是强调色——它是这条消息，不是一处装饰（§7 的三套都禁 emoji 装饰）。 */
+.overlay__record {
+  font-size: 0.75rem;
+}
+
+/* —— 结果层的进出动效（T27 · ADR-0008 的架构决策 9 / 10）——
+   姿态与方块共用一套：150ms + 内置 ease-out（T21 把它记成一条「已接受的稳定性决定」，
+   别在这里引入第二条曲线）。退场时长与进场相同。这一段住在共享外壳里而不是各风格自己
+   的 styles.css：节奏是全项目的事，长相连风格都不该拿它做区分度。
+   退场的终点**不靠 JS 计时**：ResultLayer 听卡片这条动画的 `animationend` 通知宿主把层
+   摘掉，所以 150ms 只活在这一个文件里——没有第二个副本等着谁忘改。 */
+
+/* 只淡入淡出那一对：遮罩全程用它（它本来就只有透明度可动），卡片在 reduced-motion 下
+   也退到这一对（见这个文件末尾的 @media）。名字说「淡入淡出」而不是「遮罩」——卡片在
+   reduced-motion 下用的正是这一对，叫「遮罩」会误导读的人。 */
+@keyframes result-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes result-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* 卡片进场：淡入 + 从下方 4px 处升起。位移很短——它是「这个暂停到来了」，不是「一张纸
+   飞进来」。起点不可见（opacity 0），所以它是第一帧就画上去的，**不需要** T21 在胜利
+   标题上讨论的那种 rAF 状态门控：可见的基础态抢先画一帧再闪隐，正是那个门控造的坑。 */
+@keyframes result-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 卡片退场：淡出 + 往下沉 2px。比进场短一截的方向：落下比升起轻。方向与 toast 一致
+   （那两条往上走，因为祝贺是从屏幕外进来的；这一层往棋盘里沉回去）。 */
+@keyframes result-card-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+/* `both` 是硬要求：动画开始前它用第一帧填充（于是第一屏就是 opacity 0，没有闪帧），
+   结束后停在终态（退场那一组放到 opacity 0，层被摘掉之前不会跳回不透明）。 */
+.overlay__scrim {
+  animation: result-fade-in 150ms ease-out 1 both;
+}
+
+.overlay__card {
+  animation: result-card-in 150ms ease-out 1 both;
+}
+
+/* 退场：同一个 section 上多一个属性，动画整组换掉。属性选择器的特异性（0,2,0）高于上面
+   两条（0,1,0），所以不依赖书写顺序。 */
+[data-result-leaving] .overlay__scrim {
+  animation: result-fade-out 150ms ease-out 1 both;
+}
+
+[data-result-leaving] .overlay__card {
+  animation: result-card-out 150ms ease-out 1 both;
+}
+
+/* 退场的第一帧就把指针还给棋盘（ADR-0008 的架构决策 9，本票最重要的一条）。
+   `phase` 一变，`data-result-leaving` 在同一次提交里就落到 DOM 上（ResultPresence.ts 的
+   渲染期校正保证这一点），于是从那一帧起这一层整块不再接指针：继续玩之后马上划一下的
+   玩家拿到的是棋盘，不是一段 150ms 的不响应。键盘本来就跟着 phase 放行，指针跟着一起。
+   `pointer-events` 是继承属性，卡片与四个按钮都跟着不接——它们正在淡出，不该还能按。
+   几何契约那两条测试（tile-motion / task-23-matrix 的 elementFromPoint 取样）量的都是
+   **非**退场状态下的这一层，与这条规则不相干。
+   选择器带上 `.overlay`：光一个属性选择器与 `.overlay__card` 同级（0,1,0），将来谁在这
+   个文件里挪动顺序都会让它悄悄失效。 */
+.overlay[data-result-leaving] {
+  pointer-events: none;
+}
+
+/* reduced-motion：位移、缩放全部停止，只留淡入淡出（SPEC §3.2 · 用户故事 13；与下面
+   win-title 那条、与各风格声明里的 --tile-*-duration: 0ms 是同一条降级路子，只是这里
+   保留透明度反馈——「这一层来了 / 走了」仍然要说出来，不动的只是身体）。
+   时长不变：淡入淡出不是位移动画，reduced-motion 要的是「少一点动」，不是「什么都没有」。 */
+@media (prefers-reduced-motion: reduce) {
+  .overlay__card {
+    animation-name: result-fade-in;
+  }
+
+  [data-result-leaving] .overlay__card {
+    animation-name: result-fade-out;
+  }
+}

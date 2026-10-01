@@ -109,7 +109,10 @@ Downstream tickets write deterministic tests from those; **do not re-derive or i
    only on "结束并记录" or a "新游戏" from that panel. "新游戏" from an active run abandons
    it. Time Attack settles immediately at the deadline, after which Undo and swap are
    disabled. Settlement executes exactly once and the record goes to the style active at
-   settlement. The state diagram is in `docs/mode-contract.md`.
+   settlement. The state diagram is in `docs/mode-contract.md`. How the layer shown at these
+   phases is presented — a semi-transparent scrim over the board with an opaque card on top —
+   is decided in [ADR-0008](adr/0008-result-layer-is-a-scrim-over-the-board.md); the frozen
+   values above are unchanged by it.
 4. **Long-run storage.** No product-imposed undo cap and no silent history discard.
    First implementation keeps full prior-state snapshots and measures, in the 5×5 mode,
    memory, serialized write volume, and refresh-restore time at **1,000** and **10,000**

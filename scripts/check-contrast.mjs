@@ -34,8 +34,10 @@ import { join } from 'node:path';
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const THEMES_DIR = join(REPO_ROOT, 'src', 'renderer', 'styles', 'themes');
 
-/** 每一对是在哪个页面状态下量到的（浏览器那一层按它分工况） */
-export const SCENES = Object.freeze(['start', 'run', 'walls']);
+/** 每一对是在哪个页面状态下量到的（浏览器那一层按它分工况）
+ *  T26 加 milestone：结果层挂上的那一刻（四个 1024 一次左移合出 2048）——量的是
+ *  卡片那一面，而卡片底虽然在表里与页面同一个 token，探针以前只落在记分卡上。 */
+export const SCENES = Object.freeze(['start', 'run', 'walls', 'milestone']);
 
 /**
  * 口径 → 门槛。SPEC §3.2：普通文字 4.5:1，大字与适用的非文字指示器 3:1。

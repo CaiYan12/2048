@@ -137,6 +137,17 @@ describe('四个效果的裁决表是完整的', () => {
       expect(EFFECT_MECHANISM[effect].length, effect).toBeGreaterThan(0)
     }
   })
+
+  test('win 那条静态替代说的是「看得见棋盘」，不是「保持覆盖」', () => {
+    // T26 把结果层从「不透明满盖棋盘」改成了「半透明遮罩 + 不透明卡片」（ADR-0008）。
+    // 文件头说这张表是权威、注释才会与它漂开——而这一次漂的是反方向：注释改了，
+    // 表还留在「棋盘保持覆盖」，说的正是被删掉的那件事，而上面两条用例只断长度，
+    // 一个字都不会红。所以把这句话本身钉住。
+    expect(EFFECT_REDUCED_MOTION.win, 'win 的静态替代必须提到遮罩').toContain('遮罩')
+    expect(EFFECT_REDUCED_MOTION.win, 'win 的静态替代不许再说棋盘被盖住').not.toContain(
+      '保持覆盖'
+    )
+  })
 })
 
 describe('裁决表与 board.css 逐项对得上', () => {

@@ -1,9 +1,16 @@
 import type { JSX } from 'react'
+import type { ResultReadout } from '../stores/records'
+import { ResultLayer } from './ResultLayer'
 
 interface Props {
+  readout: ResultReadout
   onContinue(): void
   onSettle(): void
   onNewGame(): void
+  /** 正在退场（T27）。原样转交 ResultLayer：它只决定 `data-result-leaving` 在不在 */
+  leaving?: boolean
+  /** 退场播完了（T27）。原样转交 ResultLayer，由它从动画结束事件上捡起来 */
+  onExited?(): void
 }
 
 /**
@@ -18,23 +25,42 @@ interface Props {
  *   「新游戏」按契约等于放弃本局（abandon，不写记录）。
  * 三条路三种后果：继续与结束并记录都能留下这个胜局，新游戏留下不了。
  * 撤销 / 交换归 T11 / T12，加在死局面板上，这里不预留任何禁用入口。
+ *
+ * T26：结构归 ResultLayer（半透明遮罩 + 不透明卡片，ADR-0008），本文件只留自己的标题、
+ * 那一句话与三个按钮——三项逐字节未改。读数由 App 用 records.ts 的纯函数算好递进来。
+ * T27：App 经 `leaving` 递进退场旗标、经 `onExited` 接「退场播完了」（何时退场、何时
+ * 摘层全由 ResultPresence.ts 算），本文件只转交。
  */
-export function WinPanel({ onContinue, onSettle, onNewGame }: Props): JSX.Element {
+export function WinPanel({
+  readout,
+  onContinue,
+  onSettle,
+  onNewGame,
+  leaving,
+  onExited,
+}: Props): JSX.Element {
   return (
-    <section className="overlay" data-panel="win">
-      <h2 className="overlay__title">达成目标</h2>
-      <p className="overlay__text">这是里程碑，不是终局：可以接着玩，也可以就此收工。</p>
-      <div className="flex gap-2">
-        <button type="button" className="control" onClick={onContinue}>
-          继续玩
-        </button>
-        <button type="button" className="control" onClick={onSettle}>
-          结束并记录
-        </button>
-        <button type="button" className="control" onClick={onNewGame}>
-          新游戏
-        </button>
-      </div>
-    </section>
+    <ResultLayer
+      tier="won"
+      panel="win"
+      readout={readout}
+      title="达成目标"
+      sentence="这是里程碑，不是终局：可以接着玩，也可以就此收工。"
+      leaving={leaving}
+      onExited={onExited}
+      actions={
+        <>
+          <button type="button" className="control" onClick={onContinue}>
+            继续玩
+          </button>
+          <button type="button" className="control" onClick={onSettle}>
+            结束并记录
+          </button>
+          <button type="button" className="control" onClick={onNewGame}>
+            新游戏
+          </button>
+        </>
+      }
+    />
   )
 }

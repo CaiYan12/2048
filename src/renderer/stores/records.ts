@@ -31,6 +31,10 @@ import {
  * 行为的评判。它住在 session 桶而不是 records / stats：结算之后这一局连同计数一起作废，
  * 两个战绩桶里不留「切换过几次」——而单局内的成就判定要用它，所以它跟着这一局活到
  * 结算（跨刷新）为止（`SessionRecord.styleSwitches`）。
+ *
+ * **T26 的结果层读数也住在这半边**（`resultReadout`）：卡片上那四个数字是「读哪一条记录、
+ * 结算前还是结算后、是不是新纪录」的纯判定。它必须能在 node 里被直接驱动——「最高分归属
+ * 错了一套风格」在界面上只是两个数字，肉眼认不出来，而它能造出的错误全部长这样。
  */
 
 /** 两个新桶的名字（I/O 半边在 sessionStore.ts，两处必须一致） */
@@ -237,6 +241,68 @@ export function applyRunToStats(stats: StatsRecord | null, settlement: Settlemen
     wins: previous.wins + (settlement.reachedTarget ? 1 : 0),
     timePlayedMs: previous.timePlayedMs + settlement.timePlayedMs,
     lastRunStartedAt: settlement.startedAt,
+  }
+}
+
+/**
+ * 一局结算那一刻的归属（T26）：成绩归哪一种风格，以及**结算之前**那一格的最高分。
+ *
+ * `bestScoreBefore` 是「本局是不是新纪录」这道判定的门槛，取值点在写入处（理由见
+ * resultReadout）。它**不落盘**：结算即作废 session 存档，而加载时已结算的一局被安静
+ * 丢弃（useGameStore.doHydrate），于是刷新之后根本看不到结果层——它没有任何需要跨
+ * 刷新存活的东西（result-layer.md 的架构决策 6）。
+ */
+export interface SettlementAttribution {
+  /** 结算那一刻的风格：一局只归它一个（mode-contract §3） */
+  styleId: StyleId
+  /** 结算之前那一格的最高分（`records[mode][style]`，没存过 = 0） */
+  bestScoreBefore: number
+}
+
+/** 结果层的四项读数（T26）。卡片上那四个数字全在这一份形状里 */
+export interface ResultReadout {
+  /** 本局分数。它与标题栏那一份是同一个数——卡片是总结，标题栏是实时值（ADR-0008） */
+  score: number
+  /** 归属风格的最高分；没存过 = 0 */
+  bestScore: number
+  /** 有效 Move 计数。报的是眼前这条路：撤销一步它减一，作弊交换不动它（决策 8） */
+  moves: number
+  /** 本局是否刷新了最高分 */
+  isNewBest: boolean
+}
+
+/**
+ * 结果层的四项读数（T26 · ADR-0008 的架构决策 6 / 7）。**一份纯判定**：卡片上那四个
+ * 数字全从这里出，组件只排版、不做算术。
+ *
+ * 「读哪一条记录」与「结算前还是结算后」两件事都住在这一处，不交给调用方各判一遍：
+ *   · `settled` 非 null = 这一局已经结算，最高分归**结算那一刻的风格**（mode-contract §3
+ *     「成绩归结算那一刻所处的风格」）。setStyle 没有 phase 守卫，结算之后玩家照样换得到
+ *     风格，所以结算那一刻的那个风格必须由这一局自己记住，而不是渲染时现问 store。
+ *   · `settled` 为 null = 还没结算，读**当前风格**那条——这一局尚未归属任何风格。
+ *     判据用「归属在不在」而不是 `game.phase === 'ended'`：后者一旦因为漏接线而落空，
+ *     会安静地换成一个错误风格的记录，而前者落空时退回当前风格，那一个在未结算时永远
+ *     是对的。
+ *   · 新纪录判定因此有两副口面，合成一句就是「比基准线高」：未结算时基准线是眼前这条
+ *     记录，已结算时是 `settled.bestScoreBefore`——**结算前**那一条。为什么不能事后重建：
+ *     写入是幂等的（applySettlement 是 max），写完盘上只剩「之后是多少」，「之前是多少」
+ *     只有写入处取得到。
+ */
+export function resultReadout(
+  game: GameState,
+  entries: readonly RecordEntry[],
+  settled: SettlementAttribution | null,
+  currentStyleId: StyleId
+): ResultReadout {
+  const styleId = settled?.styleId ?? currentStyleId
+  const bestScore =
+    entries.find((entry) => entry.modeId === game.modeId && entry.styleId === styleId)
+      ?.bestScore ?? 0
+  return {
+    score: game.score,
+    bestScore,
+    moves: game.moves,
+    isNewBest: game.score > (settled?.bestScoreBefore ?? bestScore),
   }
 }
 

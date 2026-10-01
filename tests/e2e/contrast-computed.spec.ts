@@ -42,10 +42,10 @@ import materialContrast from '../../src/renderer/styles/themes/material/contrast
  * 要求不启动 Playwright、不开任何浏览器。全部断言都走真实 DOM 与计算样式。
  */
 
-type Scene = 'start' | 'run' | 'walls'
+type Scene = 'start' | 'run' | 'walls' | 'milestone'
 
 /** 与 contrast.json 的 scene 字段一一对应；多一个场景就在此登记，并补一个 setupScene 分支 */
-const SCENES: readonly Scene[] = ['start', 'run', 'walls']
+const SCENES: readonly Scene[] = ['start', 'run', 'walls', 'milestone']
 
 interface StyleFixture {
   id: string
@@ -64,6 +64,8 @@ const LADDER_BOARD = '2,4,8,16,32,64,128,256,512,1024,2048,4096,,,,'
 
 /** 全空开局：只为了拿到四个墙与若干空格（障碍那一对不需要方块） */
 const EMPTY_BOARD = ',,,,,,,,,,,,,,,'
+/** 四个 1024：一次左移合出两个 2048，第一次达标 → 结果层挂上（milestone 那一幕） */
+const MILESTONE_BOARD = '1024,1024,1024,1024,,,,,,,,,,,,'
 
 /**
  * 页面上所有可能成为 Tab 停靠点的元素（原生可聚焦 + 正的 tabindex）。
@@ -101,6 +103,19 @@ async function setupScene(page: Page, scene: Scene, label: string): Promise<void
       await page.getByRole('button', { name: '开始游戏' }).click()
       await expect(page.locator('[data-board]')).toBeVisible()
       return
+    case 'milestone': {
+      // T26 的结果层：四个 1024 一次左移合出两个 2048（第一次达标），层当场挂上。
+      // 这一幕只为量卡片那一面存在——卡片整个不透明，而读数小标签的色对虽然早在表里，
+      // 探针取的却是记分卡上的 .panel__label；没有人量过「压在结果层卡片上」的这一下。
+      await page.goto(`/?seed=20260926&board=${MILESTONE_BOARD}`)
+      await pickStyle(page, label)
+      await page.getByRole('button', { name: '开始游戏' }).click()
+      await expect(page.locator('[data-board]')).toBeVisible()
+      await page.locator('[data-board]').focus()
+      await page.keyboard.press('ArrowLeft')
+      await expect(page.locator('[data-result-tier="won"]')).toBeVisible()
+      return
+    }
   }
 }
 

@@ -328,6 +328,58 @@ SDD ledger 的「依赖版本走当前」裁决。Node 需 `>=22.12.0`（`engine
 
 ## Agent skills
 
+### 结果层动效状态 (2026-10-01)
+
+- T27 已实现、已验收。进出动效全部住在**共享外壳**（`src/renderer/styles/index.css`）：
+  **150ms + 内置 `ease-out`**（T21 为方块定下、已接受的共享姿态，别引入第二条曲线）。
+  进场遮罩淡入、卡片淡入并升起 4px；退场遮罩淡出、卡片淡出并沉 2px。三套风格一行都没改。
+- **「此刻场上该有哪一层」不再等于 `phase` 意味着哪一层**：中间多一段退场时间，裁决住在
+  `src/renderer/components/ResultPresence.ts`（纯函数 `nextPresence` + hook +
+  `layerForPhase` 唯一映射）。**渲染层而不是 store**：这段延迟没有第二个消费者。
+  它只持 `tier` / `panel` / `endReason` 三个字，**不冻结读数**（退场那一刻数字是对的）。
+- **`data-result-leaving` 是总开关**：`pointer-events: none` 由它驱动，且它与 phase 变在
+  **同一次提交**里落上 DOM（渲染期校正 state，不是 effect）——这是 ADR-0008 架构决策 9
+  最重要的一条：继续玩之后马上划一下，棋盘必须当场就有反应。
+- **`won → stuck` 连击播两段**：引擎的 `continueRun` 是一个纯迁移，那一下提交里直接换层；
+  层自己接住顺序——旧层播完退场、新层再进场。中途换层则**立刻换**并取消退场标记
+  （不在一段退场上再叠一段进场）。
+- **reduced-motion 只留淡入淡出**（`result-fade-in` / `result-fade-out`），卡片一个位移都没有。
+- **三条会重复踩的坑**（细节在 `.codex/memories/result-layer.md`）：退场的终点不能是
+  `setTimeout`（`time-attack.spec.ts` 装假时钟会把它冻住，改用卡片的 `animationend`）；
+  延迟卸载会把 T22 修好的键盘又弄断（在 App 里补同一条 focus effect，依赖换成
+  `presence.layer`）；退场中的层不能现问 `game.phase`（面板改吃持有中的那一层）。
+  第四条是控制人复核时抓到的：**`animationend` 会冒泡**，胜利标题那条 180ms 关键帧长在
+  `.overlay__title` 上、正是卡片的后代且比卡片长 30ms——不判 `event.target ===
+  event.currentTarget` 的话，标题那一条会在退场只播 130ms 时把层摘掉。回归用例用合成
+  事件而不是墙钟，并已临时拆掉守卫验证它真的会红（6/6 failed）。
+- **不止 `won → stuck`，所有换层都播两段**（tier 变了就旧层退场、新层进场，`stuck → ended`
+  与 `won → ended` 也一样，结算那一刻约多 300ms）。这是决策 10 机制的自然结果、有单测钉住、
+  记录写入时机一步没动，但人眼复核时值得看一眼「结算是不是变得更拖了」。
+- 收官验证：typecheck 0 错、**774 unit tests / 42 files**、build 通过（80 modules）、
+  check:contrast 3 风格 68 对，全量 Playwright **502 passed / 14 skipped / 0 failed**
+  （`game.spec.ts` 另跑 `--repeat-each=4` 40/40 绿）。**人眼复核没做**——18 个组合留给控制人。
+- 规格的状态、Evidence 与 15 条验收框在收官时一并回填（`docs/specs/result-layer.md`），
+  ADR-0008 的状态行改成 implemented——契约文档写着「未实现」而票写着「完成」正是决策 12
+  要防的那类文字。
+
+### 结果层两件套与读数状态（2026-10-01）
+
+T25 / T26 已实现并验收，形状与踩到的坑见上节与 `.codex/memories/result-layer.md`。这里只记
+几条**不写下来就会被改错**的：
+
+- **规范词是「结果层」**，词条在 `CONTEXT.md` 末尾新小节。`_Avoid_` 禁「面板」（已禁给棋盘、
+  又是记分卡的 `.panel` 类名）、「弹窗 / 通知」（已被 Toast 条目花掉）、以及拿「结算界面」
+  指 `won` 阶段。本组新写与改写的正文已清；历史文档、既有用例名、`src/game/engine.ts` 与
+  SPEC §5 冻结文本刻意没动，理由写在 T25 的验证节。
+- **不新增第四个插槽。** ADR-0002 的判据是「行为面窄到一套共享测试能钉住」；结果层绑四个
+  store 动作、走完整键盘路径、管焦点回落，不够窄。风格只出 token 与 CSS。
+- **遮罩继续斥指针**，所以 `App.tsx` 的 `!swapArmed` 分支省不掉：半透明不改变「接不接指针」
+  这个二值。别看到遮罩是半透明的就顺手删它。`TileMotion.ts` 的 `EFFECT_REDUCED_MOTION.win`
+  是这张表的权威——它曾漂回「棋盘保持覆盖」，已补一条用例钉住。
+- **结算即清档**，刷新后看不到结果层，所以「结算那一刻的风格」只是内存字段、不落盘。
+- **「本局刷新了最高分」在未结算时是预告**：记录只在结算时写一次，从 `won` / `stuck` 点
+  「新游戏」等于放弃本局、不写记录。判据本身（写入前那条当门槛）是对的，要改也只改文案。
+
 ### Issue tracker
 
 GitHub Issues, via the `gh` CLI. See `docs/agents/issue-tracker.md`.

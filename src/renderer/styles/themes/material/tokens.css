@@ -29,6 +29,19 @@
   --ink-variant: #49454f;
   --ink-bright: #ffffff;
 
+  /* 结果层的遮罩三档（T26 · ADR-0008）：stuck / won / ended 各一档，强度按「还剩多少
+     决定可做」排——死局最亮（玩家得看清棋盘才选得出撤销、交换还是认命），达标居中
+     （棋盘是奖励，玩家正要回到它上面），结算最暗（什么都不用决定了）。
+     写成 rgba() 字面量而不是 color-mix(in srgb, var(--ink) …)：混出来的颜色在
+     getComputedStyle 里读不到 alpha，而 e2e 契约（tests/e2e/result-layer.spec.ts）
+     断的正是三档各自的 alpha。
+     方向是**压暗**，而且是本风格的原生说法：Material 3 里有 scrim 这个角色，它就是
+     深色——不是从别处借来的观感。alpha 比另两套都低，因为本套的墨（#1d1b20）本身
+     是三套里最暗的，同样浓度会压过头；三套不共用一组数字，要的就是「各自的墨各自算」。 */
+  --result-scrim-stuck: rgba(29, 27, 32, 0.3);
+  --result-scrim-won: rgba(29, 27, 32, 0.42);
+  --result-scrim-ended: rgba(29, 27, 32, 0.58);
+
   /* 控件（tonal 按钮 / 面板），选中态翻成 filled primary */
   --control-ink: #1d192b;
   --control-bg: #e8def8;

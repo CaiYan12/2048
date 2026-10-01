@@ -37,9 +37,12 @@ import {
   decodeRecords,
   decodeStats,
   highestTileOf,
+  resultReadout,
   settlementOf,
   settlementWriteFailureMessage,
   type RecordEntry,
+  type ResultReadout,
+  type SettlementAttribution,
   type StatsRecord,
 } from './records'
 import {
@@ -113,11 +116,11 @@ export interface GameStore {
   /**
    * 交换拾取模式是否开着：开着时棋盘上的数值方块才可被拾取（Tab 停靠 + 轻点选中）。
    *
-   * 为什么不能只靠 swapSelection：死局时 `.overlay` 是不透明满盖
-   * （styles.css 的 inset:0 + 实底），面板不收起就点不到方块，指针那条路直接断；
-   * 而活跃局里需要一个明确的入口，否则随手点两枚方块就是一次不可预期的交换。
-   * 与 swapSelection 一样：不进 GameState、不进历史、不持久化（T16 存的是这一局，
-   * 不是一个还没做完的编辑）。
+   * 为什么不能只靠 swapSelection：死局时结果层整块盖在棋盘上（T26 之后是半透明遮罩，
+   * 但它照旧把指针接得牢牢的——半透明不改变「接不接指针」这件事），面板不收起就点不到
+   * 方块，指针那条路直接断；而活跃局里需要一个明确的入口，否则随手点两枚方块就是一次
+   * 不可预期的交换。与 swapSelection 一样：不进 GameState、不进历史、不持久化（T16 存的
+   * 是这一局，不是一个还没做完的编辑）。
    */
   swapArmed: boolean
   /**
@@ -207,6 +210,24 @@ export interface GameStore {
    * 的答案永远来自眼前的棋盘，而不是某个桶里的一份记录。
    */
   unlocked: readonly AchievementId[]
+  /**
+   * 这一局结算那一刻的归属（T26）：成绩归哪一种风格，以及**结算之前**那一格的最高分。
+   * null = 这一局还没结算，于是结果层读当前风格的记录。
+   *
+   * 为什么它住在 store 而不是 GameState：它是**这一局的归属**，不是规则数据。塞进
+   * GameState 会被 T16 当成规则状态持久化、被 T17 的重放当成一次状态迁移（styleId /
+   * runMerges 同一条理由）。
+   *
+   * 为什么它**不落盘**：结算即作废 session 存档，而加载时已结算的一局被安静丢弃
+   * （doHydrate），于是刷新之后根本看不到结果层——它没有任何需要跨刷新存活的东西。
+   * 重置点因此只有 newGame 一个：结算之后这一局还在（phase 是 ended），想再开一局只能点
+   * 面板上那枚「新游戏」；回开局界面要刷新，而刷新之后 store 从初值重建，它自己回到 null。
+   *
+   * 为什么最高分要在**写入处**取：records 的写入是幂等的（applySettlement 是 max），
+   * 写完不留「之前是多少」，所以「本局是不是新纪录」只能用写入前那一格的值来判，
+   * 而那个时刻只有结算路径走得近（见 resultReadout 的注释）。
+   */
+  settlementAttribution: SettlementAttribution | null
   /**
    * 待呈现的祝贺，最多三条（第四条到达时丢最旧）。宿主只决定「什么时候该有一条」与
    * 「一次跃迁里几个成就合成一条」；长相与消失表现归当前风格的呈现插槽（ADR-0002）。
@@ -517,9 +538,18 @@ function clearPersistedRun(): void {
 function persistSettlement(
   game: GameState,
   styleId: StyleId,
-  startedAt: number | null
-): void {
+  startedAt: number | null,
+  /** 写入之前的记录条目（= store 里那一份）。新纪录判定的门槛在这里取 */
+  entries: readonly RecordEntry[]
+): SettlementAttribution {
   const settlement = settlementOf(game, styleId, startedAt, Date.now())
+  // 「结算前的最高分」：此刻这一局正要归到 styleId 上，所以 store 里那一格记录就是
+  // 基准线。走 resultReadout 而不是另写一个查表函数——同一把尺子只用一处实现
+  // （settled 传 null，问的就是「当前这一条是多少」）
+  const attribution: SettlementAttribution = {
+    styleId,
+    bestScoreBefore: resultReadout(game, entries, null, styleId).bestScore,
+  }
   void writeSettlement(settlement)
     .then((result) => {
       if (result.kind === 'rejected') {
@@ -538,6 +568,9 @@ function persistSettlement(
         .catch(reportWriteFailure)
     })
     .catch(reportSettlementFailure)
+  // 归属交给调用方一起落进那一次 set() 里：它是「这一局结算了」的一部分，单独再 set
+  // 一次会让两个字段中间多一帧「已结算但还没归属」的状态
+  return attribution
 }
 
 /**
@@ -717,6 +750,8 @@ export const useGameStore = create<GameStore>()((set) => ({
   stats: null,
   // 还没开局：没有合并次数、没有解锁、没有待呈现的祝贺
   runMerges: 0,
+  // 还没结算：没有归属，结果层读当前风格的记录（T26）
+  settlementAttribution: null,
   unlocked: [],
   toasts: [],
   nextToastKey: 0,
@@ -1048,12 +1083,16 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 界面，而不是还原一块死棋盘。被擦的只有 session 与 history 两个桶——而
       // records / stats 上面那一次写入刚刚落盘，擦的动作碰不到它们（T16 的
       // 验收标准 3 后半句由这个分工兑现）
+      // 结算那一刻的归属（T26）：写在哪一条记录旁边，就在哪里取「之前是多少」。
+      // 声明在 if 外面：两个 return 分支都要把它带出去（幂等那一条虽然提前返回，
+      // 写上更稳，读的人也少一次翻回去看作用域）
+      let attribution: SettlementAttribution | null = null
       if (next.phase === 'ended') {
         // 记录先写、存档后擦（T16 的交接项）：终态与起始时刻都在擦之前取得到。
         // abandoned 不写记录（mode-contract §3），而 settle 只从 stuck / won 进来，
         // 所以这道判断不是防御，是把「只有 ended 且不是放弃」这句话钉在写入点上
         if (next.endReason !== 'abandoned') {
-          persistSettlement(next, state.styleId, state.runStartedAt)
+          attribution = persistSettlement(next, state.styleId, state.runStartedAt, state.records)
         }
         clearPersistedRun()
       } else {
@@ -1069,7 +1108,7 @@ export const useGameStore = create<GameStore>()((set) => ({
           { kind: 'none' }
         )
       }
-      return { game: next }
+      return { game: next, settlementAttribution: attribution }
     })
   },
   tick: () => {
@@ -1090,10 +1129,12 @@ export const useGameStore = create<GameStore>()((set) => ({
       // 播报已经跟着 run 一起消失了。功能上 inert（selectCell 与 undo 都拦在
       // ended 守卫外），但这是一份没有任何入口解释得清的残留状态。
       // 超时结算与 settle 同一条边界：这一局打完了，存档随之作废（见 settle）
+      let attribution: SettlementAttribution | null = null
       if (next.phase === 'ended') {
-        // 超时结算同样写记录（T17），理由见上：它是一条结算路径，不是放弃
+        // 超时结算同样写记录（T17），理由见上：它是一条结算路径，不是放弃。
+        // 归属也在这里取（T26）——Time Attack 到点结算同样是「这一局归了谁」的时刻
         if (next.endReason !== 'abandoned') {
-          persistSettlement(next, state.styleId, state.runStartedAt)
+          attribution = persistSettlement(next, state.styleId, state.runStartedAt, state.records)
         }
         clearPersistedRun()
       } else {
@@ -1109,7 +1150,7 @@ export const useGameStore = create<GameStore>()((set) => ({
           { kind: 'none' }
         )
       }
-      return { game: next, swapArmed: false, swapSelection: null }
+      return { game: next, swapArmed: false, swapSelection: null, settlementAttribution: attribution }
     })
   },
   newGame: () => {
@@ -1164,6 +1205,9 @@ export const useGameStore = create<GameStore>()((set) => ({
         swapSelection: null,
         runStartedAt: now,
         styleSwitches: 0,
+        // 上一局的归属一起作废（T26）：新的一局没有结算过，于是结果层要读的是当前风格
+        // 的记录，而不是上一局留在字段里的那一个
+        settlementAttribution: null,
         // 新一局：合并数归零、集合重新派生，同样只建立静默基线（见 startRun）
         runMerges: 0,
         ...baselineOf(runFactsOf(game, 0, 0)),

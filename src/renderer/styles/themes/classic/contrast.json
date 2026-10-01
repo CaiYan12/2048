@@ -3,6 +3,16 @@
   "styleId": "classic",
   "pairs": [
     {
+      "usage": "结果层卡片上的读数小标签（--ink-variant on --page，探针取局中胜利那一层的 .overlay__readout dt）。T26 新增：卡片整个不透明，这一对量的正是「卡片那个面」而不是页面底色——将来谁把卡片底色调了，红的是这一条",
+      "basis": "regular",
+      "foreground": "#766e66",
+      "background": "#faf8ef",
+      "minimum": 4.5,
+      "ratio": 4.71,
+      "scene": "milestone",
+      "probe": { "selector": ".overlay__readout dt", "background": ".overlay__card" }
+    },
+    {
       "usage": "外壳正文 / 操作提示 / 终局面板标题与说明（--ink on --page，探针取局中的 .hint）",
       "basis": "regular",
       "foreground": "#5f564e",

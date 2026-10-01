@@ -1,4 +1,4 @@
-import type { GameState } from '../../shared/types'
+import type { EndReason, GameState } from '../../shared/types'
 
 /**
  * 穷尽性守卫：联合每加一个值而没在这张表里分支，这里就编不过。
@@ -8,21 +8,23 @@ function assertNever(reason: never): never {
   throw new Error(`未处理的 EndReason：${String(reason)}`)
 }
 
+/** 死局那一档的那句话（SPEC 用户故事 7）：phase 本身就是原因，还没有「为什么结束」可言 */
+export const STUCK_LABEL = '四方向都无合法移动'
+
 /**
- * 结束原因的文案（SPEC 用户故事 7：玩家要能看出「为什么结束」）。
+ * 结束原因 → 一句中文的**表**。
  *
- * 面板不自己猜结束原因——原因从 state.endReason 读，这里只负责
- * 「联合值 → 一句中文」这一张表。死局还没结算（stuck）也说「为什么」：
- * 那个 phase 本身就是原因。
+ * 从 runEndLabel 里拆出来是 T27 的需要：退场中的那一层画的是**正在离开的那一层**，它的
+ * 结束原因来自持有中的那一层（ResultLayerSpec），不是活的 `game.endReason`——换层连击那
+ * 150ms 里两者并不相等。表仍然只有这一份，runEndLabel 走的就是它。
  *
- * 写成对 EndReason 的穷尽 switch，而不是一串 if：往联合里加 timeout（T09）时
- * 忘了在这里补分支会**直接编译失败**——T09 加 timeout 那一刻正是被这条炸出来的
+ * 写成对 EndReason 的穷尽 switch，而不是一串 if：往联合里加 timeout（T09）时，忘了在这里
+ * 补分支会**直接编译失败**——T09 加 timeout 那一刻正是被这条炸出来的
  * （`Argument of type '"timeout"' is not assignable to parameter of type 'never'`）。
  * 否则每个超时局都会静默落回默认那句「本局已结束」，既没有类型错误也没有测试会红。
  */
-export function runEndLabel(game: GameState): string {
-  if (game.phase === 'stuck') return '四方向都无合法移动'
-  switch (game.endReason) {
+export function endReasonLabel(endReason: EndReason): string {
+  switch (endReason) {
     case 'deadlock':
       return '死局：四方向都无合法移动'
     case 'timeout':
@@ -37,6 +39,17 @@ export function runEndLabel(game: GameState): string {
     case null:
       return '本局已结束'
     default:
-      return assertNever(game.endReason)
+      return assertNever(endReason)
   }
+}
+
+/**
+ * 结束原因的文案（SPEC 用户故事 7：玩家要能看出「为什么结束」）。
+ *
+ * 面板不自己猜结束原因——原因从 state.endReason 读，这里只负责「联合值 → 一句中文」。
+ * 死局还没结算（stuck）也说「为什么」：那个 phase 本身就是原因。
+ */
+export function runEndLabel(game: GameState): string {
+  if (game.phase === 'stuck') return STUCK_LABEL
+  return endReasonLabel(game.endReason)
 }
