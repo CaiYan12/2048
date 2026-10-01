@@ -40,6 +40,40 @@ function startUrl(): string {
   return `/?seed=20260926&board=${boardQuery(FOUR_1024)}&score=4321`
 }
 
+/**
+ * **永不合并、也死不了**的盘（4 个方块 / 12 个空格），配 `SEED_SILENT`（shenmo.spec.ts
+ * 同款夹具）。
+ *
+ * 彩蛋那一条用例要用它：神魔码的八下必须既不成句、也不让棋盘走进 won / stuck——
+ * 四个 1024 那个夹具按到 ← 就合出 2048，phase 一变码缓冲当场清零（用户故事 8），
+ * 口诀根本走不完。
+ */
+const SILENT_ROWS: (number | null)[][] = [
+  [8, 16, 32, 64],
+  [null, null, null, null],
+  [null, null, null, null],
+  [null, null, null, null],
+]
+
+/** 扫 3000 个种子后挑的 score 恒为 0 那一小撮之一（shenmo.spec.ts 的同一支） */
+const SEED_SILENT = 9
+
+function silentUrl(): string {
+  return `/?seed=${SEED_SILENT}&board=${boardQuery(SILENT_ROWS)}`
+}
+
+/** 神魔码的八下（↑↑↓↓←→←→）。序列在 shenmo.spec.ts 的文件头有据可查 */
+const CODE_KEYS: readonly string[] = [
+  'ArrowUp',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowLeft',
+  'ArrowRight',
+]
+
 /** 每套风格的祝贺底色（tokens.css 的 --control-bg / --page）。三套必须互不相同 */
 const TOAST_BACKGROUND: Record<StyleId, string> = {
   classic: 'rgb(111, 96, 85)',
@@ -61,8 +95,13 @@ const TOAST_SHADOW: Record<StyleId, string> = {
 }
 
 /** 开局：选风格 → 开始游戏 */
-async function startRun(page: Page, styleId: StyleId, label: string): Promise<void> {
-  await page.goto(startUrl())
+async function startRun(
+  page: Page,
+  styleId: StyleId,
+  label: string,
+  url = startUrl()
+): Promise<void> {
+  await page.goto(url)
   await page.getByRole('group', { name: '风格' }).getByRole('button', { name: label }).click()
   await expect(page.locator('main')).toHaveAttribute('data-style', styleId)
   await page.getByRole('button', { name: '开始游戏' }).click()
@@ -108,6 +147,73 @@ for (const style of STYLE_CATALOG) {
       const shadow = await item.evaluate((element) => getComputedStyle(element).boxShadow)
       expect(shadow, `${style.label} 的祝贺没有阴影`).not.toBe('none')
       expect(shadow, `${style.label} 的祝贺阴影与设计卡不符`).toContain(TOAST_SHADOW[style.id])
+    })
+
+    // —— T31：note（一念神魔那四颗各自的梗）——
+    // 成就自带 note 时下行换成它、本套祝词让位：这句话是这几颗成就的笑话本身，不是风格
+    // 在说话（与 emoji 同一条理由，见注册表 `AchievementDefinition.note`）。
+    // 断言整句、不断「含有某个词」——这句梗会原样出现在玩家眼前。
+    test('成就自带 note：下行换成那句梗，本套的祝词让位，两行结构不变', async ({ page }) => {
+      await startRun(page, style.id, style.label, silentUrl())
+
+      // 打完整条神魔码 → 抉择现身 → 先 B（破碎退场）→ 合成 animationend → 再 A。
+      // 破碎那一下用合成事件收尾（两段窗口都是 30 秒，等不起；墙钟会把 time-attack 那种
+      // 装假时钟的用例冻住——shenmo.spec.ts 的同一条理由）
+      await page.locator('[data-board]').focus()
+      for (const key of CODE_KEYS) await page.keyboard.press(key)
+      await expect(page.locator('.shenmo')).toHaveAttribute('data-shenmo-stage', 'choice')
+      await page.getByRole('button', { name: '抉择 B' }).click()
+      await expect(page.locator('.shenmo')).toHaveAttribute('data-shenmo-stage', 'breaking')
+      await page.evaluate(() => {
+        const element = document.querySelector<HTMLElement>('[data-shenmo-button="b"]')
+        element?.dispatchEvent(
+          new AnimationEvent('animationend', { bubbles: true, animationName: 'shenmo-break-fade' })
+        )
+      })
+      await page.getByRole('button', { name: '抉择 A' }).click()
+
+      // 这一条里只有道通成魔：静音盘不会合并，于是没有首次合并、也没有首胜
+      const item = toast(page)
+      await expect(item).toHaveCount(1)
+      await expect(item).toContainText('道通成魔')
+      // 下行整句就是用户给的那句原话
+      await expect(item.locator('.toast__note')).toHaveText('既见未来，为何不拜？')
+      // 本套那句祝词让位了：三套的 TAG 都是「解锁成就」，它一个字节都不在
+      await expect(item).not.toContainText('解锁成就')
+      // 两行结构没变：上行 head（图标 + 名字）、下行 note，整整两个 <p>，不多不少
+      await expect(item.locator('p')).toHaveCount(2)
+      await expect(item.locator('.toast__head')).toContainText('道通成魔')
+
+      // **屏幕阅读器**：toast 本来就是 `role="status"`（隐式 polite + atomic），那句话
+      // 只要进了这棵子树就会被整条播报。这里断的正是「它真的在 DOM 里」
+      await expect(item).toHaveAttribute('role', 'status')
+      await expect(item).toContainText('既见未来，为何不拜？')
+    })
+
+    test('reduced-motion 下这句话一个字节不变：降级的是动，不是字', async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' })
+      await startRun(page, style.id, style.label, silentUrl())
+      await page.locator('[data-board]').focus()
+      for (const key of CODE_KEYS) await page.keyboard.press(key)
+      await expect(page.locator('.shenmo')).toHaveAttribute('data-shenmo-stage', 'choice')
+      await page.getByRole('button', { name: '抉择 B' }).click()
+      // **不断 'breaking' 那一档**：reduced-motion 下破碎退场的时长归零，档位可能一帧就
+      // 翻过去，断言它等于赌一次竞态（shenmo.spec.ts 的 reduced-motion 那条也不断它）
+      await page.evaluate(() => {
+        const element = document.querySelector<HTMLElement>('[data-shenmo-button="b"]')
+        element?.dispatchEvent(
+          new AnimationEvent('animationend', { bubbles: true, animationName: 'shenmo-break-fade' })
+        )
+      })
+      await page.getByRole('button', { name: '抉择 A' }).click()
+
+      const item = toast(page).first()
+      await expect(item).toHaveCount(1)
+      await expect(item.locator('.toast__note')).toHaveText('既见未来，为何不拜？')
+      await expect(item).not.toContainText('解锁成就')
+      // 动效确实归零了（这一套的 reduced-motion 分支），而字一个都没动
+      const duration = await item.evaluate((element) => getComputedStyle(element).transitionDuration)
+      expect(duration).toMatch(/^0s/)
     })
 
     test('约 5 秒之后自行消失，不用玩家点掉', async ({ page }) => {

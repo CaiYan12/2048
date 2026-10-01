@@ -1,5 +1,5 @@
 {
-  "$comment": "Claude 风格实际使用的文字 / 控件 / 焦点前景背景组合。ratio 是按 WCAG 2.x 相对亮度公式算出来的实测值（不是拍出来的目标值）；`npm run check:contrast` 从 tokens.css 重新取色再算一遍，两边不一致、低于 minimum、或引用了 tokens.css 没声明的色值即报错。三字段沿用 T14 的口径：`basis`（regular 4.5 / large 3 / non-text 3，SPEC §3.2）、`scene`（start / run / walls）、`probe`（浏览器那一层 tests/e2e/contrast-computed.spec.ts 按它读**计算样式**的地址）。本表三个特点：① **没有任何一对依赖大字口径**——连一位数的第一档也是 14.11:1（设计卡 §9），所以「字号随位数变化」与对比度结论完全解耦；② **没有一对走半透明合成**（`from`）——次要文字用显式声明的 --ink-variant，这正是 T15 换掉 Classic 那处 opacity 的同一件事；③ 有几对色值重复（纸面上的标题与面板数值都是 --ink on --page），这是**故意的**：它们验的是不同 DOM 子树里的不同元素，探针是地址，色值相同不代表该合并。空格（--cell-bg）与板面（--board）、板面与纸面（1.63 / 1.09）不在表内：那是装饰性的明度层级，真正承载信息的是「方块 vs 空格」（由数字承担）与「障碍 vs 可玩空格」（表内，3:1 口径）。区块暖色填充只有三处：选中控件、焦点环、目标档方块（--tile-11），它们各自是一对。",
+  "$comment": "Claude 风格实际使用的文字 / 控件 / 焦点前景背景组合。ratio 是按 WCAG 2.x 相对亮度公式算出来的实测值（不是拍出来的目标值）；`npm run check:contrast` 从 tokens.css 重新取色再算一遍，两边不一致、低于 minimum、或引用了 tokens.css 没声明的色值即报错。三字段沿用 T14 的口径：`basis`（regular 4.5 / large 3 / non-text 3，SPEC §3.2）、`scene`（start / run / walls）、`probe`（浏览器那一层 tests/e2e/contrast-computed.spec.ts 按它读**计算样式**的地址）。本表三个特点：① **没有任何一对依赖大字口径**——连一位数的第一档也是 14.11:1（设计卡 §9），所以「字号随位数变化」与对比度结论完全解耦；② **没有一对走半透明合成**（`from`）——次要文字用显式声明的 --ink-variant，这正是 T15 换掉 Classic 那处 opacity 的同一件事；③ 有几对色值重复（纸面上的标题与面板数值都是 --ink on --page），这是**故意的**：它们验的是不同 DOM 子树里的不同元素，探针是地址，色值相同不代表该合并。空格（--cell-bg）与板面（--board）、板面与纸面（1.63 / 1.09）不在表内：那是装饰性的明度层级，真正承载信息的是「方块 vs 空格」（由数字承担）与「障碍 vs 可玩空格」（表内，3:1 口径）。区块暖色填充只有三处：选中控件、焦点环、目标档方块（--tile-11），它们各自是一对。 **T33（堕落染墨）新增 12 对**：scene 是 `egg`，探针是 `.board__tile[data-bucket='1'…]`。十二个暗档仍是低彩度暖灰（r ≥ g ≥ b、通道差 ≤ 50），第 11 档仍是全阶梯唯一一块暖色——**染墨染的是明度，不动「稀缺」**。深浅字的分界也一动不动（前六档 `--ink`、后六档 `--ink-bright`）：一套印刷品上「墨更深了一档」，读数两侧的分界不该跟着挪。",
   "styleId": "claude",
   "pairs": [
     {
@@ -10,7 +10,10 @@
       "minimum": 4.5,
       "ratio": 6.08,
       "scene": "milestone",
-      "probe": { "selector": ".overlay__readout dt", "background": ".overlay__card" }
+      "probe": {
+        "selector": ".overlay__readout dt",
+        "background": ".overlay__card"
+      }
     },
     {
       "usage": "标题「2048」与外壳正文（--ink on --page，探针取开局界面的 .shell__title）",
@@ -20,7 +23,10 @@
       "minimum": 4.5,
       "ratio": 13.35,
       "scene": "start",
-      "probe": { "selector": ".shell__title", "background": ".shell" }
+      "probe": {
+        "selector": ".shell__title",
+        "background": ".shell"
+      }
     },
     {
       "usage": "得分 / 目标 / 最高方块面板的数值与新游戏按钮文字（--ink on --page，探针取局中的 .panel__value。与上一条同色不同元素：面板数值是全屏第二大的衬线，漏了它等于没验）",
@@ -30,7 +36,10 @@
       "minimum": 4.5,
       "ratio": 13.35,
       "scene": "run",
-      "probe": { "selector": ".panel__value", "background": ".shell" }
+      "probe": {
+        "selector": ".panel__value",
+        "background": ".shell"
+      }
     },
     {
       "usage": "次要正文：操作提示、终局面板说明（--ink-variant on --page，探针取局中的 .hint）",
@@ -40,7 +49,10 @@
       "minimum": 4.5,
       "ratio": 6.08,
       "scene": "run",
-      "probe": { "selector": ".hint", "background": ".shell" }
+      "probe": {
+        "selector": ".hint",
+        "background": ".shell"
+      }
     },
     {
       "usage": "面板小标签（得分 / 目标 / 最高方块上面那一行，以及开局界面的模式 / 风格分组标签）。**本套的面板不填色**，所以一个色值在纸面上与在面板里都成立——Classic 因此需要两个方向的次要色，Claude 不需要。与上一条同色不同元素：它紧贴在大号数值上方，是最容易被子孙元素继承色带偏的一处",
@@ -50,7 +62,10 @@
       "minimum": 4.5,
       "ratio": 6.08,
       "scene": "run",
-      "probe": { "selector": ".panel__label", "background": ".shell" }
+      "probe": {
+        "selector": ".panel__label",
+        "background": ".shell"
+      }
     },
     {
       "usage": "按钮文字（描边按钮底就是纸面，所以这一对与外壳正文同色——入表是因为它验的是 .control 自己身上的 color，不是外壳那一个）",
@@ -60,7 +75,9 @@
       "minimum": 4.5,
       "ratio": 13.35,
       "scene": "run",
-      "probe": { "selector": ".control" }
+      "probe": {
+        "selector": ".control"
+      }
     },
     {
       "usage": "按钮文字（悬停态，纸面深一档）",
@@ -70,7 +87,10 @@
       "minimum": 4.5,
       "ratio": 11.35,
       "scene": "run",
-      "probe": { "selector": ".control", "hover": true }
+      "probe": {
+        "selector": ".control",
+        "hover": true
+      }
     },
     {
       "usage": "已选中的风格按钮文字（**全壳唯一一处暖色填充**，选中的那一块陶土色）",
@@ -80,7 +100,9 @@
       "minimum": 4.5,
       "ratio": 5.5,
       "scene": "run",
-      "probe": { "selector": ".control[aria-pressed='true']" }
+      "probe": {
+        "selector": ".control[aria-pressed='true']"
+      }
     },
     {
       "usage": "控件那一圈 1px 描边 vs 纸面。本套控件不填色，「这里有个按钮」由这一圈说，所以按 1.4.11 的非文字指示器口径量。**用 outline 画而不是 border**（border 会改盒子尺寸，见 DESIGN.md §5 / §7），于是闸门的 ring 探针读得到它；探针不带 :focus-visible——静止态才读它，Tab 之后同一边会变成焦点环（e2e 据此把环分成「静止态 / 焦点态」两步读）",
@@ -90,7 +112,10 @@
       "minimum": 3,
       "ratio": 3.54,
       "scene": "run",
-      "probe": { "selector": ".control", "read": "ring" }
+      "probe": {
+        "selector": ".control",
+        "read": "ring"
+      }
     },
     {
       "usage": "键盘焦点环（outline 3px 陶土色，外移 2px，落在纸面上；探针取 Tab 聚焦后的那个按钮）。暖色是稀缺品：焦点与被选中是全壳唯一两处",
@@ -100,7 +125,11 @@
       "minimum": 3,
       "ratio": 4.98,
       "scene": "run",
-      "probe": { "selector": ".control:focus-visible", "read": "ring", "background": ".shell" }
+      "probe": {
+        "selector": ".control:focus-visible",
+        "read": "ring",
+        "background": ".shell"
+      }
     },
     {
       "usage": "选中方块的那一圈描边 vs 空格底（board.css 的 [data-selected='true']，带 spread 的 box-shadow 画在 border box 外侧，落在 --cell-bg 上）。与焦点环共用同一块陶土色，不引入第二种暖色",
@@ -138,7 +167,9 @@
       "minimum": 4.5,
       "ratio": 14.11,
       "scene": "run",
-      "probe": { "selector": ".board__tile[data-bucket='1']" }
+      "probe": {
+        "selector": ".board__tile[data-bucket='1']"
+      }
     },
     {
       "usage": "第 2 档方块上的数值（经典 4 / 斐波那契 2、3）",
@@ -148,7 +179,9 @@
       "minimum": 4.5,
       "ratio": 12.81,
       "scene": "run",
-      "probe": { "selector": ".board__tile[data-bucket='2']" }
+      "probe": {
+        "selector": ".board__tile[data-bucket='2']"
+      }
     },
     {
       "usage": "第 3 档方块上的数值（经典 8 / 斐波那契 5）",
@@ -158,7 +191,9 @@
       "minimum": 4.5,
       "ratio": 11.16,
       "scene": "run",
-      "probe": { "selector": ".board__tile[data-bucket='3']" }
+      "probe": {
+        "selector": ".board__tile[data-bucket='3']"
+      }
     },
     {
       "usage": "第 4 档方块上的数值（经典 16 / 斐波那契 8）",
@@ -168,7 +203,9 @@
       "minimum": 4.5,
       "ratio": 9.33,
       "scene": "run",
-      "probe": { "selector": ".board__tile[data-bucket='4']" }
+      "probe": {
+        "selector": ".board__tile[data-bucket='4']"
+      }
     },
     {
       "usage": "第 5 档方块上的数值（经典 32 / 斐波那契 13）",
@@ -178,7 +215,9 @@
       "minimum": 4.5,
       "ratio": 7.67,
       "scene": "run",
-      "probe": { "selector": ".board__tile[data-bucket='5']" }
+      "probe": {
+        "selector": ".board__tile[data-bucket='5']"
+      }
     },
     {
       "usage": "第 6 档方块上的数值（经典 64 / 斐波那契 21、34）。**浅字这一侧的最后一条**：再暗一档就落进两种字色都过不了 4.5:1 的死区（相对亮度 0.174～0.254）",
@@ -188,7 +227,9 @@
       "minimum": 4.5,
       "ratio": 5.86,
       "scene": "run",
-      "probe": { "selector": ".board__tile[data-bucket='6']" }
+      "probe": {
+        "selector": ".board__tile[data-bucket='6']"
+      }
     },
     {
       "usage": "第 7 档方块上的数值（经典 128 / 斐波那契 55、89）。**12 档里最紧的一档，复核先看它**——它是深字那一侧的第一条，离死区只差 0.66 的余量",
@@ -198,7 +239,9 @@
       "minimum": 4.5,
       "ratio": 5.16,
       "scene": "run",
-      "probe": { "selector": ".board__tile[data-bucket='7']" }
+      "probe": {
+        "selector": ".board__tile[data-bucket='7']"
+      }
     },
     {
       "usage": "第 8 档方块上的数值（经典 256 / 斐波那契 144、233）",
@@ -208,7 +251,9 @@
       "minimum": 4.5,
       "ratio": 7.15,
       "scene": "run",
-      "probe": { "selector": ".board__tile[data-bucket='8']" }
+      "probe": {
+        "selector": ".board__tile[data-bucket='8']"
+      }
     },
     {
       "usage": "第 9 档方块上的数值（经典 512 / 斐波那契 377、610）",
@@ -218,7 +263,9 @@
       "minimum": 4.5,
       "ratio": 9.96,
       "scene": "run",
-      "probe": { "selector": ".board__tile[data-bucket='9']" }
+      "probe": {
+        "selector": ".board__tile[data-bucket='9']"
+      }
     },
     {
       "usage": "第 10 档方块上的数值（经典 1024 / 斐波那契 987、1597）",
@@ -228,7 +275,9 @@
       "minimum": 4.5,
       "ratio": 13.67,
       "scene": "run",
-      "probe": { "selector": ".board__tile[data-bucket='10']" }
+      "probe": {
+        "selector": ".board__tile[data-bucket='10']"
+      }
     },
     {
       "usage": "第 11 档方块上的数值（经典 2048 / 斐波那契 2584 / 大棋盘 4096）。**全阶梯唯一一次变亮、唯一一处暖色方块底色**：它不是「更暗的一档」，是「到了」。超过目标值之后回到墨色",
@@ -238,7 +287,9 @@
       "minimum": 4.5,
       "ratio": 5.5,
       "scene": "run",
-      "probe": { "selector": ".board__tile[data-bucket='11']" }
+      "probe": {
+        "selector": ".board__tile[data-bucket='11']"
+      }
     },
     {
       "usage": "超出本模式目标值的方块（顶档之后）",
@@ -248,7 +299,274 @@
       "minimum": 4.5,
       "ratio": 16.46,
       "scene": "run",
-      "probe": { "selector": ".board__tile[data-bucket='12']" }
+      "probe": {
+        "selector": ".board__tile[data-bucket='12']"
+      }
+    },
+    {
+      "usage": "一念神魔那两颗圆钮上的 A / B（--shenmo-button-ink on --shenmo-button-bg）。T29 新场景 egg：彩蛋是机器答话，认不出那两个字就不是答话",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#f0eee6",
+      "minimum": 4.5,
+      "ratio": 13.35,
+      "scene": "egg",
+      "probe": {
+        "selector": ".shenmo__button",
+        "background": ".shenmo__button"
+      }
+    },
+    {
+      "usage": "两颗圆钮静止态的描边 vs 自己的底面（--control-border，与 .control 同一个值）。本套的说法是「纸上多了一圈细线」：底就是纸面、不填色、没有投影",
+      "basis": "non-text",
+      "foreground": "#857c6d",
+      "background": "#f0eee6",
+      "minimum": 3,
+      "ratio": 3.54,
+      "scene": "egg",
+      "probe": {
+        "selector": ".shenmo__button",
+        "read": "ring",
+        "background": ".shenmo__button"
+      }
+    },
+    {
+      "usage": "两颗圆钮的焦点环 vs 纸面（堕落态：#a8482b → #650100，见 tokens.css 暗档块的 --focus）。盘面染成血色之后空格亮了一截，T33 那个值贴得太近门槛，所以再压一档——仍是同一块色的暗档，不是第二种色相",
+      "basis": "non-text",
+      "foreground": "#650100",
+      "background": "#f0eee6",
+      "minimum": 3,
+      "ratio": 11.61,
+      "scene": "egg",
+      "probe": {
+        "selector": ".shenmo__button:focus-visible",
+        "read": "ring",
+        "background": ".shell"
+      }
+    },
+    {
+      "usage": "一念的按钮上的四个字（--wish-ink on --wish-bg）。T30 新场景 wish：先 B 后 A 走完一遍，棋盘正下方多出这颗「一念神魔」——它与 .control 同族颜色、不同形状，认不出那四个字就不算报酬",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#f0eee6",
+      "minimum": 4.5,
+      "ratio": 13.35,
+      "scene": "wish",
+      "probe": {
+        "selector": ".wish"
+      }
+    },
+    {
+      "usage": "那颗按钮静止态的描边 vs 自己的底面（--wish-border，与 .control、两颗圆钮同一个值）。本套的说法是「纸上多了一圈细线」：底就是纸面、不填色、没有投影",
+      "basis": "non-text",
+      "foreground": "#857c6d",
+      "background": "#f0eee6",
+      "minimum": 3,
+      "ratio": 3.54,
+      "scene": "wish",
+      "probe": {
+        "selector": ".wish",
+        "read": "ring"
+      }
+    },
+    {
+      "usage": "那颗按钮的焦点环 vs 纸面（--focus，那块陶土色）。全壳只有「被选中」和「此刻有焦点」用暖色——与控件同一条",
+      "basis": "non-text",
+      "foreground": "#a8482b",
+      "background": "#f0eee6",
+      "minimum": 3,
+      "ratio": 4.98,
+      "scene": "wish",
+      "probe": {
+        "selector": ".wish:focus-visible",
+        "read": "ring",
+        "background": ".shell"
+      }
+    },
+    {
+      "usage": "堕落态里方块 2（经典）/ 1（斐波那契）/ 2（大棋盘）上的数值（第 1 档）。**T35 起换成血色染墨**：堕落态不再是「各暗一档」这个中性的暂停手势，而是整条阶梯连同棋盘一起染成血红（同一支 OKLCH 色相 27，彩度拉到 sRGB 在这一档明度上能给的最浓一档）。落地方式没变——仍是「落实为令牌，不是盖一层半透明遮罩」（父Spec 架构决策 15：遮罩在闸门眼里是隐形的）。深浅字的分界也没动，本档仍压深字",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#ffc8c1",
+      "minimum": 4.5,
+      "ratio": 10.55,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__tile[data-bucket='1']"
+      }
+    },
+    {
+      "usage": "堕落态里方块 4 / 2、3 上的数值（第 2 档）。**T35 起换成血色染墨**：堕落态不再是「各暗一档」这个中性的暂停手势，而是整条阶梯连同棋盘一起染成血红（同一支 OKLCH 色相 27，彩度拉到 sRGB 在这一档明度上能给的最浓一档）。落地方式没变——仍是「落实为令牌，不是盖一层半透明遮罩」（父Spec 架构决策 15：遮罩在闸门眼里是隐形的）。深浅字的分界也没动，本档仍压深字",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#ffbeb5",
+      "minimum": 4.5,
+      "ratio": 9.81,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__tile[data-bucket='2']"
+      }
+    },
+    {
+      "usage": "堕落态里方块 8 / 5 上的数值（第 3 档）。**T35 起换成血色染墨**：堕落态不再是「各暗一档」这个中性的暂停手势，而是整条阶梯连同棋盘一起染成血红（同一支 OKLCH 色相 27，彩度拉到 sRGB 在这一档明度上能给的最浓一档）。落地方式没变——仍是「落实为令牌，不是盖一层半透明遮罩」（父Spec 架构决策 15：遮罩在闸门眼里是隐形的）。深浅字的分界也没动，本档仍压深字",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#ffaea5",
+      "minimum": 4.5,
+      "ratio": 8.75,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__tile[data-bucket='3']"
+      }
+    },
+    {
+      "usage": "堕落态里方块 16 / 8 上的数值（第 4 档）。**T35 起换成血色染墨**：堕落态不再是「各暗一档」这个中性的暂停手势，而是整条阶梯连同棋盘一起染成血红（同一支 OKLCH 色相 27，彩度拉到 sRGB 在这一档明度上能给的最浓一档）。落地方式没变——仍是「落实为令牌，不是盖一层半透明遮罩」（父Spec 架构决策 15：遮罩在闸门眼里是隐形的）。深浅字的分界也没动，本档仍压深字",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#ff9b8f",
+      "minimum": 4.5,
+      "ratio": 7.63,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__tile[data-bucket='4']"
+      }
+    },
+    {
+      "usage": "堕落态里方块 32 / 13 上的数值（第 5 档）。**T35 起换成血色染墨**：堕落态不再是「各暗一档」这个中性的暂停手势，而是整条阶梯连同棋盘一起染成血红（同一支 OKLCH 色相 27，彩度拉到 sRGB 在这一档明度上能给的最浓一档）。落地方式没变——仍是「落实为令牌，不是盖一层半透明遮罩」（父Spec 架构决策 15：遮罩在闸门眼里是隐形的）。深浅字的分界也没动，本档仍压深字",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#ff8478",
+      "minimum": 4.5,
+      "ratio": 6.51,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__tile[data-bucket='5']"
+      }
+    },
+    {
+      "usage": "堕落态里方块 64 / 21、34 上的数值（第 6 档）。**T35 起换成血色染墨**：堕落态不再是「各暗一档」这个中性的暂停手势，而是整条阶梯连同棋盘一起染成血红（同一支 OKLCH 色相 27，彩度拉到 sRGB 在这一档明度上能给的最浓一档）。落地方式没变——仍是「落实为令牌，不是盖一层半透明遮罩」（父Spec 架构决策 15：遮罩在闸门眼里是隐形的）。深浅字的分界也没动，本档仍压深字",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#fe6459",
+      "minimum": 4.5,
+      "ratio": 5.3,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__tile[data-bucket='6']"
+      }
+    },
+    {
+      "usage": "堕落态里方块 128 / 55、89 上的数值（第 7 档）。**T35 起换成血色染墨**：堕落态不再是「各暗一档」这个中性的暂停手势，而是整条阶梯连同棋盘一起染成血红（同一支 OKLCH 色相 27，彩度拉到 sRGB 在这一档明度上能给的最浓一档）。落地方式没变——仍是「落实为令牌，不是盖一层半透明遮罩」（父Spec 架构决策 15：遮罩在闸门眼里是隐形的）。深浅字的分界也没动，本档仍压亮字",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#c72e2b",
+      "minimum": 4.5,
+      "ratio": 5.18,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__tile[data-bucket='7']"
+      }
+    },
+    {
+      "usage": "堕落态里方块 256 / 144、233 上的数值（第 8 档）。**T35 起换成血色染墨**：堕落态不再是「各暗一档」这个中性的暂停手势，而是整条阶梯连同棋盘一起染成血红（同一支 OKLCH 色相 27，彩度拉到 sRGB 在这一档明度上能给的最浓一档）。落地方式没变——仍是「落实为令牌，不是盖一层半透明遮罩」（父Spec 架构决策 15：遮罩在闸门眼里是隐形的）。深浅字的分界也没动，本档仍压亮字",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#ae0813",
+      "minimum": 4.5,
+      "ratio": 7.02,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__tile[data-bucket='8']"
+      }
+    },
+    {
+      "usage": "堕落态里方块 512 / 377、610 上的数值（第 9 档）。**T35 起换成血色染墨**：堕落态不再是「各暗一档」这个中性的暂停手势，而是整条阶梯连同棋盘一起染成血红（同一支 OKLCH 色相 27，彩度拉到 sRGB 在这一档明度上能给的最浓一档）。落地方式没变——仍是「落实为令牌，不是盖一层半透明遮罩」（父Spec 架构决策 15：遮罩在闸门眼里是隐形的）。深浅字的分界也没动，本档仍压亮字",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#8c000b",
+      "minimum": 4.5,
+      "ratio": 9.41,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__tile[data-bucket='9']"
+      }
+    },
+    {
+      "usage": "堕落态里方块 1024 / 987、1597 上的数值（第 10 档）。**T35 起换成血色染墨**：堕落态不再是「各暗一档」这个中性的暂停手势，而是整条阶梯连同棋盘一起染成血红（同一支 OKLCH 色相 27，彩度拉到 sRGB 在这一档明度上能给的最浓一档）。落地方式没变——仍是「落实为令牌，不是盖一层半透明遮罩」（父Spec 架构决策 15：遮罩在闸门眼里是隐形的）。深浅字的分界也没动，本档仍压亮字",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#680006",
+      "minimum": 4.5,
+      "ratio": 12.54,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__tile[data-bucket='10']"
+      }
+    },
+    {
+      "usage": "堕落态里方块 2048 / 2584 / 4096 上的数值（第 11 档）。**T35 起换成血色染墨**：堕落态不再是「各暗一档」这个中性的暂停手势，而是整条阶梯连同棋盘一起染成血红（同一支 OKLCH 色相 27，彩度拉到 sRGB 在这一档明度上能给的最浓一档）。落地方式没变——仍是「落实为令牌，不是盖一层半透明遮罩」（父Spec 架构决策 15：遮罩在闸门眼里是隐形的）。深浅字的分界也没动，本档仍压亮字。第 11 档仍是全阶梯唯一一次变亮（它是「到了」，不是「更深」），血色把这一下原样带过来了",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#c62d2b",
+      "minimum": 4.5,
+      "ratio": 5.24,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__tile[data-bucket='11']"
+      }
+    },
+    {
+      "usage": "堕落态里超出本模式目标值的方块（斐波那契 46368 起、大棋盘 8192 起）上的数值（beyond 档）。**T35 起换成血色染墨**：堕落态不再是「各暗一档」这个中性的暂停手势，而是整条阶梯连同棋盘一起染成血红（同一支 OKLCH 色相 27，彩度拉到 sRGB 在这一档明度上能给的最浓一档）。落地方式没变——仍是「落实为令牌，不是盖一层半透明遮罩」（父Spec 架构决策 15：遮罩在闸门眼里是隐形的）。深浅字的分界也没动，本档仍压亮字。beyond 基线本就贴近纯黑，染血之后亮度反而回来一截（暗红比纯黑亮）——这一档压的是亮字，毫无影响",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#4d0003",
+      "minimum": 4.5,
+      "ratio": 15.16,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__tile[data-bucket='12']"
+      }
+    },
+    {
+      "usage": "悬顶上那一行字的墨与带面（--shenmo-strip-ink on --shenmo-strip-surface）。T32 新场景 pinned：完整走完第二遍之后棋盘被扣下，这条钉在视口顶端、本局余下时间都在——它是新长出来的一整面，别让一个玩笑花掉可读性（用户故事 40）",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#f0eee6",
+      "minimum": 4.5,
+      "ratio": 13.35,
+      "scene": "pinned",
+      "probe": {
+        "selector": ".shenmo-strip__head",
+        "background": ".shenmo-strip"
+      }
+    },
+    {
+      "usage": "堕落态里棋盘自己的底面 vs 最暗一档方块（--board on --tile-beyond）。**T35 起换成血色染墨**：底面不再只是「跟着暗一档」，而是和方块同一个色相地染成退了一档浓度的血（彩度 0.10，是方块那一档的一半：同色相、退一档浓度，空格读作血池而不是另一枚方块）。T34 之前染墨只动十二档、棋盘这一圈底色没跟着动——彩蛋多半在中后局触发、盘上正是大数字，于是整幅看着像根本没染（业主原话：「盯着 1024 看，它确实没暗」）。这一对的方向说的是「染深了也还分得开」：谁把 --board 从暗档块里删掉，浏览器读回来的就是没染血的那个底色；谁又染得太深，红的是这一条",
+      "basis": "non-text",
+      "foreground": "#cf8077",
+      "background": "#4d0003",
+      "minimum": 3,
+      "ratio": 5.32,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board",
+        "read": "background",
+        "background": ".board__tile[data-bucket='12']"
+      }
+    },
+    {
+      "usage": "堕落态里的可玩空格 vs 最暗一档方块（--cell-bg on --tile-beyond）。与 walls 那一对同一副形状（障碍 vs 空格），只是这一幕量的是染血之后的两个面：空格跟着棋盘一起染（彩度 0.10，是方块那一档的一半：同色相、退一档浓度，空格读作血池而不是另一枚方块），而格子与方块的分界除了明暗还多了一层浓度差——方块更浮得出来，这正是业主要的「对比度更高」",
+      "basis": "non-text",
+      "foreground": "#b4685f",
+      "background": "#4d0003",
+      "minimum": 3,
+      "ratio": 3.86,
+      "scene": "egg",
+      "probe": {
+        "selector": ".board__cell[data-cell='empty']",
+        "read": "background",
+        "background": ".board__tile[data-bucket='12']"
+      }
     }
   ]
 }

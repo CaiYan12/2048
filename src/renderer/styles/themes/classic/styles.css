@@ -211,6 +211,56 @@
   }
 }
 
+/* 一念神魔的两颗圆钮（T29 · 父规格的架构决策 11：外壳，不是第四个插槽）
+   这里只出**底面、描边、阴影与焦点环**——形状、摆位、两段 30 秒与破碎退场全在
+   styles/index.css 的共享外壳里。本套的词汇是「墨写在纸上」，所以两颗钮是**全扁平的
+   一块深棕**：没有投影、没有渐变，全靠字重 700 与 A / B 两个字符本身被认出来。 */
+[data-style='classic'] .shenmo__button {
+  background: var(--shenmo-button-bg);
+  color: var(--shenmo-button-ink);
+  /* 描边用 outline 而不是 border：border 会让 3rem 的圆钮大一像素，而它在宽视口下是
+     贴着 `translate` 探出去的——尺寸漂移会让两侧探出的距离左右差一像素 */
+  outline: 2px solid var(--shenmo-button-border);
+  outline-offset: -2px;
+}
+
+[data-style='classic'] .shenmo__button:hover {
+  background: var(--shenmo-button-bg-hover);
+}
+
+/* 焦点：与控件、棋盘、祝贺同一对「页面色垫圈 + 深色描边」双环，深色环永远只与页面色相邻 */
+[data-style='classic'] .shenmo__button:focus-visible {
+  outline: 0;
+  box-shadow:
+    0 0 0 2px var(--page),
+    0 0 0 4px var(--focus);
+}
+
+/* 一念的按钮（T30 · 父规格架构决策 11：外壳，不是第四个插槽）
+   这里只出**底面、描边与悬停**——形状、字距与摆位在 styles/index.css 的共享外壳里。
+   形状是它与 .control 唯一的分岔：同一族颜色，一个药丸形 + display 字体 + 字距，
+   读起来是「机器递过来的东西」而不是「这一局的又一个操作」。 */
+[data-style='classic'] .wish {
+  background: var(--wish-bg);
+  color: var(--wish-ink);
+  /* 描边用 outline 而不是 border：与两颗圆钮同一条——它不进布局，闸门的 ring 探针
+     也读得到它 */
+  outline: 2px solid var(--wish-border);
+  outline-offset: -2px;
+}
+
+[data-style='classic'] .wish:hover {
+  background: var(--wish-bg-hover);
+}
+
+/* 焦点：与 .control、两颗圆钮同一对双环（页面色垫圈 + 深色描边） */
+[data-style='classic'] .wish:focus-visible {
+  outline: 0;
+  box-shadow:
+    0 0 0 2px var(--page),
+    0 0 0 4px var(--focus);
+}
+
 /* 成就祝贺（设计卡 §10）：贴视口**上方正中**的一叠卡片。
    它是**呈现插槽**（ADR-0002）——结构、长相与消失表现都归这套风格，而「什么时候该有
    一条」在 store。position: fixed 是硬要求：流内的一条提示会把棋盘整体推下去，
@@ -220,7 +270,15 @@
 [data-style='classic'] .toast-stack {
   position: fixed;
   z-index: 4;
-  top: 1rem;
+  /* T32：顶端距离改读一个变量——有悬顶时外壳把 `--toast-top` 设成「悬顶高度 + 1rem」
+     （index.css 里 `[data-shenmo-pinned='true']` 那条），于是祝贺整整齐齐排在悬顶下面、
+     两条共用视口顶端而不重叠。没有悬顶时变量不存在，回落到原来那一个 1rem。
+     **回落值（`,` 后面的 1rem）是硬要求**：读一个不存在的自定义属性而不给回落值，
+     `top` 会变成 `auto`，整叠卡片掉回文档流里去把棋盘推走。
+     注释里刻意不写成 `var(` 的形式：theme-contract 的必需令牌清单是从 styles.css 的
+     文本里扫出来的，而它**不剥注释**——一个不带回落值的 `var(--x)` 写进注释，三套风格
+     就要平白多交一个 token（外壳那份 CSS 会剥注释，主题这份不剥）。 */
+  top: var(--toast-top, 1rem);
   left: 1rem;
   right: 1rem;
   display: flex;
@@ -306,4 +364,16 @@
   [data-style='classic'] .toast {
     transition-duration: 0ms;
   }
+}
+
+/* —— 二念的悬顶（T32 · 父规格的架构决策 8 / 10）——
+   走火入魔之后钉在视口顶端的那一条。**结构、摆位、节奏全在共享外壳**（index.css 的
+   .shenmo-strip），这里只出颜色——彩蛋不是第四个插槽（架构决策 11）。
+   Classic 全扁平，所以这一条的做法是「一条压满宽度的深棕色带」：与 .control 同一个
+   棕，于是它读起来是「这一局现在归这块颜色管」，而不是又一张卡片。
+   **它刻意不像 toast**：toast 是圆角、居中、限宽 24rem 的一张卡；这一条满宽、齐边、
+   不消失。两者共用一个顶端而不重叠靠的是外壳那个 --toast-top。 */
+[data-style='classic'] .shenmo-strip {
+  background: var(--shenmo-strip-surface);
+  color: var(--shenmo-strip-ink);
 }

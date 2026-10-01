@@ -114,6 +114,31 @@
     scale var(--tile-spawn-duration, 120ms) ease-out;
 }
 
+/* —— 堕落染墨的「涌」上来（T36）——
+   血染是一次**变量切换**：tokens.css 的 `[data-style][data-shenmo-dim='true']` 把十二档与
+   盘面的值换成血色，而「涌」要靠这几条 transition——属性一翻，浏览器把底色从基座值一路补
+   到血色值。没有它，那一翻就是一次硬切：业主要的原话是「血要涌上来，不要跳上来」。
+   **时长读 index.css 声明的 `--shenmo-dye-duration`**（与两拍终局同一处、同一个数），兜底
+   值只是防止变量缺席时整条 transition 判成无效值、把位移那三条一起弄丢。
+   **reduced-motion 下它是瞬间切换**（index.css 把那个变量置 0），所以那边改的是时长、
+   不是把这几条拆掉。三个面都染（棋盘底面 / 可玩空格与障碍格 / 方块），所以分两条写。 */
+[data-shenmo-fall='dye'] .board,
+[data-shenmo-fall='dye'] .board__cell {
+  transition: background-color var(--shenmo-dye-duration, 600ms) ease-out;
+}
+
+/* 方块那一条**必须把上面 T21 的三条一起抄进来**：`transition` 是简写，只写
+   background-color 会把位移 / 入场 / 合并脉冲整个替掉——终局那 600ms 里玩家照样可能按
+   方向键，而症状只是「染血的时候方块不滑了」，没有任何报错。三条的时长仍读同三个变量，
+   与上面那一条没有第二份字面量。 */
+[data-shenmo-fall='dye'] .board__tile {
+  transition:
+    translate var(--tile-move-duration, 150ms) var(--tile-move-easing, ease-out),
+    opacity var(--tile-spawn-duration, 120ms) ease-out,
+    scale var(--tile-spawn-duration, 120ms) ease-out,
+    background-color var(--shenmo-dye-duration, 600ms) ease-out;
+}
+
 /* @starting-style 只用于刚插入棋盘层的新方块；Tile 位移与合并都复用现有节点。 */
 @starting-style {
   .board__tile[data-spawn='true'] {

@@ -42,10 +42,18 @@ import materialContrast from '../../src/renderer/styles/themes/material/contrast
  * 要求不启动 Playwright、不开任何浏览器。全部断言都走真实 DOM 与计算样式。
  */
 
-type Scene = 'start' | 'run' | 'walls' | 'milestone'
+type Scene = 'start' | 'run' | 'walls' | 'milestone' | 'egg' | 'wish' | 'pinned'
 
 /** 与 contrast.json 的 scene 字段一一对应；多一个场景就在此登记，并补一个 setupScene 分支 */
-const SCENES: readonly Scene[] = ['start', 'run', 'walls', 'milestone']
+const SCENES: readonly Scene[] = [
+  'start',
+  'run',
+  'walls',
+  'milestone',
+  'egg',
+  'wish',
+  'pinned',
+]
 
 interface StyleFixture {
   id: string
@@ -64,6 +72,13 @@ const LADDER_BOARD = '2,4,8,16,32,64,128,256,512,1024,2048,4096,,,,'
 
 /** 全空开局：只为了拿到四个墙与若干空格（障碍那一对不需要方块） */
 const EMPTY_BOARD = ',,,,,,,,,,,,,,,'
+/**
+ * **满盘十六档**（T33）：十二个色档 + 四个 beyond，四行四列全满、十六个值两两不相等
+ * （2…65536 全是不同的 2 的幂）。堕落染墨那一幕靠它把十二档同时摆上盘面，而
+ * 「十六格全满且相邻不相等」保证 ↑ ↓ ← → 一个方向都推不动——于是神魔码那八下全是
+ * 无效移动，棋盘一个格子都不动，堕落窗口开着的时候十二档原样躺在盘上。
+ */
+const LADDER_FULL_BOARD = '2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768,65536'
 /** 四个 1024：一次左移合出两个 2048，第一次达标 → 结果层挂上（milestone 那一幕） */
 const MILESTONE_BOARD = '1024,1024,1024,1024,,,,,,,,,,,,'
 
@@ -114,6 +129,148 @@ async function setupScene(page: Page, scene: Scene, label: string): Promise<void
       await page.locator('[data-board]').focus()
       await page.keyboard.press('ArrowLeft')
       await expect(page.locator('[data-result-tier="won"]')).toBeVisible()
+      return
+    }
+    case 'egg': {
+      // T29 的一念神魔 + T33 的堕落染墨（**T36 起染血的触发条件是重复输入两次作弊码**——
+      // 控制人 2026-10-01 裁定「并非是输错了，输错了直接重来」）。这一幕量两批东西：
+      // T29 那两颗圆钮自己的三对色，以及 T33 的**十二档血色**——堕落态下每一档都换成
+      // tokens.css 里那一组血值，而探针量的正是元素自己的计算样式（父Spec 架构决策 15：
+      // 盖一层半透明遮罩的话，闸门读的是遮罩底下那个没变的颜色，谁把棋盘暗到读不清都不会
+      // 有人收到警告）。
+      //
+      // 所以这一幕改成**走完两遍** B → A：第一遍授予一念（不染），第二遍点下 A 的那一刻
+      // 二念结出果、血染涌上来。用**满盘**开局而不是空盘：十二档得同时在盘上。这副盘四行
+      // 四列全满、十六个值两两不相等，于是 ↑ ↓ ← → 一个方向都推不动——两遍的八下全是无效
+      // 移动，而无效移动照旧计数（神魔码要的就是「这一下我真的按了」），棋盘因此一个格子
+      // 都不动、一次都不合并。（同一条性质有单测钉着：四个方向 changed 全为 false。）
+      //
+      // **两遍之间要把指针挪走**（wish 那一幕为同一条坑留过注释）：抉择 A 摆在棋盘旁
+      // （窄视口在棋盘下一行），而那一带正是「一念神魔」长出来的地方。指针停在原地，
+      // 浏览器按新布局重新判定 hover，那颗按钮会带着悬停底色被读到。
+      await page.goto(`/?seed=20260926&board=${LADDER_FULL_BOARD}`)
+      await pickStyle(page, label)
+      await page.getByRole('button', { name: '开始游戏' }).click()
+      await expect(page.locator('[data-board]')).toBeVisible()
+      for (let pass = 0; pass < 2; pass += 1) {
+        await page.locator('[data-board]').focus()
+        for (const key of ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight']) {
+          await page.keyboard.press(key)
+        }
+        await expect(page.locator('.shenmo')).toBeVisible()
+        await page.getByRole('button', { name: '抉择 B' }).click()
+        // 破碎退场的终点派一条**合成**的 animationend（T29 定的路子：450ms 等得起，
+        // 但合成的那个不依赖墙钟，也不会在装假时钟的用例里被冻住）。机器于是切到「只剩
+        // A」，第二段窗口重新开始走
+        await page.evaluate(() => {
+          document
+            .querySelector('[data-shenmo-button="b"]')
+            ?.dispatchEvent(new AnimationEvent('animationend', { bubbles: true, animationName: 'shenmo-break-fade' }))
+        })
+        await expect(page.locator('.shenmo')).toHaveAttribute('data-shenmo-stage', 'ring')
+        // 第一遍用普通点击走完；第二遍的那一下要点在**冻结**里（见下面那段）
+        if (pass === 0) {
+          await page.getByRole('button', { name: '抉择 A' }).click()
+          await expect(page.locator('.shenmo')).toHaveCount(0)
+          await page.mouse.move(0, 0)
+        }
+      }
+      // 第二遍点下 A 的那一刻二念结出果，两拍终局起跑（T36）。**把整页动画按住、并把染墨
+      // 那条过渡推到末帧**：终局有 1200ms，几帧之后血就染完了、再过一会儿页面扣下——而染墨
+      // 是 600ms 的 transition，按住会把颜色冻在插值中途，探针要的是末值。
+      //
+      // 为什么点击与停住必须在同一次 evaluate 里、以及为什么还要**再停一遍**：二念的果要走
+      // 一次 store（机器的 onOutcome → recordShenmoOutcome），那是比 `leaving` 晚一两帧的
+      // **另一次提交**，而 `data-shenmo-dim` 与血染都由它驱动。分成两步（先 click() 再回来
+      // 停）的话，菜单自己那条 150ms 的退场会先播完、把抉择 A 从 DOM 上摘掉——而两颗圆钮那
+      // 三对探针量的正是它；那一提交带来的动画也是新对象，不在第一次的名单里。等它用的是
+      // Playwright 自己的轮询（跑在驱动进程里，页面里的假时钟碰不到它），而不是 setTimeout
+      // 或帧循环：装假时钟的用例那两条都会被冻住。染墨是 600ms 的 transition，所以末帧要用
+      // `finish()` 推到（探针要的是表上声明的血色，不是插值中途的颜色）。
+      await page.evaluate(() => {
+        document.querySelector<HTMLElement>('[data-shenmo-button="a"]')?.click()
+        for (const animation of document.getAnimations()) animation.pause()
+      })
+      await expect(page.locator('main')).toHaveAttribute('data-shenmo-dim', 'true')
+      await page.evaluate(() => {
+        for (const animation of document.getAnimations()) {
+          if ('transitionProperty' in animation) animation.finish()
+          else animation.pause()
+        }
+      })
+      // 血色染墨的总开关真的挂在 shell 上：没有它，下面每一对量的都是没染血的那个颜色
+      await expect(page.locator('main')).toHaveAttribute('data-shenmo-dim', 'true')
+      return
+    }
+    case 'wish': {
+      // T30 的一念的奖品：神魔码打完 → 点 B → 等破碎退场播完（合成 animationend） →
+      // **只剩 A** → 点 A → 道通成魔。这一幕只为量那颗「一念神魔」按钮存在——它同样是新长
+      // 出来的可交互控件，而它挂在棋盘正下方，所以从棋盘 Tab 出去第一个停靠点就是它
+      // （焦点环那一对靠的是这件事）。
+      //
+      // **漏了「点 A」这一步，这一幕一个人都量不到**（T34 修的一处测试缺陷）：机器里
+      // `broke` 只把 stage 从 `breaking` 搬到 `ring`（只剩 A），而 `.shenmo` 在
+      // `stage !== 'idle'` 时一直渲染——于是「`.shenmo` 计数为 0」与「一念按钮可见」两条
+      // 断言永远不成立，grant 那颗按钮的是**点 A** 那一下（`grant()` 把 stage 置回
+      // `idle`）。参照同文件 `egg` 场景的写法：它正确地停在 `data-shenmo-stage="ring"`，
+      // 这里再多走一步。
+      await page.goto(`/?seed=20260926&board=${EMPTY_BOARD}`)
+      await pickStyle(page, label)
+      await page.getByRole('button', { name: '开始游戏' }).click()
+      await expect(page.locator('[data-board]')).toBeVisible()
+      await page.locator('[data-board]').focus()
+      for (const key of ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight']) {
+        await page.keyboard.press(key)
+      }
+      await expect(page.locator('.shenmo')).toBeVisible()
+      await page.getByRole('button', { name: '抉择 B' }).click()
+      await page.evaluate(() => {
+        document
+          .querySelector('[data-shenmo-button="b"]')
+          ?.dispatchEvent(new AnimationEvent('animationend', { bubbles: true, animationName: 'shenmo-break-fade' }))
+      })
+      await expect(page.locator('.shenmo')).toHaveAttribute('data-shenmo-stage', 'ring')
+      await page.getByRole('button', { name: '抉择 A' }).click()
+      // **点完必须把指针挪走**（T34 又抓到的一处铺设缺陷，只在窄视口上现形）：窄视口上
+      // 抉择 A 就摆在棋盘下一行，而那正是「一念神魔」长出来的地方——A 随 DOM 一起被摘掉
+      // 之后，指针停在原地，浏览器按新布局重新判定 hover，那颗按钮于是带着**悬停底色**
+      // 被读到。宽视口上 A 在棋盘左侧、两颗钮离按钮很远，所以同一个坑在桌面端不现形。
+      // 与下面 checkPairs 里「读完之后把指针移开」是同一条理由的两半。
+      await page.mouse.move(0, 0)
+      await expect(page.locator('.shenmo')).toHaveCount(0)
+      await expect(page.getByRole('button', { name: '一念神魔' })).toBeVisible()
+      return
+    }
+    case 'pinned': {
+      // T32 的二念：**两遍**完整的 B → A。第一遍授予一念（那颗按钮），第二遍把棋盘扣下、
+      // 并把走火入魔钉成视口顶端那条悬顶。这一幕只为量那一条存在——它是本票新长出来的
+      // 一整面，而它不再消失，于是「那一行字读不读得清」要过闸门（用户故事 40）。
+      // 用满盘开局（与 egg 同一副）：八下必须是无效移动，棋盘一个格子都不动、一次都不
+      // 合并，两遍之间不会有人撞进 won / stuck 把码缓冲清零。
+      await page.goto(`/?seed=20260926&board=${LADDER_FULL_BOARD}`)
+      await pickStyle(page, label)
+      await page.getByRole('button', { name: '开始游戏' }).click()
+      await expect(page.locator('[data-board]')).toBeVisible()
+      await page.locator('[data-board]').focus()
+      // 两遍各自都靠**合成**的 animationend 收尾（不等 30 秒，也不碰墙钟）
+      for (let pass = 0; pass < 2; pass += 1) {
+        for (const key of ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight']) {
+          await page.keyboard.press(key)
+        }
+        await expect(page.locator('.shenmo')).toBeVisible()
+        await page.getByRole('button', { name: '抉择 B' }).click()
+        await page.evaluate(() => {
+          document
+            .querySelector('[data-shenmo-button="b"]')
+            ?.dispatchEvent(new AnimationEvent('animationend', { bubbles: true, animationName: 'shenmo-break-fade' }))
+        })
+        await expect(page.locator('.shenmo')).toHaveAttribute('data-shenmo-stage', 'ring')
+        await page.getByRole('button', { name: '抉择 A' }).click()
+        await expect(page.locator('.shenmo')).toHaveCount(0)
+      }
+      // 悬顶在场，而 shell 上那个总开关也在（toast 栈的偏移由它设置）
+      await expect(page.locator('.shenmo-strip')).toBeVisible()
+      await expect(page.locator('main')).toHaveAttribute('data-shenmo-pinned', 'true')
       return
     }
   }

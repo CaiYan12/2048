@@ -139,11 +139,13 @@ describe('T14 新增的两个字段：口径与场景是可审计的，不是注
   test('Classic 与 Claude 没有一档依赖大字口径：阶梯度量与字号分档完全解耦', () => {
     const materialLarge = material.pairs.filter((pair) => pair.basis === 'large')
     expect(materialLarge).toHaveLength(0)
-    // 12 个色档全部按普通文字量（设计卡 §9：连一位数的第一档也是 8.71:1）
+    // 12 个色档 + 12 个堕落档（T33）全部按普通文字量（设计卡 §9：连一位数的第一档也是
+    // 8.71:1）。堕落那一组探针同样是 `.board__tile[data-bucket='N']`，所以这个筛子
+    // 把它们一起收进来——那不是意外：堕落档本来就该按同一副口径量
     const buckets = material.pairs.filter((pair) =>
       pair.probe?.selector.includes("data-bucket='")
     )
-    expect(buckets).toHaveLength(12)
+    expect(buckets).toHaveLength(24)
     for (const pair of buckets) {
       expect(pair.minimum, pair.usage).toBe(4.5)
     }
@@ -151,19 +153,27 @@ describe('T14 新增的两个字段：口径与场景是可审计的，不是注
 
   test('Claude 也没有一档依赖大字口径，且深浅字断在第 6 / 7 档之间', () => {
     // 设计卡 §9 的承诺：字号随位数变化，但本套没有任何一对需要 3:1 豁免
+    // （12 个色档 + 12 个堕落档，T33）
     const claudeBuckets = claude.pairs.filter((pair) =>
       pair.probe?.selector.includes("data-bucket='")
     )
-    expect(claudeBuckets).toHaveLength(12)
+    expect(claudeBuckets).toHaveLength(24)
     for (const pair of claudeBuckets) {
       expect(pair.basis, pair.usage).toBe('regular')
       expect(pair.minimum, pair.usage).toBe(4.5)
     }
     // 前 6 档深字、后 6 档亮字（含 beyond）。死区在相对亮度 0.174～0.254 之间，
-    // 断在第 6 / 7 档，所以这一行是「两个方向真的各占一半」的证据
-    const inks = claudeBuckets.map((pair) => pair.foreground)
-    expect(inks.slice(0, 6).every((ink) => ink === '#26241f')).toBe(true)
-    expect(inks.slice(6).every((ink) => ink === '#fbf9f4')).toBe(true)
+    // 断在第 6 / 7 档，所以这一行是「两个方向真的各占一半」的证据。
+    // **两组分开看**（堕落档是表里第二批 12 对）：染墨染的是明度，深浅字的分界在堕落态
+    // 一动不动——所以每一组内部都仍是前 6 后 6。混在一起切就分不出「断口挪没挪」
+    const byScene = (scene: string): string[] =>
+      claudeBuckets.filter((pair) => pair.scene === scene).map((pair) => pair.foreground)
+    for (const scene of ['run', 'egg']) {
+      const inks = byScene(scene)
+      expect(inks, scene).toHaveLength(12)
+      expect(inks.slice(0, 6).every((ink) => ink === '#26241f'), scene).toBe(true)
+      expect(inks.slice(6).every((ink) => ink === '#fbf9f4'), scene).toBe(true)
+    }
   })
 
   test('Claude 的暖色只出现在三个用法上，其余方块底色是低彩度的暖灰', () => {
@@ -174,21 +184,57 @@ describe('T14 新增的两个字段：口径与场景是可审计的，不是注
       (pair) => pair.background === WARM || pair.foreground === WARM
     )
     // 选中控件（底）、焦点环 vs 纸面、选中环 vs 空格、第 11 档方块（底）= 四处，
-    // 其中两个环是同一块色值的两种用法，正好对上「三个用法」
-    expect(warm).toHaveLength(4)
+    // 其中两个环是同一块色值的两种用法，正好对上「三个用法」。
+    // T29 的彩蛋两颗圆钮是**第五处**、T30 的一念按钮是**第六处**，但两者都落在既有的
+    // 「此刻有焦点」那一个用法上——用的都是 `--focus`，没有引入第二块暖色。所以仍是
+    // 3 个用法、6 对色值。加一对色值不改变判据；多一个**用法**才会。
+    // **堕落染墨把它降到 5 对**：egg 场景那一对在堕落态里用的是 `--focus` 的暗档值
+    // （T33 是 OKLCH −0.05 的 #97391b，**T35 血色染墨后是同色相再压两档的 #650100**），
+    // 不再是这块陶土色本体。那是**同一块色暗一档**，不是引入第二种暖色——真正多的是一块
+    // 「衍生色值」，用法一个没多。盘面染成血色之后空格亮了一截，T33 那个值只剩 2.22:1，
+    // 所以焦点环跟着再压（tests/unit/contrast.test.ts 另有一条按令牌关系钉着这一对）。
+    expect(warm).toHaveLength(5)
 
-    // 11 个色档 + beyond：除第 11 档外全部是低彩度暖灰——r ≥ g ≥ b 且通道差 ≤ 50。
-    // 「暖色层级不靠饱和色」由此变成机器可验的一句话（暖色本体的通道差是 125）
+    // 11 个色档 + beyond + 11 个堕落档 + 堕落 beyond（T33）：**未堕落**那 12 档里，除第 11 档
+    // 这块陶土本体外全部是低彩度暖灰——r ≥ g ≥ b 且通道差 ≤ 50。「暖色层级不靠饱和色」由此
+    // 变成机器可验的一句话（暖色本体的通道差是 125）。
+    // 所以这里不断「底色 === 暖色本体」那一条，而是断「大通道差的底色」——多出来的任何一个
+    // 都是新的一处饱和填充。
+    // **T35 血色染墨把它从 2 改成 13**：堕落态 12 档整条染成血红（OKLCH 色相 27、彩度
+    // 0.19 一档），通道差全在 50 以上（连最浅那档 #ffc8c1 也有 62），于是「低彩度」这条
+    // 判据**只对未堕落阶梯成立**——堕落阶梯全体高彩度正是业主要的「饱和度显著提高」。
+    // 13 = 未堕落的本体 1 + 堕落阶梯 12。断言拆成两半写，是为了让「哪一半变了」说得出来：
     const buckets = claude.pairs.filter((pair) =>
       pair.probe?.selector.includes("data-bucket='")
     )
-    expect(buckets).toHaveLength(12)
+    expect(buckets).toHaveLength(24)
+    const highChroma = buckets.filter((pair) => {
+      const [r, , b] = channels(pair.background)
+      return r - b > 50
+    })
+    // 未堕落那一半仍然只有一块暖色本体：稀缺性这条主张在非堕落态上一个洞都没开
+    expect(highChroma.filter((pair) => pair.scene === 'run')).toHaveLength(1)
+    expect(highChroma.map((pair) => pair.background)).toContain(WARM)
+    // 堕落那一半整条是血：12 档一个不落，这正是「全家都染、不留亮斑」
+    expect(highChroma.filter((pair) => pair.scene === 'egg')).toHaveLength(12)
     for (const pair of buckets) {
-      if (pair.background === WARM) continue
       const [r, g, b] = channels(pair.background)
+      // 两半共同的一条：红必须是主通道。这是「暖」的底线，堕落阶梯也守得住——
+      // 它现在红得更厉害（r 是最暗那档的 8 倍以上）
       expect(r, pair.usage).toBeGreaterThanOrEqual(g)
-      expect(g, pair.usage).toBeGreaterThanOrEqual(b)
-      expect(r - b, `${pair.usage} 通道差`).toBeLessThanOrEqual(50)
+      expect(r, pair.usage).toBeGreaterThanOrEqual(b)
+      if (pair.scene === 'run') {
+        // 「低彩度暖灰」这条主张**只属于未堕落阶梯**，一个字都没动：r ≥ g ≥ b 且通道差 ≤ 50
+        expect(g, pair.usage).toBeGreaterThanOrEqual(b)
+        // 第 11 档那块陶土本体是本阶梯唯一的高彩度档（通道差 125），它自己免这条
+        if (!highChroma.includes(pair)) {
+          expect(r - b, `${pair.usage} 通道差`).toBeLessThanOrEqual(50)
+        }
+      }
+      // 堕落那一半不再断 g ≥ b：OKLCH h 27 的深红映射进 sRGB 时，绿与蓝都被压到 20/255 以内，
+      // 而蓝会偶尔高过绿（#ae0813 = 174,8,19）。那不是「偏蓝」——红通道是另一者的 9 倍；
+      // 要保住 g ≥ b 只能把色相推到 30° 以上，那已经开始偏橙，而 27 才是血浆那一段的正中。
+      // 于是这一半的主张换成上面那条「红是主通道」+ 12 档全高彩度，两句都更贴近事实
     }
 
     // 墙是唯一的冷色表面（b > r）：刻意落在暖色阶梯之外（同 Classic / Material 的判据）。
@@ -333,4 +379,61 @@ describe('闸门真的会咬人（auditPair 对坏数据必须出声）', () => 
     const problems = auditPair(tokens(), withoutProbe as ContrastPair)
     expect(problems.some((problem) => problem.includes('probe.selector'))).toBe(true)
   })
+})
+
+/**
+ * 堕落染墨里的焦点环（T33 之后补的窟窿）。
+ *
+ * board.css 里「选中方块那一圈描边」用 `--focus` 画在方块**外侧**、落在 `--cell-bg` 上，
+ * 所以这一对真正的关系是「焦点环 vs 空格底」。染墨把空格暗掉一成七，同一块色值就可能
+ * 掉到非文字 3:1 以下——Claude 实测从 3.34 掉到 2.82。修法是暗档块里把 `--focus` 也走
+ * 同一步，所以这一对必须由令牌关系钉住：谁把暗档里的 `--focus` 删掉，这里就红。
+ *
+ * **为什么用单测而不是探针**：量它的那一幕需要「盘上同时有十二档色阶、堕落态开着、
+ * 还有一个空格」，而「满盘且相邻不相等」正是为了让八下口令搅不动棋盘才那么铺的——
+ * 给探针腾一个空格就会让口令落子、可能把空格填回去。令牌关系是不依赖盘子的一张脸。
+ */
+describe('堕落染墨：焦点环仍然压在空格上看得出', () => {
+  const hex = /--focus:\s*(#[0-9a-fA-F]{6})/
+  const cell = /--cell-bg:\s*(#[0-9a-fA-F]{6})/
+
+  const luminance = (value: string): number => {
+    const channels = [1, 3, 5].map((index) => Number.parseInt(value.slice(index, index + 2), 16) / 255)
+    const [r, g, b] = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+  }
+
+  const contrast = (a: string, b: string): number => {
+    const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+    return (high + 0.05) / (low + 0.05)
+  }
+
+  for (const id of ['classic', 'material', 'claude']) {
+    test(`${id}：暗档的 --focus 对暗档的 --cell-bg 仍过非文字 3:1，且确实暗了一档`, () => {
+      const css = tokensCss(id)
+      // 按选择器整块抓，不按 split 后 find：split 出来的第一块是「基座块 + 暗档块前面那段
+      // 注释」，用 find 找 data-shenmo-dim 会命中它，于是读到的是基座的 --focus——自己骗自己
+      const dimBlock = css.match(
+        new RegExp(`\\[data-style='${id}'\\]\\[data-shenmo-dim='true'\\]\\s*\\{([^}]*)\\}`)
+      )?.[1]
+      const baseBlock = css.match(new RegExp(`\\[data-style='${id}'\\]\\s*\\{([^}]*)\\}`))?.[1]
+      expect(dimBlock, `${id} 的 tokens.css 里没有堕落暗档块`).toBeDefined()
+
+      const dimFocus = dimBlock?.match(hex)?.[1]
+      const dimCell = dimBlock?.match(cell)?.[1]
+      const baseFocus = baseBlock?.match(hex)?.[1]
+      expect(dimFocus, `${id} 的暗档块没有覆盖 --focus`).toBeDefined()
+      expect(dimCell, `${id} 的暗档块没有覆盖 --cell-bg`).toBeDefined()
+
+      const ratio = contrast(dimFocus as string, dimCell as string)
+      expect(
+        ratio,
+        `${id}：堕落态焦点环 ${dimFocus} 对空格 ${dimCell} 只有 ${ratio.toFixed(2)}:1`
+      ).toBeGreaterThanOrEqual(3)
+
+      // 「堕落 = 整个世界暗一档」这条意图：焦点环必须真的走了这一步。
+      // 少了它，Claude 那种明度高的暖色就会在暗掉的空格上掉线。
+      expect(luminance(dimFocus as string)).toBeLessThan(luminance(baseFocus as string))
+    })
+  }
 })

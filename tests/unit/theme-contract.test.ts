@@ -33,9 +33,11 @@ import materialContrast from '../../src/renderer/styles/themes/material/contrast
  * —— 加一套新风格要交的东西（checklist）——
  *
  *   1. `DESIGN.md`：参考特征、色彩角色、字体角色、布局与密度、棋盘 vs 外壳、独有装饰
- *      与动效、禁用清单、窄屏策略、对比度与无障碍、成就祝贺共**十**节（三套基准风格
- *      各有一份范本，T15 的 `claude` 是第三份，且它证明了三套可以各有各的设计语言而不是
- *      同一套换色；2026-09-28 加的第 10 节是 toast 的坐标与视觉）。
+ *      与动效、禁用清单、窄屏策略、对比度与无障碍、成就祝贺、一念神魔共**十一**节
+ *      （三套基准风格各有一份范本，T15 的 `claude` 是第三份，且它证明了三套可以各有各的
+ *      设计语言而不是同一套换色；2026-09-28 加的第 10 节是 toast 的坐标与视觉，
+ *      2026-10-01 加的第 11 节是彩蛋四件报酬的坐标与视觉——**彩蛋不是插槽**，所以那一节
+ *      只记本套出的 token 与说法）。
  *   2. `tokens.css`：`[data-style='<id>']` 作用域下交齐下面推出的那一套令牌，
  *      **含 11 个色档连字色 + beyond**，以及 `--wall-bg`（漏了墙会透明）。
  *   3. `styles.css`：每条规则都按 `[data-style='<id>']` 隔开。
@@ -272,7 +274,11 @@ describe('每套主题都交齐那一套色值', () => {
       const declared = [
         ...tokens.matchAll(/--tile-(?:\d+|beyond):\s*(#[0-9a-f]{6})/g),
       ].map((match) => match[1])
-      expect(declared).toHaveLength(12)
+      // **24 而不是 12**（T33 的堕落染墨）：暗档那一条 `[data-style='<id>'][data-shenmo-dim]`
+      // 把同名的 12 个令牌又声明了一遍，只是值更暗。两组都必须在表里——暗档那一组由
+      // `egg` 场景的 12 对新探针量（父Spec 架构决策 15：暗档要落实为令牌变暗，而不是盖一层
+      // 遮罩，正是为了让闸门量得到它）。谁将来加了第三组（比如「高亮档」），这里先炸
+      expect(declared).toHaveLength(24)
 
       const contrast =
         theme.id === 'classic'

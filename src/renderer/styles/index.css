@@ -144,6 +144,20 @@
   font-size: 0.75rem;
 }
 
+/* 卡片那一行（T31 · 父规格的架构决策 17）：死局 / 超时 / 放弃那一刻的本局总结，
+   或者道通成魔那一局的梗。句子由 resultCardLine 从本局 facts 生成，**没有时整个元素
+   不在 DOM 里**（调用方判 null，这里不渲染空节点）。
+   与读数小标签同一档字、同一支墨（--ink-variant）：它是这句标题与那句话的注脚，不是
+   第二段正文。**不引入新色值**——于是三套各自的对比度账由 milestone 场景那一对
+   （--ink-variant on 卡片面）一次付清，闸门不必为新组合再加一对。
+   max-width 与 .overlay__text 对齐：卡片是 grid + place-items: center，宽度跟着最宽的
+   子元素走，一个没有上限的长句会把整张卡片撑开（那就默默改了卡片的尺寸）。 */
+.overlay__line {
+  max-width: 16rem;
+  color: var(--ink-variant);
+  font-size: 0.75rem;
+}
+
 /* —— 结果层的进出动效（T27 · ADR-0008 的架构决策 9 / 10）——
    姿态与方块共用一套：150ms + 内置 ease-out（T21 把它记成一条「已接受的稳定性决定」，
    别在这里引入第二条曲线）。退场时长与进场相同。这一段住在共享外壳里而不是各风格自己
@@ -245,3 +259,604 @@
     animation-name: result-fade-out;
   }
 }
+
+/* —— 一念神魔的两颗圆钮与两段 30 秒（T29 · 父规格的架构决策 3 / 4 / 12）——
+   分界线与结果层、与棋盘层同一条：**结构、节奏与摆位放在这一层**（共享外壳），
+   **底面 / 描边 / 阴影 / 环的颜色**在三套风格自己的 tokens.css 与 styles.css 里。
+   换风格不动这条，加风格只出 token 与 CSS——彩蛋不是第四个插槽（父规格架构决策 11）。 */
+
+.shenmo {
+  /* 两段窗口都是 30 秒。**只在这一处声明**：它是节奏，节奏是全项目的事；
+     引擎侧一个副本都没有（没有 setTimeout），所以不存在「JS 与 CSS 两边各写一个数」
+     这种等谁忘改的形状。30 秒不放进 reduced-motion 的降级里，理由见下面那段。 */
+  --shenmo-window-duration: 30s;
+
+  /* B 的破碎退场的总长。**与两段 30 秒同一条纪律**：只在这一处声明，JS 一个副本都没有
+     （`broke()` 是听 `animationend` 派发的，它不问时长）。
+     为什么不是 150ms：那是 T21 为方块定下的共享姿态，而 150ms 是一闪——这是整个彩蛋
+     唯一的一次物理事件，玩家得先看见「B 碎了」才谈得上「只剩 A 了」。450ms 是它的
+     三倍，曲线仍是同一条 ease-out。 */
+  --shenmo-break-duration: 450ms;
+
+  /* 四片碎渣错开起跑的间隔，与每片自己的时长（= 450ms − 3 × 30ms = 360ms，让最晚的
+     那一片正好在破碎收尾的那一刻播完）。改破碎节奏只改这一块。 */
+  --shenmo-shard-stagger: 30ms;
+  --shenmo-shard-duration: calc(var(--shenmo-break-duration) - 3 * var(--shenmo-shard-stagger));
+
+  /* 窄视口是**默认**形态：落到棋盘下一行。spec 的架构决策 12 量过——手机上一块
+     4×4 棋盘两侧只剩几个像素，两颗钮向两边探出去必然顶穿文档。需要条件的那一边是
+     「宽」，所以宽摆在下面的 @media 里。
+     pointer-events: none 由容器统一关掉、只由两颗钮自己打开：这一片不许挡住棋盘，
+     而菜单本来就不该拦操作（父规格用户故事 11）。 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  margin-top: 0.75rem;
+  pointer-events: none;
+  animation: shenmo-enter 150ms ease-out 1 both;
+}
+
+/* —— 菜单自己的退场（T35）——
+   机器的**每一条**终局都播它：先点 A、两段窗口流尽、Esc、以及两次授予（B → A）。从前
+   这些出口直接把 `stage` 置回 `idle`，于是每条结局都是硬切——控制人的原话是「上上下下
+   左右左右A》AB全消失没有动画」。父规格只写了「clears both buttons at once」，从未规定
+   菜单自身的退场，所以这是补一条被漏掉的规格。形状照结果层 T27 那一套
+   （ADR-0008 的架构决策 9 / 10 + ResultPresence.ts）：容器上多一个属性，动画整组换掉，
+   而**卸载由动画结束事件驱动**（App 听 `animationend` 调机器的 `left`），不是一个
+   `setTimeout`——装假时钟的测试会把定时器冻住，退场永远播不完。
+
+   节奏是全项目共用的那一套：**150ms + 内置 ease-out**（T21 定下的共享姿态，别在这里
+   引入第二条曲线）。方向与进场相反：进场淡入 + 从下方 4px 升起，退场就淡出 + 往下沉
+   2px（与结果层的卡片退场同一个数——落下比升起轻）。动画名避开 `shenmo-window` /
+   `shenmo-break-fade`：那两条是两段 30 秒与 B 的破碎，App 靠
+   `event.target === event.currentTarget` 分辨它们，而同名会让读代码的人多付一倍学费。 */
+.shenmo[data-shenmo-leaving] {
+  animation: shenmo-leave 150ms ease-out 1 both;
+}
+
+/* 退场中整片不接指针（照 `.overlay[data-result-leaving]` 那条，ADR-0008 架构决策 9）：
+   一颗正在淡出的钮被点到，玩家会以为那一下算数——而机器的 stage 守卫会把那一下吞掉，
+   于是「点了却没反应」比「点不到」更难看。
+   `pointer-events` 不是「关上就传承」：两颗钮在自己的规则里明确开了 auto（菜单本来
+   就不许挡棋），所以这一条必须点名到按钮上。键盘那一路（回车 / 空格）在这条规则之外，
+   归 App 的 `chooseShenmo` 守卫——T33 在 B 的 150ms 双击上付过同一条学费。 */
+.shenmo[data-shenmo-leaving] .shenmo__button {
+  pointer-events: none;
+}
+
+/* 一颗圆钮。形状与基础排版是结构（这一层），底面 / 描边 / 阴影是颜色（各套风格）。
+   48px = 触控目标下限，与方向按钮的键面同一个数。 */
+.shenmo__button {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 3rem;
+  height: 3rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+/* 宽视口：嵌住棋盘的那只壳（App.tsx 里那个 `relative w-fit`）里向两侧探出。
+   **壳不是棋盘**，所以两颗钮可以越过棋盘自己的盒子——这是 spec 架构决策 12 的原话。
+   760px 的来历要算一遍，不能拍：最宽的模式棋盘是 5×5（大棋盘），格边长取上限 100 时
+   整块 24 + 500 + 48 = 572px；一颗钮 48px、离棋盘 10px、环再多探 6px、焦点环 4px =
+   68px；加上外壳每侧 16px 的 px-4 → 572 + 2×68 + 32 = 740。取 760 留 20px 余量。
+   低于这个宽度的视口走上面那条（棋盘下一行），红线是文档永不横向滚动。
+
+   **为什么这一块必须放在 `.shenmo__button` 基础规则之后**：两边都是 (0,1,0) 特异性，
+   同分时后来者胜。放在前面的话基础规则那条 `position: relative` 会把这里面的
+   `position: absolute` 盖回去——实测两颗钮会退回棋盘正中间（.shenmo__button 基础规则的
+   位移没被换掉，宽视口的几何全部失效），而外观上只是「钮没探出去」，很难看出是哪一条。 */
+@media (min-width: 760px) {
+  .shenmo {
+    position: absolute;
+    inset: 0;
+    margin-top: 0;
+  }
+
+  .shenmo__button {
+    /* `translate` 而不是 `transform`：transform 要留给进场与破碎动画。
+       两条各写一个属性，谁都不会覆盖谁。百分比相对**自己的尺寸**。 */
+    position: absolute;
+    top: 50%;
+  }
+
+  .shenmo__button[data-shenmo-button='a'] {
+    left: 0;
+    translate: calc(-100% - 0.625rem) -50%;
+  }
+
+  .shenmo__button[data-shenmo-button='b'] {
+    right: 0;
+    translate: calc(100% + 0.625rem) -50%;
+  }
+}
+
+/* 那道环：**两个 30 秒都挂在它身上**（spec 架构决策 3 特意要的形状）。
+   第一段窗口（谁都没点）它不可见，第二段（只剩 A）它渐薄。一个元素、两条路径，
+   于是代码只有一条收尾的路，而不是两个。
+   `opacity: 0` 是基态：可见与否由动画说，不可见的时段（第一段、破碎那一瞬）
+   动画一停就落回不可见，不会凭空冒出一圈。 */
+.shenmo__ring {
+  position: absolute;
+  inset: -0.375rem;
+  border: 2px solid var(--shenmo-ring);
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 第一段窗口：30 秒，全程不可见。
+   **它必须是一条真的动画**——计时靠 animationend 收尾，而「什么都不做」的动画会不会
+   派发结束事件是引擎的实现细节，不该拿一个 30 秒的窗口去赌。所以它照旧缩放，
+   只是 opacity 恒为 0（没人看得见的一圈）。 */
+@keyframes shenmo-window {
+  from {
+    opacity: 0;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+/* 第二段窗口：30 秒，渐薄。位移只走 transform（缩放）——一条环向内收，比改 border-width
+   便宜得多，而那一样在说「时间快没了」。 */
+@keyframes shenmo-ring {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0.25;
+    transform: scale(0.82);
+  }
+}
+
+/* reduced-motion 下那道环的替代：只有透明度，一个位移都没有。
+   **名字与时长都换一条**，因为同一个 animation-name 的动画不会被重启——而这里要的是
+   「swapped」之后的动画从 0 重跑（见下面 .shenmo[data-shenmo-stage='ring'] 那条的注释）。 */
+@keyframes shenmo-ring-still {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0.25;
+  }
+}
+
+.shenmo[data-shenmo-stage='choice'] .shenmo__ring {
+  animation: shenmo-window var(--shenmo-window-duration) linear 1 both;
+}
+
+/* **换 animation-name 会重启动画**：B 被点掉的那一刻，`shenmo-window` 换成
+   `shenmo-ring`，第二段 30 秒从 0 重跑。这正是「两段窗口各自 30 秒」的落地方式——
+   第一段走到第几秒不影响第二段，也用不着把计时状态存进 JS。 */
+.shenmo[data-shenmo-stage='ring'] .shenmo__ring {
+  animation: shenmo-ring var(--shenmo-window-duration) linear 1 both;
+}
+
+/* B 的破碎退场：整颗淡出（`shenmo-break-fade`），四片碎渣各带一个 B、各占一个象限、
+   错开起跑、朝自己的对角飞走。
+   **时长是 450ms，不是全项目共享的那 150ms**：150ms 是一闪，而这是整个彩蛋**唯一的
+   一次物理事件**（两段 30 秒都是「什么都不发生」的计时，抓不住是应该的）。共享姿态
+   150ms + ease-out 是 T21 为方块定下的，一次性碎裂比那个长三倍——曲线仍是同一条
+   ease-out，不引入第二条。
+   clip-path 是这里除 transform / opacity 之外唯一多出来的属性（animate 那套规则的
+   第四条），只为「裂开」这一件事服务——四片各剪一个象限，不是「缩放一个圆了事」。 */
+.shenmo__button[data-shenmo-breaking='true'] {
+  animation: shenmo-break-fade var(--shenmo-break-duration) ease-out 1 both;
+}
+
+/* 真字隐去，字形由四片碎渣各自带一个 B 拼出来。碎渣是**真的元素**、在 App.tsx 里渲染
+   （只在 breaking 时挂载）：两个伪元素装不下四片，而硬要一元素两片就得再嵌一层盒子。
+   字形写在每片自己的 ::before 上、不当成文本子节点——按钮的可访问名字因此仍是
+   「抉择 B」，不会变成「BBBB」（碎片是装饰，这一点比少一个节点重要）。 */
+.shenmo__button[data-shenmo-breaking='true'] {
+  color: transparent;
+}
+
+.shenmo__shard {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--shenmo-button-ink);
+}
+
+.shenmo__shard::before {
+  content: 'B';
+}
+
+/* 四片各占一个象限、各朝自己的对角飞走，起跑时间错开一档（tl 立刻、br 最晚）。
+   位移比当年的两片远一档（0.5rem vs 0.375rem）：450ms 的窗口更长，位移不跟着放大会
+   读成「散了散」而不是「碎了」。
+   **每片播的是 `--shenmo-shard-duration` 而不是 450ms**：最后一片晚 90ms 起跑，得让它
+   在 450ms 上正好播完。用整段 450ms 的话，`broke()` 一到、B 整颗离开 DOM 的那一刻它
+   还悬在半空中——玩家看见的是「碎到一半被掐断」，不是「碎完了」。 */
+.shenmo__shard[data-shenmo-shard='tl'] {
+  clip-path: inset(0 50% 50% 0);
+  animation: shenmo-shard-tl var(--shenmo-shard-duration) ease-out 1 both;
+}
+
+.shenmo__shard[data-shenmo-shard='tr'] {
+  clip-path: inset(0 0 50% 50%);
+  animation: shenmo-shard-tr var(--shenmo-shard-duration) ease-out var(--shenmo-shard-stagger) 1 both;
+}
+
+.shenmo__shard[data-shenmo-shard='bl'] {
+  clip-path: inset(50% 50% 0 0);
+  animation: shenmo-shard-bl var(--shenmo-shard-duration) ease-out calc(var(--shenmo-shard-stagger) * 2) 1 both;
+}
+
+.shenmo__shard[data-shenmo-shard='br'] {
+  clip-path: inset(50% 0 0 50%);
+  animation: shenmo-shard-br var(--shenmo-shard-duration) ease-out calc(var(--shenmo-shard-stagger) * 3) 1 both;
+}
+
+@keyframes shenmo-break-fade {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes shenmo-shard-tl {
+  from {
+    transform: translate(0, 0) rotate(0deg);
+  }
+
+  to {
+    transform: translate(-0.5rem, -0.5rem) rotate(-14deg);
+  }
+}
+
+@keyframes shenmo-shard-tr {
+  from {
+    transform: translate(0, 0) rotate(0deg);
+  }
+
+  to {
+    transform: translate(0.5rem, -0.5rem) rotate(14deg);
+  }
+}
+
+@keyframes shenmo-shard-bl {
+  from {
+    transform: translate(0, 0) rotate(0deg);
+  }
+
+  to {
+    transform: translate(-0.5rem, 0.5rem) rotate(14deg);
+  }
+}
+
+@keyframes shenmo-shard-br {
+  from {
+    transform: translate(0, 0) rotate(0deg);
+  }
+
+  to {
+    transform: translate(0.5rem, 0.5rem) rotate(-14deg);
+  }
+}
+
+/* reduced-motion 下的进场：只淡入淡出，一个位移都没有（与结果层的卡片同一条降级路子）。 */
+@keyframes shenmo-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* reduced-motion 下的退场：只淡出，与 `shenmo-fade-in` 配对。时长照旧 150ms——
+   reduced-motion 要的是「少一点动」，不是「什么都没有」。 */
+@keyframes shenmo-fade-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+/* 两颗钮现身：淡入 + 从下方 4px 处升起。姿态与结果层的卡片同一条（T27 定的共享姿势），
+   位移很短——它是「机器答话了」，不是「一张纸飞进来」。起点不可见（opacity 0），
+   所以它是第一帧就画上去的，不需要 T21 在胜利标题上讨论的那种 rAF 状态门控。 */
+@keyframes shenmo-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 菜单退场：淡出 + 往下沉 2px。**方向与进场相反**（进场升起、退场沉回去），回落比进场
+   短一截——「落下比升起轻」，与结果层的卡片退场同一条理由（`result-card-out` 的注释
+   原话）。起点不可见的问题是反的：这里起点是 opacity 1，所以 `both` 保证的是动画一换上
+   就从「完全在场」起跑，末帧停在 0——层被摘掉之前不会跳回不透明。 */
+@keyframes shenmo-leave {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+/* reduced-motion（父规格的架构决策 4——**整个特性最尖锐的一个陷阱**）：
+   环不可见，**但计时动画必须留下**。照结果层那条路子（把进场换成只淡入淡出）会把
+   animationend 一起换掉，于是菜单永远不收起——一个请求了少动量的玩家会被永久困在
+   一个收不回去的菜单前，那比动画本身严重得多。
+   所以这里只把**环的颜料**撤掉（border-color 透明），动画一行不动。 */
+@media (prefers-reduced-motion: reduce) {
+  .shenmo {
+    animation-name: shenmo-fade-in;
+  }
+
+  /* 退场的降级：换成只有 opacity 的 `shenmo-fade-out`，一个位移都没有（与进场那一对
+     同一条路子）。**这一换不碰环那两条计时动画**——换掉的是容器自己那条，而
+     `animationend` 照旧到位、菜单照旧收得回去（架构决策 4 要保住的就是这件事）。 */
+  .shenmo[data-shenmo-leaving] {
+    animation-name: shenmo-fade-out;
+  }
+
+  .shenmo__ring {
+    border-color: transparent;
+  }
+
+  .shenmo[data-shenmo-stage='ring'] .shenmo__ring {
+    animation-name: shenmo-ring-still;
+  }
+
+  /* 四片碎渣一个都不渲染：破碎退场退化成一次淡出。`shenmo-break-fade` 照旧跑，
+     所以 B 的 animationend 照旧到位，机器照旧走到「只剩 A」——这条降级是给动画的，
+     不是给计时的。
+     用 `display: none` 而不是当年伪元素的 `content: none`：碎渣是真元素了，收起整盒
+     比让它「在但因 clip-path 归零而不见」干净，而且 `display: none` 同时把它从无障碍
+     树里摘掉（它在正常态下也已经 aria-hidden，这里不靠那一个）。 */
+  .shenmo__shard {
+    display: none;
+  }
+}
+
+/* —— 二念的两拍终局（T36 · 控制人 2026-10-01 裁定）——
+   第二遍完整走完 B → A 之后，整条游戏列走一段两拍：**血染上来**（600ms）→ **停一拍**
+   （200ms）→ **淡出**（400ms）→ 页面扣下到只剩「重新开始」与那条悬顶（T32 的既有行为，
+   一个字都没改）。染血的开关因此从「魔道那 30 秒」搬到这儿：业主要的原话是「这个染血色的
+   触发条件是重复输入两次作弊码，先染出血色，然后淡出关闭棋盘页面。并非是输错了，输错了
+   直接重来」——所以点过 B 之后那 30 秒一眼血色都没有，错键依旧整个清空重来（既有行为）。
+
+   **四个时长只在这一处声明**（与上面两段 30 秒、450ms 同一条纪律）：JS 一个副本都没有，
+   推进全凭 `animationend`——App 的 `handleShenmoFallEnd` 听这一列自己那条动画的结束事件，
+   `setTimeout` 一个都没有（装假时钟的测试会把定时器队列整个冻住，终局就永远播不完）。
+
+   **为什么血染那一拍也要一条动画**：染血本身是方块与盘面上那条 `transition`
+   （board.css 的 `[data-shenmo-fall='dye']` 那两条，底色从基座值一路补到血色值——业主要
+   的「涌上来」而不是「跳上来」）。而过渡**不能当节拍器用**：reduced-motion 下它被置成
+   0s（瞬间切换），那一刻连 `transitionend` 都不会来，终局会停在一半。所以这一拍另有一条
+   跑满 600ms 的动画，形状照 `shenmo-window`——那条 30 秒同样全程不可见，照样缩放。它自己
+   一个像素都不画，存在的唯一目的是给渲染管线一个可听的终点。 */
+[data-shenmo-fall] {
+  /* 血染那一拍：方块与盘面那条 transition 的时长（board.css 读它）。**reduced-motion 下它
+     被置 0**（瞬间切换）——所以它是「染血用」的那一个，别拿它当节拍器的时长。 */
+  --shenmo-dye-duration: 600ms;
+  /* 血染那一拍的**节拍器**时长。两个数必须相等（染血与节拍器一起起跑、一起到头），却是两个
+     变量：reduced-motion 只把上面那个置 0，而这一个必须照旧跑满 600ms——节拍器一个位移都
+     没有，没有可撤的颜料，撤它的时长等于把「停一拍」也一起归零，两拍并成一拍。
+     （共用一个变量的第一版就是这么坏的：reduced-motion 下点击之后页面当场扣下，
+      而那一条 reduced-motion 用例正是为这件事写的。） */
+  --shenmo-dye-beat: 600ms;
+  /* 停一拍：淡出的起跑延迟。两拍之间那一顿，让血先沉住 */
+  --shenmo-fall-hold: 200ms;
+  /* 淡出那一拍 */
+  --shenmo-fade-duration: 400ms;
+  /* 两拍期间整列**一个指针都不接**（照 `.overlay[data-result-leaving]` 与
+     `.shenmo[data-shenmo-leaving] .shenmo__button` 那两条）：页面正在死去，而这一列里
+     还有一颗「新游戏」——让它点得着，血染到一半就能被拽回一局能打的棋，那 1200ms 于是
+     成了一条后门。键盘那一路照旧通（方向键推得动棋盘），与页面扣下之后同一条既有行为：
+     引擎不知道页面空了。 */
+  pointer-events: none;
+}
+
+/* 血染那一拍：跑满 600ms 的节拍器（为什么必须是一条真的动画见上面那段）。
+   位移是真的（0 → 0.01px），只是没有人看得见：「什么都一样」的关键帧会不会派发结束事件
+   是引擎的实现细节，不该拿一整段终局去赌。曲线仍是全项目共享那一条 ease-out。 */
+[data-shenmo-fall='dye'] {
+  animation: shenmo-fall-dye var(--shenmo-dye-beat) ease-out 1 both;
+}
+
+/* 淡出那一拍：200ms 之后起跑，400ms 里整列淡出并轻轻下沉 2px。
+   `both` 是硬要求：延迟那 200ms 由第一帧填着（opacity 1），于是「停一拍」真的是停着，
+   不是闪一下；末帧停在 0，页面扣下之前不会跳回不透明。位移只走 transform，数与结果层的
+   卡片退场同一个——落下比升起轻。 */
+[data-shenmo-fall='out'] {
+  animation: shenmo-fall-out var(--shenmo-fade-duration) ease-out var(--shenmo-fall-hold) 1 both;
+}
+
+@keyframes shenmo-fall-dye {
+  from {
+    transform: translateY(0);
+  }
+
+  to {
+    transform: translateY(0.01px);
+  }
+}
+
+@keyframes shenmo-fall-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+/* reduced-motion 下的淡出：只留淡入淡出，一个位移都没有（SPEC §3.2 · 用户故事 13；与
+   结果层的卡片、菜单自己的退场同一条降级路子——淡出是允许的，位移不是）。**时长照旧**：
+   reduced-motion 要的是「少一点动」，不是「什么都没有」。名字换一条而不是就地改关键帧：
+   App 的判据认动画名，两个名字各自说清自己在哪一条降级里。 */
+@keyframes shenmo-fall-fade {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+/* reduced-motion 的两处降级，都不碰节拍器（它本来一个位移都没有，没有可撤的颜料）：
+   · 染血**瞬间**切换——把时长置 0，而不是把 board.css 那条 transition 拆掉。拆掉会把
+     T21 那三条位移 / 入场 / 合并脉冲一起弄丢（终局那 600ms 里玩家照样可能按方向键，
+     症状只是「染血的时候方块不滑了」）。
+   · 淡出换成只有透明度的那一条。 */
+@media (prefers-reduced-motion: reduce) {
+  [data-shenmo-fall] {
+    --shenmo-dye-duration: 0s;
+  }
+
+  [data-shenmo-fall='out'] {
+    animation-name: shenmo-fall-fade;
+  }
+}
+
+/* —— 一念的礼炮（T30 · 父规格架构决策 13）——
+   真粒子、canvas 手写、**一个第三方库都没有**（仓库一个都没有）。结构、尺寸与那行
+   静止文字住在这一层（共享外壳），粒子颜色取**色阶顶端三档的令牌**——令牌挂在
+   data-style 上，canvas 就在那只壳里，继承拿到的就是玩家选的那一套。于是三套风格的
+   礼炮自动各成一套，而这个文件里一个色值都不写。 */
+
+.cannon {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* 覆盖层**一个指针都不吃**（架构决策 13 的原话，也是这个仓库记过最多次的那类坑：
+     看得见不等于点得到）。礼炮是满屏 fixed 层，最容易犯的正是把整页的点击接走。 */
+  pointer-events: none;
+  /* 压在**祝贺之上**：粒子从那一行字前面飘过去，比被它盖住更像「同一时刻」。它不接
+     指针，所以这一层只是绘制顺序；toast 是 z-index 4（各套 styles.css），这一层是 5。 */
+  z-index: 5;
+}
+
+/* reduced-motion 下的替代：一行静止的字（用户故事 38）。不画 canvas——
+   那一发此时是这一局唯一的可见痕迹，而它一个字都不该动。 */
+.cannon__still {
+  margin: 0.75rem 0 0;
+  color: var(--ink);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+/* —— 一念的按钮（T30 · 用户故事 20）——
+   第一遍走完时授予、非 playing 阶段无效、开新局收回——这三条都在 App 的条件里，
+   这里只管长相。**它与 .control 故意不是一套**：那是「这一局的操作」，这是「机器答话
+   之后递给你的东西」，所以是药丸形 + display 字体 + 字距，而不是又一个「新游戏」。
+   底面 / 描边 / 悬停 / 投影在三套风格自己的 tokens.css 与 styles.css 里。 */
+.wish {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.5rem 1.125rem;
+  border: 0;
+  /* 999px 而不是一个数：药丸的两端要跟着字宽走，写死半径会让短标签变成圆、长标签变成方 */
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+
+/* —— 二念的悬顶（T32 · 父规格的架构决策 8 / 10）——
+   走火入魔之后棋盘被扣下，这一条是那一局余下时间里唯一的可见物。分界线与结果层、
+   与两颗圆钮同一条：**结构、摆位与节奏放在这一层**（共享外壳），**底面 / 字色 /
+   描边 / 投影**在三套风格自己的 tokens.css 与 styles.css 里——彩蛋不是第四个插槽
+   （架构决策 11）。 */
+
+/* 悬顶占掉的那一条高度。**它同时就是 toast 栈让出来的那段偏移**（架构决策 10：栈的
+   top 变成一个变量，由外壳在有悬顶时设置）。两个数分开写，总有一天对不上——这里只写
+   一个，条长高短都只改这一处。
+   声明在 shell（main）上而不是 :root 上：它与 `data-style` 是同一个元素、同一个作用域，
+   于是「有悬顶」与「换肤」这两件事落在同一处，读代码的人一眼看得见。 */
+[data-shenmo-pinned='true'] {
+  --shenmo-strip-block: 3.5rem;
+  /* 原来那一rem 不动：没有悬顶时栈照旧贴在 1rem 上（三套主题的 fallback 就是 1rem） */
+  --toast-top: calc(var(--shenmo-strip-block) + 1rem);
+}
+
+/* `position: fixed` 是硬要求，与 toast 栈、礼炮同一条理由：流内的一条提示会把页面
+   整体推下去，而这一局已经被扣得只剩一颗按钮了。 */
+.shenmo-strip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* 与 toast 栈同号：两条都贴在视口顶端，谁也不会压谁（偏移由 --toast-top 岔开） */
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.125rem;
+  min-height: var(--shenmo-strip-block);
+  padding: 0.5rem 1rem;
+  /* **一个指针都不吃**：它是一条读数，不是一层盖在页面上的东西。玩家此刻唯一能做的
+     事是点「重新开始」，让这一行接住点击等于把整页的指针都吞了 */
+  pointer-events: none;
+  text-align: center;
+}
+
+.shenmo-strip__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.shenmo-strip__emoji {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* 那句诗：比名字小一档，但**不是**次要色——它是这一行的正主（架构决策 10：这一条
+   带着图标、名字与 note 三样东西）。换行随窄视口自己发生，左右各 1rem 的内边距
+   保证它永远不顶到视口边缘。 */
+.shenmo-strip__note {
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+

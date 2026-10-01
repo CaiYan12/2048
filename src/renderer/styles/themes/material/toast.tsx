@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import {
   achievementEmoji,
+  achievementNoteOf,
   achievementUnlockLabel,
   type AchievementToast,
 } from '../../../../game/achievements'
@@ -15,6 +16,9 @@ import type { ToastSlot, ToastSlotProps } from '../../types'
  * **两行**：上行是图标 + 成就名（内容），下行是这一套风格的**声音**（`TAG · FLAVOUR`）。
  * 二者都只由注册表与这一处常量决定，所以三套风格的差别是「怎么说」，不是「说什么」。
  * Material 的声音取 M3 的克制口吻：不惊叹，只说「保持住」。
+ * **例外是 `note`（T31）**：一念神魔那四颗成就自带一句用户给的原话，带 `note` 时下行
+ * 显示它、不显示本套的祝词——那是这几颗成就的笑话本身，不是风格在说话（与 emoji 同
+ * 一条理由，见注册表 `AchievementDefinition.note`）。其余七颗没有 note，祝词照旧。
  *
  * 共享契约（三套风格逐条相同，由同一套 Playwright 断言各跑一遍）：
  *   · 约 5 秒后自行消失；指针悬停或焦点落在里面时**暂停计时**，移开接着走剩下的时间；
@@ -83,6 +87,9 @@ function MaterialToast({ toast, onDone }: Props): JSX.Element {
   }, [leaving, onDone, toast.key])
 
   const className = `toast${entered ? '' : ' toast--entering'}${leaving ? ' toast--leaving' : ''}`
+  // 这一条自己的梗（一念神魔那四颗才有）。null = 本套自己说那一句祝词。
+  // **判断住注册表**（achievementNoteOf），三份 toast 逐条相同——各自挑一句就必然漂开
+  const note = achievementNoteOf(toast.ids)
 
   return (
     <div
@@ -104,9 +111,7 @@ function MaterialToast({ toast, onDone }: Props): JSX.Element {
         </span>
         <span className="toast__names">{toast.ids.map(achievementUnlockLabel).join('、')}</span>
       </p>
-      <p className="toast__note">
-        {TAG} · {FLAVOUR}
-      </p>
+      <p className="toast__note">{note === null ? `${TAG} · ${FLAVOUR}` : note}</p>
     </div>
   )
 }

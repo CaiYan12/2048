@@ -93,6 +93,8 @@ function pristineStore(): void {
     selectedModeId: 'classic',
     runStartedAt: null,
     styleSwitches: 0,
+    // T29 的彩蛋进度：同样从零起，否则上一个用例结出的果会漏到下一个用例里
+    shenmoOutcomes: [],
     runMerges: 0,
     unlocked: [],
     toasts: [],
@@ -121,6 +123,7 @@ function mount(
     runStartedAt: Date.UTC(2026, 8, 26, 11, 30),
     runMerges: options.runMerges ?? 0,
     styleSwitches: options.styleSwitches ?? 0,
+    shenmoOutcomes: [],
   })
 }
 
@@ -464,6 +467,155 @@ describe('一个字节都不落盘：成就与存储无关（ADR-0007）', () =>
     expect(Object.keys(stats).sort()).toEqual(
       ['lastRunStartedAt', 'timePlayedMs', 'totalRuns', 'version', 'wins'].sort()
     )
+  })
+})
+
+describe('一念神魔的果：store 只记账，判定在渲染层那台 pure machine（T29）', () => {
+  test('记一个果：对应的彩蛋成就当场解锁，并浮出一条祝贺', () => {
+    mount(boardWithPair(1024))
+    expect(useGameStore.getState().shenmoOutcomes).toEqual([])
+    // 开局那一刻一条彩蛋成就都没有：它是这一下才拿到的
+    expect(useGameStore.getState().unlocked).toEqual([])
+
+    useGameStore.getState().recordShenmoOutcome('first-pass')
+
+    const state = useGameStore.getState()
+    expect(state.shenmoOutcomes).toEqual(['first-pass'])
+    expect(state.unlocked).toEqual(['shenmo-first-pass'])
+    expect(state.toasts).toEqual([{ key: 1, ids: ['shenmo-first-pass'] }])
+  })
+
+  test('三个果三个成就，一次跃迁只发一条、按注册表次序排', () => {
+    mount(boardWithPair(1024))
+    useGameStore.getState().recordShenmoOutcome('wrong-order')
+    useGameStore.getState().recordShenmoOutcome('hesitated')
+    useGameStore.getState().recordShenmoOutcome('first-pass')
+
+    const state = useGameStore.getState()
+    // 三次各是一次跃迁，于是三条
+    expect(state.toasts.map((item) => item.ids)).toEqual([
+      ['shenmo-wrong-order'],
+      ['shenmo-hesitation'],
+      ['shenmo-first-pass'],
+    ])
+    expect(state.nextToastKey).toBe(3)
+    // 而集合**永远**按注册表次序排，与「哪一条先满足」无关（ADR-0007 的恒定次序）
+    // ——所以它和 toast 的顺序不一样，这不是 bug
+    expect(state.unlocked).toEqual([
+      'shenmo-first-pass',
+      'shenmo-wrong-order',
+      'shenmo-hesitation',
+    ])
+  })
+
+  test('同一个果只记一次：不会刷出第二条祝贺', () => {
+    mount(boardWithPair(1024))
+    useGameStore.getState().recordShenmoOutcome('hesitated')
+    useGameStore.getState().recordShenmoOutcome('hesitated')
+
+    const state = useGameStore.getState()
+    expect(state.shenmoOutcomes).toEqual(['hesitated'])
+    expect(state.unlocked).toEqual(['shenmo-hesitation'])
+    expect(state.toasts).toHaveLength(1)
+    expect(state.nextToastKey).toBe(1)
+  })
+
+  // T32：走火入魔走的是**另一个果**（`second-pass`），因为 store 记账是幂等的——
+  // 同一个果记两遍它只认第一遍，所以「第几遍」必须由机器结成一个新果才到得了这里
+  test('第二遍授予走火入魔，而道通成魔照旧在场（两条不同的跃迁）', () => {
+    mount(boardWithPair(1024))
+    useGameStore.getState().recordShenmoOutcome('first-pass')
+    // 第一遍那一刻走火入魔一颗星都还没有
+    expect(useGameStore.getState().unlocked).toEqual(['shenmo-first-pass'])
+
+    useGameStore.getState().recordShenmoOutcome('second-pass')
+
+    const state = useGameStore.getState()
+    expect(state.shenmoOutcomes).toEqual(['first-pass', 'second-pass'])
+    // 集合按注册表次序：一念在前、二念在末（`shenmo-hesitation` 没发生过，不在）
+    expect(state.unlocked).toEqual(['shenmo-first-pass', 'shenmo-second-pass'])
+    // 两次跃迁 = 两条祝贺。第二条装的是走火入魔，于是它带那句诗走 toast 那条普通通道
+    expect(state.toasts.map((item) => item.ids)).toEqual([
+      ['shenmo-first-pass'],
+      ['shenmo-second-pass'],
+    ])
+    expect(state.nextToastKey).toBe(2)
+  })
+
+  test('第二遍之后彩蛋进度照样不落盘：刷新即恢复，恢复后还能再扣一次', async () => {
+    mount(boardWithPair(1024))
+    useGameStore.getState().recordShenmoOutcome('first-pass')
+    useGameStore.getState().recordShenmoOutcome('second-pass')
+    useGameStore.setState({
+      game: { ...(useGameStore.getState().game as GameState), phase: 'stuck' },
+    })
+
+    useGameStore.getState().settle()
+    await settleWrites()
+
+    const persisted = JSON.stringify([
+      [...fake.store.settings.values()],
+      [...fake.store.session.values()],
+      [...fake.store.history.values()],
+      [...fake.store.records.values()],
+      [...fake.store.stats.values()],
+    ])
+    // 父规格架构决策 8 / 10：`second-pass` 只是个内存字段。盘上两个桶一个字节都不提它，
+    // 于是恢复出来的那一局彩蛋从零起——还能再走一次火入魔、再被扣下一次
+    expect(persisted).not.toContain('shenmo')
+    expect(persisted).not.toContain('second-pass')
+    expect(useGameStore.getState().shenmoOutcomes).toEqual(['first-pass', 'second-pass'])
+  })
+
+  test('撤销一步收不回彩蛋果：它是发生过的事件，不是棋盘位置', () => {
+    // 与风格旅行者同一条理由（ADR-0003 对那个计数的裁决）。撤销搬回的是棋盘，
+    // 而玩家真的点过那颗钮——让它可以回退就能靠「撤销 + 再点一次」刷祝贺
+    mount(boardWithPair(1024))
+    useGameStore.getState().move('left')
+    useGameStore.getState().recordShenmoOutcome('first-pass')
+    useGameStore.getState().undo()
+
+    const state = useGameStore.getState()
+    expect(state.shenmoOutcomes).toEqual(['first-pass'])
+    expect(state.unlocked).toContain('shenmo-first-pass')
+    // 同一局里首胜被撤销收回，而彩蛋那颗不受影响——两条不同的理由各自成立
+    expect(state.unlocked).not.toContain('first-win')
+  })
+
+  test('彩蛋进度一个字节都不落盘：结算前后盘上都没有它', async () => {
+    mount(boardWithPair(1024))
+    useGameStore.getState().recordShenmoOutcome('first-pass')
+    useGameStore.setState({
+      game: { ...(useGameStore.getState().game as GameState), phase: 'stuck' },
+    })
+
+    useGameStore.getState().settle()
+    await settleWrites()
+
+    const persisted = JSON.stringify([
+      [...fake.store.settings.values()],
+      [...fake.store.session.values()],
+      [...fake.store.history.values()],
+      [...fake.store.records.values()],
+      [...fake.store.stats.values()],
+    ])
+    expect(persisted).not.toContain('shenmo')
+    expect(persisted).not.toContain('first-pass')
+    // 结算**不清**它（下一局开局时才归零），所以内存里那一份还在
+    expect(useGameStore.getState().shenmoOutcomes).toEqual(['first-pass'])
+  })
+
+  test('新一局：彩蛋进度归零，果与解锁一起消失', () => {
+    mount(boardWithPair(1024))
+    useGameStore.getState().recordShenmoOutcome('first-pass')
+    expect(useGameStore.getState().unlocked).toEqual(['shenmo-first-pass'])
+
+    useGameStore.getState().newGame()
+
+    const fresh = useGameStore.getState()
+    expect(fresh.shenmoOutcomes).toEqual([])
+    expect(fresh.unlocked).toEqual([])
+    expect(fresh.toasts).toEqual([])
   })
 })
 

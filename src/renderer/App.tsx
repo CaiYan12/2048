@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState, type JSX } from 'react'
+import { useEffect, useCallback, useRef, useState, type AnimationEvent, type JSX } from 'react'
 import type { ModeId } from '../shared/modes'
 import type { Direction } from '../shared/types'
+import type { ShenmoOutcome } from '../game/achievements'
 import { Board } from './components/Board'
+import { Cannon } from './components/Cannon'
 import { Countdown } from './components/Countdown'
 import { DailyDateLabel } from './components/DailyDateLabel'
 import { DirectionPad } from './components/DirectionPad'
@@ -9,6 +11,10 @@ import { GameOverPanel } from './components/GameOverPanel'
 import { MuteToggle } from './components/MuteToggle'
 import { RunAnnouncer } from './components/RunAnnouncer'
 import { layerForPhase, useResultLayerPresence } from './components/ResultPresence'
+import { resultCardLine } from './components/resultCardLine'
+import { useShenmo, type ShenmoButton } from './components/ShenmoChoice'
+import { useShenmoFall } from './components/ShenmoFall'
+import { ShenmoStrip } from './components/ShenmoStrip'
 import { StatsPanel } from './components/StatsPanel'
 import { StatusBar } from './components/StatusBar'
 import { StorageNotice } from './components/StorageNotice'
@@ -17,79 +23,8 @@ import { StylePicker } from './components/StylePicker'
 import { WinPanel } from './components/WinPanel'
 import { recheckEffectiveFont } from './styles/fontState'
 import { getTheme } from './styles/themes'
-import { resultReadout } from './stores/records'
+import { highestTileOf, resultReadout } from './stores/records'
 import { useGameStore } from './stores/useGameStore'
-
-/* ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
-   ＝＝＝＝＝＝＝＝＝＝ 临时调试钩子「一念神魔」的纯函数（已注释掉） ＝＝＝＝＝＝＝＝＝＝
-   ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
-
-   与下面 JSX 里那一块是一套：要重新打开，把这里、JSX 里那一块、以及这三行 import
-   一起取消注释即可（不需要碰 store）。
-
-   import { getMode } from '../shared/modes'
-   import type { Cell, GameState } from '../shared/types'
-   import { MERGE } from '../game/merge'
-   import { valueLadder } from './components/ValueLadder'
-
-   export function plantDebugTargetPair(game: GameState): GameState {
-     const mode = getMode(game.modeId)
-     const merge = MERGE[mode.mergeFamily]
-     const ladder = valueLadder(mode)
-
-     // 那一对：合起来正好是目标块。阶梯只有 11–17 项，双重循环比「按家族各推一条公式」
-     // 短，且公式在那儿本身就是两份真相
-     let pair: readonly [number, number] | null = null
-     for (const a of ladder) {
-       for (const b of ladder) {
-         if (merge(a, b) === mode.target) {
-           pair = [a, b]
-           break
-         }
-       }
-       if (pair !== null) break
-     }
-     if (pair === null) return game
-
-     // 一对横向相邻、可摆得下的格子。先找空格，找不到就照字面「把两处相邻的方块改掉」
-     // （晚局盘子快满时它仍该能用）。障碍格一律跳过（T07：永不持数值）
-     const spot = findAdjacentSpot(game, true) ?? findAdjacentSpot(game, false)
-     if (spot === null) return game
-     const [first, second] = spot
-     const board = game.board.map((row, r) =>
-       row.map((cell, c): Cell => {
-         if (r === first[0] && c === first[1]) return { id: game.nextTileId, value: pair[0] }
-         if (r === second[0] && c === second[1]) return { id: game.nextTileId + 1, value: pair[1] }
-         return cell
-       })
-     )
-
-     // 只动棋盘与 id 分配：分数、步数、reachedTarget、phase、撤销历史一个字节都不碰。
-     // reachedTarget 留给 move 自己判——「曾经达标」的判据只有一处（engine.ts），
-     // 在这儿先设成 true 会让胜利面板在这一步之前就冒出来。
-     return { ...game, board, nextTileId: game.nextTileId + 2 }
-   }
-
-   function findAdjacentSpot(
-     game: GameState,
-     emptyOnly: boolean
-   ): readonly [readonly [number, number], readonly [number, number]] | null {
-     const size = game.board.length
-     for (let r = 0; r < size; r += 1) {
-       for (let c = 0; c + 1 < size; c += 1) {
-         const left = game.board[r][c]
-         const right = game.board[r][c + 1]
-         if (left === 'wall' || right === 'wall') continue
-         if (emptyOnly && (left !== null || right !== null)) continue
-         return [
-           [r, c],
-           [r, c + 1],
-         ]
-       }
-     }
-     return null
-   }
-   ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝ */
 
 /**
  * 外壳：开局前是模式 / 风格选择，开局后是棋盘 + 信息条 + 终局面板。
@@ -122,6 +57,14 @@ import { useGameStore } from './stores/useGameStore'
  * 它挂在 `.board` 之外（设计卡 §10：fixed 贴视口**上方正中**），所以不遮棋盘、不压方向按钮。
  * 2026-09-28 起**键盘也住在这里**：整页、从页面加载那一刻起，方向键都是游戏的键，
  * 而且一律不让浏览器拿去滚页面（理由见下面那段 effect）。
+ * T29 起**一念神魔**的彩蛋也从这里旁听：那八下就是普通移动，App 既有的 `MOVE_KEYS`
+ * 查表把方向键与 WASD 归一成同一个方向，推进 `move()` 之后顺手递进 `ShenmoChoice.ts`
+ * 那台 pure machine。App **不新增输入态、不吞键**，三条让路规定与 Esc 的既有行为一个字
+ * 都没改（Esc 只多一条本地条件，见那段 effect）。旧「临时调试钩子」的三块注释也随之
+ * 删掉——暗道比不给按钮更糟，而这一回按钮后面有真东西（父规格的架构决策 19）。
+ * T30 起第一遍走完的报酬也在这儿：两上角各射一发礼炮（`Cannon`，canvas 手写粒子），
+ * 以及页面底部那颗「一念神魔」按钮——两者的开关是同一个事实（store 的
+ * `shenmoOutcomes` 里有 first-pass），所以授予与收回只有一处说了算。
  */
 
 /**
@@ -149,6 +92,21 @@ const MOVE_KEYS: Readonly<Record<string, Direction>> = {
  * 而带 Ctrl / Meta / Alt 的组合整个放行（见 effect 里那一条）。
  */
 const UNDO_KEYS: Readonly<Record<string, boolean>> = { z: true }
+
+/**
+ * B 碎掉时那四片碎渣所在的象限（T34）。
+ *
+ * **为什么是真元素而不是伪元素**：两个伪元素（`::before` / `::after`）各只能装一片，
+ * 四片起必须在按钮里渲染真的节点。它们只在 `data-shenmo-breaking='true'` 那一刻挂载
+ * （App 的条件就是 `shenmoStage === 'breaking'`），破碎一结束 B 整颗离开 DOM。
+ * `aria-hidden` 不能省：碎片是装饰，而按钮的可访问名字是 `aria-label` 给的「抉择 B」——
+ * 字形若当作文本子节点进来，屏幕阅读器念的就是「抉择 B B B B」。
+ *
+ * 四个名字就是它们在按钮里的位置（左上 / 右上 / 左下 / 右下），CSS 按它给象限与飞走
+ * 的方向（`index.css` 的 `.shenmo__shard[data-shenmo-shard='…']`）。写成一张表而不是
+ * 四段 JSX：四片是一模一样的形状，只有这一处不同。
+ */
+const SHENMO_SHARDS: readonly ('tl' | 'tr' | 'bl' | 'br')[] = ['tl', 'tr', 'bl', 'br']
 
 /**
  * 键盘事件要放行给浏览器的目标。
@@ -182,6 +140,9 @@ export default function App(): JSX.Element {
   const styleId = useGameStore((state) => state.styleId)
   const selectedModeId = useGameStore((state) => state.selectedModeId)
   const setStyle = useGameStore((state) => state.setStyle)
+  const recordShenmoOutcome = useGameStore((state) => state.recordShenmoOutcome)
+  // 一念神魔的两个占位音（T33）：什么时候发由 App 判，synth 只住在 store 里
+  const playShenmoSound = useGameStore((state) => state.playShenmoSound)
   const mute = useGameStore((state) => state.mute)
   const setMute = useGameStore((state) => state.setMute)
   const selectMode = useGameStore((state) => state.selectMode)
@@ -194,11 +155,32 @@ export default function App(): JSX.Element {
   const continueRun = useGameStore((state) => state.continueRun)
   const settle = useGameStore((state) => state.settle)
   const newGame = useGameStore((state) => state.newGame)
+  // 本局起始时刻（T17 的本局时长从它算）。T29 的彩蛋也读它——彩蛋的「这一局的身份」
+  // 由「阶段 @ 起始时刻」拼，换局必变、局中一步都不变（见下面那段注释）
+  const runStartedAt = useGameStore((state) => state.runStartedAt)
+  // 本局合并次数（T31：卡片那一行要的另一本账）。彩蛋那个字段同一条理由，下面
+  // 「一念的奖品」那一段已经取过了，这里不取第二遍
+  const runMerges = useGameStore((state) => state.runMerges)
   const swapArmed = useGameStore((state) => state.swapArmed)
   const swapSelection = useGameStore((state) => state.swapSelection)
   const toggleSwap = useGameStore((state) => state.toggleSwap)
   const selectCell = useGameStore((state) => state.selectCell)
   const clearSwap = useGameStore((state) => state.clearSwap)
+  // 一念的奖品（T30）：本局在抉择里结出过 first-pass 即「拿到了」——礼炮与那颗按钮
+  // 都从这一个事实出发，于是「第一遍授予、开新局收回」由 store 的重置点一次说清
+  const shenmoOutcomes = useGameStore((state) => state.shenmoOutcomes)
+  const wishGranted = shenmoOutcomes.includes('first-pass')
+  const plantWish = useGameStore((state) => state.plantWish)
+  // 二念的代价（T32 · 父规格的架构决策 8 / 10）：本局**第二次**结出 first-pass（那个
+  // 「第二次」在机器里长成一个新的果 `second-pass`）即「棋盘被扣下」。它驱动三件事——
+  // 视口顶端那条悬顶（立刻）、走火入魔那颗祝贺（也是立刻：机器的 `onOutcome` → store，
+  // 于是**血刚涌上来的那一帧玩家就知道发生了什么**，而不是等页面扣下之后），以及两拍
+  // 终局的起跑（页面清空到只剩一颗「重新开始」，T36 起在血染与淡出播完之后才到达）。
+  // 与一念的奖品同一个事实、同一条理由：**它是 store 那个不落盘的彩蛋字段，所以刷新即
+  // 恢复**，恢复之后这一局的彩蛋进度从零起，玩家还能再走一次火入魔、再被扣下一次。这是
+  // 架构决策 8 明写的**后果，不是漏洞**——「这一局从头到尾没有被碰过」与「刷新能把它带
+  // 回来」是同一句话的两半，谁也改不掉另一半。
+  const shenmoSecondPass = shenmoOutcomes.includes('second-pass')
   const records = useGameStore((state) => state.records)
   // 这一局结算那一刻的归属（T26）：结果层的「最高分」读哪一条记录由它说了算
   const settlementAttribution = useGameStore((state) => state.settlementAttribution)
@@ -222,6 +204,12 @@ export default function App(): JSX.Element {
   // 开关状态的上一个值：只为分辨「刚收起」与「从没开过」。挂载那一遍 StatsOpen
   // 本来就是 false，不分辨的话它会被当成一次「收起」而在载入时抢走焦点
   const previousStatsOpen = useRef(statsOpen)
+  // 二念那一页唯一的那颗按钮（T34）。整页被扣下时焦点落在它身上（下面那个 effect）
+  const restartRef = useRef<HTMLButtonElement>(null)
+  // 「页面刚被扣下」与「从没扣过」也要分开，与 previousStatsOpen 同一条理由。
+  // **它记的是 `pageCleared` 而不是 `shenmoSecondPass`**（T36）：两拍终局那 1200ms 里
+  // 页面还活着，而那期间 focus effect 不该动手（玩家点的抉择 A 还拿着焦点）
+  const previousSecondPass = useRef(false)
 
   // 结果层的在场（T27 · ADR-0008 的架构决策 9 / 10）。T26 是「phase 一到就挂、一走就
   // 没」，T27 要它播完退场再走——于是「场上该有哪一层」由这一个 hook 说，phase 只回答
@@ -235,6 +223,152 @@ export default function App(): JSX.Element {
   const instantHide = game !== null && swapArmed && game.phase === 'stuck'
   const implied = game === null || instantHide ? null : layerForPhase(game.phase, game.endReason)
   const presence = useResultLayerPresence(implied, instantHide)
+
+  // 卡片那一行（T31 · 父规格的架构决策 17）：**一个座位两处用法**——道通成魔那一局的梗，
+  // 与死局 / 超时 / 放弃那一刻的本局总结。句子由 resultCardLine 从本局 facts 生成，
+  // 与读数同一条路子（都在这里现算、都不落盘、两个面板都不自己判）。
+  // **按持有中的那一层算，不按活的 phase**：退场那一刻画的是正在离开的那一层，它说的也
+  // 该是那一层的事（与 ResultPresence 不冻结读数是同一条规矩的两半——数字每帧现算，
+  // 而「哪一层」由它记得）。
+  const resultLine =
+    presence.layer !== null && game !== null
+      ? resultCardLine({
+          tier: presence.layer.tier,
+          endReason: presence.layer.endReason,
+          score: game.score,
+          highestTile: highestTileOf(game.board),
+          merges: runMerges,
+          moves: game.moves,
+          wish: wishGranted,
+        })
+      : null
+
+  // 一念神魔的 pure machine（T29）。码缓冲、阶段、两个窗口全住在 ShenmoChoice.ts 里，
+  // 这里只做三件事：告诉它「这一局的身份」（身份一变，摊当场收起、什么都不授予）、
+  // 把结出的果递给 store（彩蛋碰 store 的唯一入口）、以及把它算出来的阶段画出来。
+  //
+  // 身份由「阶段 @ 本局起始时刻」拼：两者在一局进行中都恒定，而换阶段与换一局都变。
+  // **不能只判 `game !== null`**——`newGame` 之后 phase 还是 playing、game 也不是 null，
+  // 布尔量一个比特都不动，而摊必须收起（用户故事 8 的后半句）。起始时刻是 store 里
+  // 现成的字段（T17 的本局时长从它算），换局必变、局中一步都不变。
+  //
+  // `onOutcome` 必须是稳定引用：它是 hook 里那个 effect 的依赖，每天换一个等于每天都
+  // 把上一次果重新通知一遍
+  const handleShenmoOutcome = useCallback(
+    (outcome: ShenmoOutcome): void => {
+      recordShenmoOutcome(outcome)
+    },
+    [recordShenmoOutcome]
+  )
+  const shenmoRunKey =
+    game === null || runStartedAt === null ? null : `${game.phase}@${runStartedAt}`
+  const shenmo = useShenmo(shenmoRunKey, handleShenmoOutcome)
+
+  // 神魔码的阶段。单独取出来而不是整个 `shenmo`：下面那个 keydown effect 的依赖表要它，
+  // 而 `shenmo` 每帧都是新对象（照 presence 那条路子）
+  const shenmoStage = shenmo.stage
+
+  // 退场中画的是哪一档（T35）。`leaving` 这一个字不说 B 在不在，所以机器用 `leavingFrom`
+  // 记住它：退场放的是**同一个容器**，内容若在这一刻换掉，先点 A 之后 B 会在淡出中凭空
+  // 冒回来。非退场阶段就是阶段本身。`data-shenmo-stage` 因此照旧报「看得见的那一档」，
+  // 退场另由 `data-shenmo-leaving` 说——与结果层 `data-result-tier` + `data-result-leaving`
+  // 那一对同一个路子。
+  const shenmoVisibleStage =
+    shenmoStage === 'leaving' && shenmo.leavingFrom !== null ? shenmo.leavingFrom : shenmoStage
+
+  // **堕落窗口开着**（T33）：点过 B 之后、抉择有结果之前（父规格的架构决策 16 说的
+  // 「魔道」）。`breaking` 也算——B 正在碎，玩家已经选了，那 450ms 不是「还没决定」。
+  // **T36 起它只管时之狭**：染墨搬到二念的终局去了（见下面 `falling`），而血与时之狭是
+  // 两件事——所有者另行批过「免费犹豫变成买来的时间」，与那一抹血没有关系。
+  const demonOpen = shenmoStage === 'breaking' || shenmoStage === 'ring'
+
+  // 二念的**两拍终局**（T36 · 控制人 2026-10-01 裁定）。第二遍完整走完 B → A 之后：
+  // 血染涌上来（600ms）→ 停一拍（200ms）→ 整条游戏列淡出（400ms）→ 页面扣下。
+  // **染血的开关因此从「魔道那 30 秒」搬到「二念的果结出来」**：业主的原话是「这个染血色的
+  // 触发条件是重复输入两次作弊码，先染出血色，然后淡出关闭棋盘页面。并非是输错了，输错了
+  // 直接重来」——所以点过 B 之后那 30 秒一眼血色都没有，错键依旧整个清空重来（既有行为）。
+  // 两拍由 CSS 动画推进、`animationend` 收尾（下面 `handleShenmoFallEnd`），一个 JS
+  // 定时器都没有：装假时钟的测试会把 setTimeout 整个冻住，终局就永远播不完。
+  const fall = useShenmoFall(shenmoSecondPass)
+  // 两拍在场 = 整列还在台上（血染 + 淡出）；播完（done）页面才真的扣下
+  const falling = shenmoSecondPass && fall.beat !== 'done'
+  // 「页面已经被扣下了」。**T36 起它与「二念的果结出来了」不再是同一刻**，中间隔着血染与
+  // 淡出那 1200ms——悬顶、祝贺、统计入口的收起都改挂在它上面（见下面各处）
+  const pageCleared = shenmoSecondPass && !falling
+
+  /**
+   * 点一颗圆钮（T33）：两个占位音跟着这一次点击走。
+   *
+   * 为什么发号点在这儿而不是 store 的果记账上：`recordShenmoOutcome` 是幂等的（同一个
+   * 果本局只记一次），而礼炮要的是**每一次**收尾都响——第二遍走完魔道时不再授予任何
+   * 果，那一刻照旧放礼炮（父规格的架构决策 6：第二遍摆出同一副摊）。判定「这一下该
+   * 不该响」的现场在点击这儿：只有 App 知道此刻是哪个阶段。store 只递事件名给 synth
+   * （`playShenmoSound`），App 一个 synth 名词都不碰。
+   */
+  const chooseShenmo = (button: ShenmoButton): void => {
+    // 退场播完之前什么都不发生（T35）。容器上 `pointer-events: none` 只挡得住鼠标，
+    // 挡不住回车与空格——一颗正在淡出的钮被键盘再激活一次，玩家听到的还是「又碎了一遍」
+    // / 「又响了一遍号角」（T33 为 B 的 150ms 双击补过同一条学费，照那个路子）。机器的
+    // stage 守卫本来也把 leaving 上的 choose 吞掉，这一道守的是**声音**：那几个发号点
+    // 排在机器的守卫之前。
+    if (shenmoStage === 'leaving') return
+    if (button === 'b') {
+      // 破碎退场进行中再点 B 是空气（机器的 stage 守卫把它吃掉），那一声破碎音也不该
+      // 再响。放在这儿而不是给 CSS 补 `pointer-events: none`：那一招挡得住鼠标，
+      // 挡不住回车与空格——一颗正在碎的钮被键盘再激活一次，玩家听到的还是「又碎了一遍」。
+      if (shenmoStage === 'choice') playShenmoSound('shatter')
+      shenmo.choose('b')
+      return
+    }
+    // 走过魔道再点 A 才是这一遍的收尾，礼炮配那一下；摊刚开就点 A 是「学艺不精」，
+    // 那一下只有果、没有号角（父规格的架构决策 5：三个结局各说各的话）
+    if (demonOpen) playShenmoSound('fanfare')
+    shenmo.choose('a')
+  }
+
+  /**
+   * 菜单自己的退场播完了（T35）：App 在容器上听这条动画的结束事件，据此把那一摊摘掉
+   * （机器的 `left`）。形状照结果层的 `ResultLayer.onExited` + `ResultPresence.drop`。
+   *
+   * **为什么是动画结束而不是定时器**：装假时钟的测试（时之狭那一份用 `page.clock`）会把
+   * `setTimeout` 整个冻住，退场就永远播不完——结果层为这件事付过一遍代价
+   * （`.codex/memories/result-layer.md` 第 6 条）。动画结束事件来自渲染管线，假时钟够不着
+   * 它；顺带一个好处，150ms 只活在 CSS 一个地方。
+   *
+   * 两道判据抄 ResultLayer：`leaving` 挡掉进场那条 `shenmo-enter` 自己的结束事件（放进场
+   * 时它也会冒到这颗容器上）；`event.target === event.currentTarget` 挡掉**冒泡**上来的
+   * 后代动画——环的两段 30 秒、B 的破碎与四片碎渣全是这颗容器的后代，而 T27 在结果层上
+   * 栽的正是「胜利标题 180ms 的后代动画在退场只播 130ms 时把层摘掉」。**不判动画名字**：
+   * reduced-motion 下容器换的是淡出那一条（`shenmo-fade-out`），判据一个字都不用改。
+   */
+  const handleShenmoExit = (event: AnimationEvent<HTMLDivElement>): void => {
+    if (shenmoStage !== 'leaving') return
+    if (event.target !== event.currentTarget) return
+    shenmo.left()
+  }
+
+  /**
+   * 二念的两拍终局：**某一播放完了**（T36）。App 在整条游戏列上听动画结束事件，据此把节拍
+   * 往前推一格（`ShenmoFall.ts` 的纯函数）——血染那一播放完才淡出，淡出那一播放完才扣下。
+   *
+   * 两道判据抄菜单退场与结果层那两处，一条都不能少：
+   *   · `event.target === event.currentTarget`：`animationend` 会**冒泡**，而环的两条 30 秒、
+   *     B 的破碎与四片碎渣、菜单自己的退场全是这一列的后代——T27 在结果层上栽的正是
+   *     「胜利标题那条 180ms 的后代动画在退场只播 130ms 时把层摘掉」；
+   *   · **认准动画名**：淡出那一拍在 reduced-motion 下换成只有透明度的
+   *     `shenmo-fall-fade`（index.css 末尾那个 @media），两个名字都认；而这两条监听挂在
+   *     同一列上，认错了名字就会把两拍并成一拍。
+   */
+  const handleShenmoFallEnd = (event: AnimationEvent<HTMLDivElement>): void => {
+    if (event.target !== event.currentTarget) return
+    if (event.animationName === 'shenmo-fall-dye') {
+      fall.advance({ kind: 'finished', finished: 'dye' })
+      return
+    }
+    if (event.animationName === 'shenmo-fall-out' || event.animationName === 'shenmo-fall-fade') {
+      fall.advance({ kind: 'finished', finished: 'out' })
+    }
+  }
 
   const handleStart = (modeId: ModeId): void => {
     startRun(modeId)
@@ -321,6 +455,26 @@ export default function App(): JSX.Element {
     boardRef.current?.focus({ preventScroll: true })
   }, [presence.layer, swapArmed, swapSelection])
 
+  // 二念把整页扣下时，焦点落在「重新开始」上（T34 · 用户故事 39 的另一半）。
+  //
+  // 与上面两处同一条路子（T17 的战绩面板、T22 的结果层），连判据都一样：**焦点真的掉了**
+  // 才动手（`activeElement === document.body`），而不是「`shenmoSecondPass` 翻了」——
+  // 否则它会从玩家正在用的别处把焦点抢走。「刚扣下」与「从没扣过」也要分开，用的是上一个值。
+  //
+  // **T36 起判据换成「页面真的清空了」**（`pageCleared`）而不是「二念的果结出来了」：
+  // 中间隔着两拍终局，而那 1200ms 里玩家点的抉择 A 还拿着焦点——在授果那一刻跑这一条，
+  // `activeElement !== document.body` 会当场返回；等血染播完、整列卸载、焦点掉到 body 时，
+  // `shenmoSecondPass` 已经不再变，它再也不跑。方向键不会因此失灵（键盘住在 window 上，
+  // 与焦点落没落到 body 无关），所以这一条要的不是「还能用」，是「有地方可去」。
+  useEffect(() => {
+    // 只管「刚扣下」那一下：上一次就已经扣着，或者此刻没被扣下，都不动
+    const wasCleared = previousSecondPass.current
+    previousSecondPass.current = pageCleared
+    if (!pageCleared || wasCleared) return
+    if (document.activeElement !== document.body) return
+    restartRef.current?.focus()
+  }, [pageCleared])
+
   // 键盘住在 **App** 上（2026-09-28）。
   //
   // 它先在棋盘元素上，后来搬到 window，现在再往上搬到 App——因为所有者要求把「方向键不再
@@ -341,11 +495,17 @@ export default function App(): JSX.Element {
       }
       const key = event.key.toLowerCase()
       // Esc：取消选择并退出交换拾取（用户故事 16 的「不用指针退出」）。
-      // **只在真的收着摊时才拦**：全局吞掉 Esc 会顺手吃掉浏览器的停止加载与退出全屏
+      // **只在真的收着摊时才拦**：全局吞掉 Esc 会顺手吃掉浏览器的停止加载与退出全屏。
+      // T29 起多一条**本地**条件——彩蛋那两颗圆钮也算「我们正收着的摊」：摊开着时收掉
+      // 它正是玩家要的，菜单不挡棋，Esc 是玩家唯一的退出路径（父规格用户故事 12）。
+      // 两个条件是并列的「或」，不是嵌套：两摊同时开着的概率为零（阶段一变摊就收起）。
       if (key === 'escape') {
-        if (swapArmed || swapSelection !== null) {
+        const swapOpen = swapArmed || swapSelection !== null
+        const shenmoOpen = shenmoStage !== 'idle'
+        if (swapOpen || shenmoOpen) {
           event.preventDefault()
-          clearSwap()
+          if (swapOpen) clearSwap()
+          if (shenmoOpen) shenmo.putAway()
         }
         return
       }
@@ -354,6 +514,15 @@ export default function App(): JSX.Element {
         // 就这一句让方向键不再滚页面。所有者要的是「页面上只留滚轮」
         event.preventDefault()
         move(direction)
+        // 一念神魔的旁听（T29）：**在 move 之后**。无效移动也计数——引擎对无效移动原样
+        // 返回，而口令要的正是「这一下我真的按了」（父规格用户故事 2）；方向键与 WASD 在
+        // MOVE_KEYS 里已经归一成同一个 direction，所以这里没有第二张表。
+        // **只在 playing 里攒码**（与一念按钮、`plantWish` 的阶段守卫同一个口径）：那三个
+        // 非对局阶段 `move()` 被 store 拒了，而那八下照样往机器里攒、攒满了真的召出第二个
+        // 摊——宽视口两颗钮探在棋盘盒子外、点得着（还能把限时时钟按住），窄视口被 `inset: 0`
+        // 的遮罩整个压住、看得见点不动，30 秒后静默消失。机器不认识阶段（它只认这一局的身份），
+        // 所以这道关只能在这儿把。
+        if (game.phase === 'playing') shenmo.hear(direction)
         return
       }
       if (UNDO_KEYS[key]) {
@@ -363,7 +532,16 @@ export default function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [game, move, undo, clearSwap, swapArmed, swapSelection])
+  }, [
+    game,
+    move,
+    undo,
+    clearSwap,
+    swapArmed,
+    swapSelection,
+    shenmo,
+    shenmoStage,
+  ])
 
   // 当前风格的呈现插槽。身份只有一份（目录），实现由那一套风格自己交（themes/<id>/toast.tsx）
   const Toast = getTheme(styleId).toast
@@ -374,6 +552,20 @@ export default function App(): JSX.Element {
       className="shell grid min-h-dvh place-items-center px-4 py-8"
       // 换肤机制唯一的钩子：每套风格的令牌与呈现规则都按这个属性选择
       data-style={styleId}
+      // 堕落染墨（T33 起、**T36 搬了地方**）：二念的两拍终局里，三套风格各自的
+      // tokens.css 里那一组「血色」的 12 个方块令牌在这个属性下生效。**落在 main 上
+      // 而不是单独某个元素上**：自定义属性靠继承往下走，而棋盘在 main 的孙层；
+      // 与 data-style 同一个元素、同一个作用域，也顺手让三套风格的令牌块写成
+      // `[data-style='x'][data-shenmo-dim='true']` 这一种形状。React 在值为 undefined
+      // 时整个属性不渲染，于是「没有染墨」就是「这个属性不在 DOM 上」。
+      // **T36 起它只在二念的终局里出现**（控制人裁定：染血的触发条件是重复输入两次作弊码，
+      // 不是「输错了」）。魔道那 30 秒一眼血色都没有——点过 B 之后玩家还在选，那不是入魔。
+      data-shenmo-dim={falling ? 'true' : undefined}
+      // 二念的悬顶在位（T32 · 父规格的架构决策 10）：外壳靠这一个属性把 toast 栈的
+      // 偏移设置成「悬顶的高度 + 1rem」（index.css 里那条规则），三套主题的
+      // .toast-stack 读那个变量而不是各自写死一个距离。React 在值为 undefined 时整个
+      // 属性不渲染，于是悬顶没了偏移就退回 1rem——与 data-shenmo-dim 同一条路子。
+      data-shenmo-pinned={shenmoSecondPass ? 'true' : undefined}
     >
       {/* 存档读不出来 / 写不进去（T16 验收标准 2）。摆在外壳最上面、开局界面与
           棋盘都看得到的地方——写入失败是在打一局的过程中冒出来的，只在开局界面
@@ -383,6 +575,11 @@ export default function App(): JSX.Element {
           位置/长相/消失表现全在 themes/<id>/styles.css 与 toast.tsx（设计卡 §10），
           这里只把「待呈现的几条 + 本条已结束」递过去。 */}
       <Toast toasts={toasts} onDone={dismissToast} />
+      {/* 悬顶（T32 · 父规格的架构决策 10）：走火入魔那一颗成就钉在视口顶端，本局余下
+          时间都在。**它不是第五条 toast**——不进计时、不自动消失、连 data-toast 都不带
+          （带了就会被 toast 契约那一套断言抓住）。位置与 toast 栈共用顶端而不重叠：
+          上面那个 data-shenmo-pinned 把栈的偏移设成了这条的高度。 */}
+      {shenmoSecondPass && <ShenmoStrip id="shenmo-second-pass" />}
       {restoring ? (
         <section className="flex flex-col items-center gap-2 py-8">
           <h1 className="shell__title text-6xl">2048</h1>
@@ -396,15 +593,46 @@ export default function App(): JSX.Element {
           styleId={styleId}
           onStyleChange={setStyle}
         />
+      ) : pageCleared ? (
+        /* 二念（T32 · 父规格的架构决策 8）：**棋盘被扣下**。这一局一点没事——
+           phase 还是 playing、不结算、不写记录、统计桶一格不动、规则内核一行没改，
+           连 store 的字段都只是照旧躺着。这里收走的只是**渲染层那一整列**：棋盘、
+           记分卡、彩蛋那两颗钮、一念的奖品、方向按钮、新游戏按钮与那行提示，一起
+           不在画面上。玩家此刻唯一能做的事就是「重新开始」——而它就是新游戏
+           （mode-contract §3：活跃局点它 = 放弃本局），与面板上那一颗同一个动作。
+         **刷新即恢复**：session 一直持着这一局，彩蛋旗标不落盘，所以回来之后还能
+           再走一次火入魔、再被扣下一次（架构决策 8 明说这是后果不是漏洞）。
+         **T36 起它等多拍终局播完才出现**：血染（600ms）→ 停一拍（200ms）→ 淡出（400ms）
+           之后再落到这一分支。从前「二念的果结出来」与「页面被扣下」是同一刻（T35 为此
+           特批过「不等菜单退场播完」：整页被扣下本身就是那一击的动画），现在中间隔着
+           1200ms，那条特例自然失效——菜单那 150ms 的退场照旧播（A 随血一起淡出去），
+           而这一分支仍在两播放完之后到达，一个字节都没改。 */
+        <section className="flex flex-col items-center gap-2 py-8">
+          <button type="button" className="control" ref={restartRef} onClick={newGame}>
+            重新开始
+          </button>
+        </section>
       ) : (
-        <div className="flex flex-col items-center gap-4">
+        <div
+          className="flex flex-col items-center gap-4"
+          // 二念的两拍终局（T36）：`dye` = 血染那一拍，`out` = 停一拍 + 淡出那一拍。
+          // 属性落在**整列**上而不是某一块上：要淡出的是「棋盘 + 信息条 + 控制钮」这一整条
+          // 游戏列（业主要的是「淡出关闭棋盘页面」），而血染的 transition 也挂在这一列的
+          // 后代上（board.css 读这一个属性）。两拍由下面那个 onAnimationEnd 推进。
+          data-shenmo-fall={falling ? fall.beat : undefined}
+          onAnimationEnd={handleShenmoFallEnd}
+        >
           <h1 className="shell__title text-5xl">2048</h1>
           {/* 限时模式的倒计时（T09）：外壳元素，与 StatusBar 平级摆着，不进 .board
               ——ADR-0002 的棋盘固定 DOM 结构不许因为一个倒计时多出节点。
               deadline 为 null 就说明这一模式不限时；结算之后表也没用了，
-              剩下的「为什么结束」由 GameOverPanel 从 endReason 读，不在这里推断。 */}
+              剩下的「为什么结束」由 GameOverPanel 从 endReason 读，不在这里推断。
+              T33 起多一个 `clockHeld`：堕落窗口开着时这一行读数不动（时之狭）。
+              **T36 起终局那 1200ms 也算被按住**：玩家正在看血，不能被一声超时打断——
+              而那一段结束时页面已经扣下、倒计时跟着卸载，按住的账就此不了了之（这一局
+              不会再走下去，刷新也不继承它：hydrate 把两个字段归零）。 */}
           {game.deadline !== null && game.phase !== 'ended' && (
-            <Countdown deadline={game.deadline} />
+            <Countdown deadline={game.deadline} clockHeld={demonOpen || falling} />
           )}
           <StatusBar
             game={game}
@@ -448,6 +676,7 @@ export default function App(): JSX.Element {
               presence.layer.panel === 'win' ? (
                 <WinPanel
                   readout={resultReadout(game, records, settlementAttribution, styleId)}
+                  line={resultLine}
                   onContinue={continueRun}
                   onSettle={settle}
                   onNewGame={newGame}
@@ -458,6 +687,7 @@ export default function App(): JSX.Element {
                 <GameOverPanel
                   spec={presence.layer}
                   readout={resultReadout(game, records, settlementAttribution, styleId)}
+                  line={resultLine}
                   onSettle={settle}
                   onNewGame={newGame}
                   onUndo={undo}
@@ -467,7 +697,108 @@ export default function App(): JSX.Element {
                 />
               )
             )}
+            {/* 一念神魔的两颗圆钮（T29）。住在这个壳里而不是 .board 里：ADR-0002 的棋盘
+                固定 DOM 一个节点都不许多，而**外壳**正是「可以换实现」的那一层。
+                宽视口下它们向两侧探出棋盘自己的盒子（壳不是棋盘），窄视口下落到棋盘下一行
+                （那边棋盘两侧只剩几个像素，spec 的架构决策 12 量的就是这个）。
+                **不挡棋**：容器 pointer-events: none，只有两颗钮自己接；方向键照旧走，
+                滚动照旧被吃掉。两个窗口都由 CSS 动画驱动、animationend 收尾，没有定时器。
+                **`leaving` 也渲染**（T35）：stage 只要不在 idle，容器就在 DOM 上——机器的
+                每一条终局都先落到退场，等那条退场动画播完（`handleShenmoExit` → 机器的
+                `left`）才真的离开。于是「此刻场上有没有这一摊」不再等于「机器此刻在哪个
+                阶段」，与结果层 T27 起「phase 意味着那一层、层比 phase 多活一段退场」
+                是同一条规矩。 */}
+            {shenmoStage !== 'idle' && (
+              <div
+                className="shenmo"
+                // 报的是**看得见的那一档**：退场中它是 `leavingFrom`（机器记住的「刚才还在
+                // 这一档」），挂在 `choice` / `ring` 上的两条窗口动画于是照旧放到容器淡出去
+                // 的那一刻——环还在渐薄，不会中途被抽走
+                data-shenmo-stage={shenmoVisibleStage}
+                // 退场的总开关（照 `.overlay[data-result-leaving]` 那条，ADR-0008 决策 9）：
+                // 指针当场交出去、动画换成退场那一组。它与 stage 变在**同一次提交**里落到
+                // DOM——这里读的是机器这一帧的状态，渲染期就定好了，没有 effect 中间那一帧
+                // （决策 9 为结果层立的最重要一条：多出一帧「层还在、还接指针」，继续玩之后
+                // 马上划一下的玩家就会对着不动的棋盘发懵）
+                data-shenmo-leaving={shenmoStage === 'leaving' ? 'true' : undefined}
+                onAnimationEnd={handleShenmoExit}
+              >
+                <button
+                  type="button"
+                  className="shenmo__button"
+                  data-shenmo-button="a"
+                  aria-label="抉择 A"
+                  onClick={() => chooseShenmo('a')}
+                >
+                  A
+                  {/* 那道环：两个 30 秒都挂在它身上。第一段（谁都没点）它不可见，
+                      第二段（只剩 A）它渐薄——「一个元素、两条路径」是 spec 架构决策 3
+                      特意要的形状，因为两个窗口都得有个动画可听。
+                      判 event.target === event.currentTarget：animationend 会冒泡，
+                      而 B 的破碎动画正是它的同类——不判的话 B 碎一下会被当成窗口到期。 */}
+                  <span
+                    className="shenmo__ring"
+                    aria-hidden="true"
+                    onAnimationEnd={(event) => {
+                      if (event.target !== event.currentTarget) return
+                      // 名字即身份：两条 30 秒各有一套关键帧，所以「哪一段到头了」
+                      // 由动画自己说，不必再问此刻的阶段
+                      const which = event.animationName === 'shenmo-window' ? 1 : 2
+                      shenmo.windowDone(which)
+                    }}
+                  />
+                </button>
+                {shenmoVisibleStage !== 'ring' && (
+                  <button
+                    type="button"
+                    className="shenmo__button"
+                    data-shenmo-button="b"
+                    // 破碎退场进行中：这一下是空气（机器与那一声都不再理会它），
+                    // 动画一结束机器切到「只剩 A」
+                    data-shenmo-breaking={shenmoVisibleStage === 'breaking' ? 'true' : undefined}
+                    aria-label="抉择 B"
+                    onClick={() => chooseShenmo('b')}
+                    onAnimationEnd={(event) => {
+                      if (event.target !== event.currentTarget) return
+                      if (event.animationName !== 'shenmo-break-fade') return
+                      shenmo.broke()
+                    }}
+                  >
+                    B
+                    {/* 四片碎渣（T34）：450ms 的破碎退场里各带一个 B、错开起跑朝自己的
+                        对角飞走。只在 breaking 时挂载，装饰、不进无障碍树。
+                        **它们的 animationend 也会冒泡到这颗按钮上**（四片各播一条动画）。
+                        四条动画的名字与 `shenmo-break-fade` 不同，所以 `animationName`
+                        那道判据今天就把它们挡掉了；而 `event.target !== event.currentTarget`
+                        是承重墙——T27 的教训正是「后代的动画结束事件冒泡上来冒充祖先的」，
+                        将来谁给碎片改个名、或给按钮自己加第二条动画，最先漏的就是这一道。 */}
+                    {shenmoVisibleStage === 'breaking' &&
+                      SHENMO_SHARDS.map((shard) => (
+                        <span
+                          key={shard}
+                          className="shenmo__shard"
+                          data-shenmo-shard={shard}
+                          aria-hidden="true"
+                        />
+                      ))}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
+          {/* 一念的两件报酬（T30）：礼炮与那颗按钮。摆在**棋盘正下方、方向按钮之上**，
+              两个理由：一是「机器答话之后递给你的东西」该贴着棋盘出现，而不是沉到页面
+              最底下；二是从棋盘 Tab 出去，下一个停靠点就是它——手机上方向按钮那四个键
+              排在它后面，桌面端它是第一个，于是「彩蛋不是鼠标专属」（用户故事 39）这件
+              事与视口宽度无关。 */}
+          <Cannon granted={wishGranted} />
+          {/* 非 playing 阶段无效（用户故事 24）。与「新游戏」同一个形状——直接不渲染，
+              而不是一颗点不动的灰按钮：面板露头时摆一颗不能用的钮，就是在骗人。 */}
+          {game.phase === 'playing' && wishGranted && (
+            <button type="button" className="wish" onClick={plantWish}>
+              一念神魔
+            </button>
+          )}
           {/* 屏幕方向按钮（T10）：外壳元素，与 Board 平级——ADR-0002 的棋盘固定
               DOM 不增节点。只在触摸设备显示（styles.css 的 pointer: coarse），
               桌面端连布局都不占。它调的是同一个 move，与键盘、滑动共用一条派发
@@ -500,8 +831,14 @@ export default function App(): JSX.Element {
           「上一局留下了什么」，局中也看得到，而入口只有一个——同一个组件、同一个
           按钮，不按 phase 分叉。它是 `.board` 的兄弟（ADR-0002 的固定 DOM 不许
           往棋盘里塞东西），所以打开它不盖棋盘、也不打断这一局；键盘到达它走普通
-          Tab 顺序，不带 autofocus——一把焦点从棋盘上拽走，玩家会以为这局被打断了。 */}
-      {!restoring && (
+          Tab 顺序，不带 autofocus——一把焦点从棋盘上拽走，玩家会以为这局被打断了。
+          **二念扣下时它也收起来**（T32）：那一页要的是「只剩一颗重新开始」，而这些
+          入口属于一个还能打的一局。**判据是 `pageCleared` 而不是「二念的果结出来了」**
+          （T36）：两拍终局那 1200ms 里整列还在台上，入口该跟着它一起淡出——先一步消失
+          会留下一帧「棋盘还在、统计入口没了」的半成品画面。
+          存档读写出错的那条提示不在此列——它是故障，
+          任何时候都不该被藏起来。 */}
+      {!restoring && !pageCleared && (
         <div className="mt-4 flex flex-col items-center gap-4">
           {/* 静音开关（T20）。与战绩面板同一个位置、同一套理由：它是设置不是
               「这一局的状态」，所以开局前与局中都摆在同一个地方、只有一个入口。
@@ -521,31 +858,6 @@ export default function App(): JSX.Element {
           )}
         </div>
       )}
-
-      {/* ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
-          ＝＝＝＝＝＝＝＝＝＝ 临时调试钩子「一念神魔」（已注释掉） ＝＝＝＝＝＝＝＝＝＝
-          ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝
-
-          给项目所有者肉眼验收成功与失败界面用的：点一下就在盘上摆一对「合一次就达标」
-          的方块，于是一次方向键就能看见胜利界面，省掉手打上百步。**不是产品功能**——
-          它不进 README、不进任何验收、也没有测试。所有者确认界面可用之后整块注释在此，
-          不留成一条暗径：暗道比不给按钮更糟，下一个人只会以为它是特性。
-
-          纯函数住在下面的注释块里（plantDebugTargetPair），按钮在 JSX 更下面那一块。
-          要重新打开：把下面两块与 plantDebugTargetPair 的 import 一起取消注释即可，
-          **不需要碰 store**——它绕开 store 直接改 game  Tree 上那一份，
-          而这是一次性的调试路径，不值得为它在单 store 里开一个常驻动作。
-
-          摆的值不写死 1024：只有经典模式的目标块是 2048，斐波那契的 2584 跟 1024
-          根本合不上，大棋盘的是 4096。所以从模式**已经声明的**数据（valueLadder +
-          MERGE）推出那一对，六模式通用；将来改目标块只改模式声明一处。
-          ＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝＝ */}
-
-      {/* ＝＝＝＝＝＝＝／临时调试按钮 ＝＝＝＝＝＝＝＝
-      <button type="button" className="control" onClick={plantDebugTargetPair}>
-        一念神魔
-      </button>
-      ＝＝＝＝＝＝＝／临时调试按钮 ＝＝＝＝＝＝＝＝ */}
     </main>
   )
 }

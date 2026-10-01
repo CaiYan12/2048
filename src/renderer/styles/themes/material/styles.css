@@ -213,6 +213,51 @@
   }
 }
 
+/* 一念神魔的两颗圆钮（T29 · 父规格的架构决策 11：外壳，不是第四个插槽）
+   本套的说法是「一对被抬起的 tonal 卡」：elevation 3dp 与板面同一组投影，所以它们读起来
+   像从棋盘旁边浮起来的两块小面。全圆角（M3 的按钮形状识别度就在这里）由共享外壳的
+   `border-radius: 50%` 兑现。
+   描边用 outline（同 .control 的理由：不进布局，而且闸门的 ring 探针读得到它）。 */
+[data-style='material'] .shenmo__button {
+  background: var(--shenmo-button-bg);
+  color: var(--shenmo-button-ink);
+  outline: 2px solid var(--shenmo-button-border);
+  outline-offset: -2px;
+  box-shadow: var(--shenmo-button-shadow);
+}
+
+[data-style='material'] .shenmo__button:hover {
+  background: var(--shenmo-button-bg-hover);
+}
+
+/* 焦点：outline 而不是投影——本套的层级语言就是投影，焦点再叠一层会让读者分不清
+   哪层是焦点、哪层是 elevation（与控件、板面同一条）。环只与页面色相邻（6.13:1）。 */
+[data-style='material'] .shenmo__button:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* 一念的按钮（T30 · 父规格架构决策 11：外壳，不是第四个插槽）
+   本套的说法与两颗圆钮同一条：一颗被抬起的 tonal 面。形状是它与 .control 唯一的
+   分岔——全圆角药丸（M3 的按钮形状）+ display 字体 + 字距，读起来是「机器递过来的
+   东西」而不是「这一局的又一个操作」。 */
+[data-style='material'] .wish {
+  background: var(--wish-bg);
+  color: var(--wish-ink);
+  outline: 2px solid var(--wish-border);
+  outline-offset: -2px;
+  box-shadow: var(--wish-shadow);
+}
+
+[data-style='material'] .wish:hover {
+  background: var(--wish-bg-hover);
+}
+
+[data-style='material'] .wish:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
 /* 成就祝贺（设计卡 §10）：贴视口**上方正中**的一叠 tonal 浮层。
    它是**呈现插槽**（ADR-0002）——结构、长相与消失表现都归这套风格，而「什么时候该有
    一条」在 store。position: fixed 是硬要求：流内的一条提示会把棋盘整体推下去，
@@ -222,7 +267,15 @@
 [data-style='material'] .toast-stack {
   position: fixed;
   z-index: 4;
-  top: 1rem;
+  /* T32：顶端距离改读一个变量——有悬顶时外壳把 `--toast-top` 设成「悬顶高度 + 1rem」
+     （index.css 里 `[data-shenmo-pinned='true']` 那条），于是祝贺整整齐齐排在悬顶下面、
+     两条共用视口顶端而不重叠。没有悬顶时变量不存在，回落到原来那一个 1rem。
+     **回落值（`,` 后面的 1rem）是硬要求**：读一个不存在的自定义属性而不给回落值，
+     `top` 会变成 `auto`，整叠卡片掉回文档流里去把棋盘推走。
+     注释里刻意不写成 `var(` 的形式：theme-contract 的必需令牌清单是从 styles.css 的
+     文本里扫出来的，而它**不剥注释**——一个不带回落值的 `var(--x)` 写进注释，三套风格
+     就要平白多交一个 token（外壳那份 CSS 会剥注释，主题这份不剥）。 */
+  top: var(--toast-top, 1rem);
   left: 1rem;
   right: 1rem;
   display: flex;
@@ -309,4 +362,16 @@
   [data-style='material'] .toast {
     transition-duration: 0ms;
   }
+}
+
+/* —— 二念的悬顶（T32 · 父规格的架构决策 8 / 10）——
+   走火入魔之后钉在视口顶端的那一条。**结构、摆位、节奏全在共享外壳**（index.css 的
+   .shenmo-strip），这里只出颜色——彩蛋不是第四个插槽（架构决策 11）。
+   Material 的层级语言是投影，所以这一条是本套**唯一一条被抬起的长条**：tonal 紫底
+   （与两颗圆钮、一念按钮同一族，于是「彩蛋的东西」在三件报酬上是同一家人）+ elevation
+   那一组熟悉的双投影。满宽、齐边、不消失——它刻意不像那张 24rem 的圆角卡（toast）。 */
+[data-style='material'] .shenmo-strip {
+  background: var(--shenmo-strip-surface);
+  color: var(--shenmo-strip-ink);
+  box-shadow: var(--shenmo-strip-shadow);
 }

@@ -17,6 +17,7 @@ import { seedFromUtcDate } from '../../shared/rng'
 import { synth } from '../audio/synth'
 import { mergedValueOf } from '../audio/tone'
 import { fixtureFromQuery } from './fixture'
+import { plantWishPair } from '../components/WishPair'
 import { seedFromSearch } from './seed'
 import {
   assembleSession,
@@ -52,6 +53,7 @@ import {
   type AchievementId,
   type AchievementToast,
   type RunFacts,
+  type ShenmoOutcome,
 } from '../../game/achievements'
 import {
   clearRun,
@@ -175,6 +177,54 @@ export interface GameStore {
    */
   styleSwitches: number
   /**
+   * 本局在「一念神魔」的抉择里结出过的果（T29）。**彩蛋唯一住进 store 的东西**
+   * （父规格的架构决策 2）：码缓冲、阶段、两个窗口全是协调状态，住在渲染层的
+   * `ShenmoChoice.ts`；而成就从本局事实派生，事实只在 store 里拼得全，于是彩蛋要碰
+   * store 就只有这一个理由。
+   *
+   * 三条性质，逐条对应一个会被问到的「为什么不」（同样的理由也写在
+   * `RunFacts.shenmoOutcomes` 的注释里，那边更全）：
+   *   · **不跟撤销回退**——它是发生过的事件，与 `styleSwitches` 同一条理由；
+   *   · **不落盘**——没有任何结算、记录或统计读它，父规格的架构决策 10 也把二念那一颗
+   *     定成内存字段。刷新之后从零起，果也还能再结一次；
+   *   · **只记结出的果，不记走到第几步**——父规格的架构决策 6：一遍只算完整的 B → A。
+   *
+   * 重置点与 `styleSwitches` 同两个：startRun 与 newGame。**结算不清它**（下一局开局时
+   * 归零），hydrate 也不恢复它（内存字段）。
+   */
+  shenmoOutcomes: readonly ShenmoOutcome[]
+  /**
+   * 堕落窗口**累计按住了多少毫秒**（T33 · 父规格的架构决策 16，控制人 2026-10-01 裁定为
+   * 「那 30 秒真归玩家」）。时之狭的全部状态。
+   *
+   * 「按住」而不是「改写」：`deadline` 一个字节都不动（它是绝对时间戳，SPEC §3.1），
+   * 引擎对「时钟是否被按住」一无所知（它照旧只认一个绝对截止点）。被改的只有**喂给
+   * 时钟的 now**——每一次读表与倒计时显示都用 `Date.now() - shenmoHeldMs`。
+   * display 与 deadline 比较因此吃的是**同一个** effective now，不会分裂成两种真相：
+   * 玩家看见「表停在 2:40」，收摊那一刻读到的剩余时间就还是 2:40，不会点下 A 的当场
+   * 超时结算（那正是本项目最反对的「屏幕替证据撒谎」）。
+   *
+   * 三条性质，逐条对应一个会被问到的「为什么不」：
+   *   · **不落盘**——刷新不把按住的时间还回来。否则「站着抉择等刷新」就是一条免费
+   *     延时的缝，SPEC §3.1「后台、刷新不延长时限」会被它凿开一个洞；
+   *   · **不跟撤销回退**——被按住的那一段是真实过去的时间，撤销搬回的是棋盘位置；
+   *   · **只在抉择有结果的那一刻收口**——窗口开着的每一次读表只是把「表停着」续着，
+   *     真正的累计发生在收摊那一下（见 `tick`）。于是「按住了多久」与读表节奏无关：
+   *     读表被浏览器降频、被假时钟冻住，收摊时一并还回来。
+   *
+   * 重置点与 `shenmoOutcomes` 同样四个：初值 / startRun / newGame / hydrate
+   * （`shenmoHoldStartedAt` 一起归零、置 null）。**结算不清它**：这一局打完了，
+   * 下一局开局时归零。
+   */
+  shenmoHeldMs: number
+  /**
+   * 当前这一段按住的**起始时刻**（raw epoch ms——没有被按住偏移过的那把尺子）；
+   * null = 此刻没在按住。它是 `shenmoHeldMs` 的账房：没有它就说不清「进行中的这一段
+   * 已经按了多久」。玩家看不见它，它也不是「按住了多久」的读数——读数是
+   * `shenmoHeldMs` 加上这一段。
+   */
+  shenmoHoldStartedAt: number | null
+  /**
    * 本局起始时刻（epoch ms）；null = 还没开局
    *
    * T17 的「本局时长」要从它推导，所以它必须跟着这一局跨过刷新：startRun / newGame
@@ -249,6 +299,19 @@ export interface GameStore {
    * 也不算一次切换（重复选当前风格不是切换——ticket 验收标准 1）
    */
   setStyle(id: StyleId): void
+  /**
+   * 记下「一念神魔」的一个果（T29）。渲染层那台 pure machine 是唯一的判定者——
+   * 它说「这一下结出了什么」，这个动作只负责**记账**，并让成就照常走一次跃迁。
+   *
+   * 幂等：同一个果本局只记一次（`includes` 早退），同一条祝贺不会被刷第二遍；
+   * 重复调用连 state 都不换。
+   */
+  recordShenmoOutcome(outcome: ShenmoOutcome): void
+  /**
+   * 一念神魔的那两个占位音（T33 · 父规格的架构决策 14）。什么时候发由渲染层判
+   * （App 知道此刻是哪个阶段），这里只是唯一碰 synth 的那一处
+   */
+  playShenmoSound(sound: ShenmoSound): void
   /** 开 / 关静音：写 settings 桶（T20）。同一个 id 重复调用连 state 都不换 */
   setMute(muted: boolean): void
   /** 开 / 关交换拾取。StatusBar 与死局面板的那两个按钮调的是同一个动作 */
@@ -260,6 +323,8 @@ export interface GameStore {
   selectCell(coordinate: Coordinate): void
   /** Esc：取消选择并退出拾取（用户故事 16 的「不用指针退出交换」） */
   clearSwap(): void
+  /** 摆下一对「合一次就达标」的相邻方块（T30 · 一念的奖品）。只在 playing 有效 */
+  plantWish(): void
   startRun(modeId: ModeId): void
   move(direction: Direction): void
   /** 撤销一步：把栈顶那个完整前态搬回 game。空栈与已结算都是原样返回 */
@@ -268,8 +333,16 @@ export interface GameStore {
   continueRun(): void
   /** 结束并记录：死局与胜利面板都进得去；幂等（结算只执行一次），并写一次记录（T17） */
   settle(): void
-  /** 时间推进到当前时刻：到期由引擎强制结算。未到期与非限时模式都是空操作 */
-  tick(): void
+  /**
+   * 时间推进到当前时刻：到期由引擎强制结算。未到期与非限时模式都是空操作。
+   *
+   * `clockHeld` = 一念神魔的堕落窗口正开着（T33 · 父规格的架构决策 16，控制人
+   * 2026-10-01 裁定「那 30 秒真归玩家」）。这时时钟**被按住**：本窗按住了多久，
+   * 收摊时就还回来多久（`shenmoHeldMs`）。参数为可选（缺省不按住）——不传就等于
+   * T09 那年的老契约，`tests/unit/time-attack.test.ts` 与
+   * `tests/unit/audio-store.test.ts` 的既有调用因此一个都不用改。
+   */
+  tick(clockHeld?: boolean): void
   /** 放弃当前局并开新局。活跃局直接新游戏 = 放弃本局，不写任何记录 */
   newGame(): void
   /**
@@ -403,6 +476,32 @@ function soundOfSettlement(endReason: GameState['endReason'], muted: boolean): v
   }
 }
 
+/**
+ * 一念神魔点得出来的那两种声音（T33）。**只有两个**：它们是彩蛋仅有的两个音效
+ * 事件（父规格的架构决策 14 点名、Out of scope 也写明了「不新增别的声音」），
+ * 所以这里写成一个二值联合而不是把整个 `SoundEvent` 交给调用方挑——后者会让
+ * 「彩蛋能发什么音」变成一句没人说得准的话。
+ */
+export type ShenmoSound = 'shatter' | 'fanfare'
+
+/**
+ * 一念神魔的那两个占位音（T33 · 父规格的架构决策 14）
+ *
+ * `shatter` = B 碎掉的那一声低响；`fanfare` = 走完一遍（B 之后再点 A）时那一声上扬。
+ * 两个都是占位合成音（README 早就写着「音效是占位」），音色定义在 tone.ts 的
+ * planFor 里，这里只负责「什么时候发」——与 move / blocked / settlement 那三个
+ * 助手同一条路子：**store 是唯一决定发声时机的地方**，App 不碰 synth。
+ *
+ * 为什么发号点落在 App 的点击上而不是 store 的果记账上：`recordShenmoOutcome` 是
+ * 幂等的（同一个果本局只记一次），而礼炮要的是**每一次**收尾都响——第二遍走完魔道
+ * 时不再授予任何果，那一刻照旧有礼炮（父规格的架构决策 6：第二遍摆出同一副摊）。
+ * 于是判定「这一下该不该响」的现场留在点击那儿（App 知道此刻是哪个阶段），
+ * store 只递一个事件名给 synth。
+ */
+function playShenmoSound(sound: ShenmoSound, muted: boolean): void {
+  synth.play(sound, { muted, value: 0 })
+}
+
 /** 同时最多三条祝贺：第四条到达时丢最旧（用户故事 6：最新那一条永远看得见） */
 const TOAST_STACK_LIMIT = 3
 
@@ -418,11 +517,18 @@ interface AchievementState {
   nextToastKey: number
 }
 
-/** 这一局此刻的事实。`null` = 还没有局（开局界面 / 已清空），那就什么成就都谈不上 */
+/**
+ * 这一局此刻的事实。`null` = 还没有局（开局界面 / 已清空），那就什么成就都谈不上
+ *
+ * `shenmoOutcomes` 默认空：三处**建立静默基线**的调用（开局 ×2、恢复 ×1）都不传它，
+ * 于是那一刻彩蛋进度是零——刷新之后这一局的彩蛋从零起（父规格架构决策 10 的口径，
+ * 果也还能再结一次）。
+ */
 function runFactsOf(
   game: GameState | null,
   runMerges: number,
-  styleSwitches: number
+  styleSwitches: number,
+  shenmoOutcomes: readonly ShenmoOutcome[] = []
 ): RunFacts | null {
   if (game === null) return null
   return {
@@ -433,6 +539,7 @@ function runFactsOf(
     reachedTarget: game.reachedTarget,
     merges: runMerges,
     styleSwitches,
+    shenmoOutcomes,
   }
 }
 
@@ -489,17 +596,24 @@ function advanceAchievements(
 }
 
 /**
- * 一次状态迁移之后推进成就。三个入参恒同行（局 / 本局合并数 / 本局切换次数），
- * 所以包成一处调用：每个动作各拼一遍 `advanceAchievements(state, runFactsOf(...))`
+ * 一次状态迁移之后推进成就。四个入参恒同行（局 / 本局合并数 / 本局切换次数 /
+ * 彩蛋进度），所以包成一处调用：每个动作各拼一遍 `advanceAchievements(state, runFactsOf(...))`
  * 只会让「哪两个数字配对」在多处各自成立，而那是错一次就悄悄错下去的地方。
+ *
+ * `shenmoOutcomes` 默认跟 store 上那一份走——它只在一个动作里会变（刚记下一次果），
+ * 而那个动作显式把新的递进来。
  */
 function advance(
   state: GameStore,
   game: GameState | null,
   runMerges: number,
-  styleSwitches: number
+  styleSwitches: number,
+  shenmoOutcomes: readonly ShenmoOutcome[] = state.shenmoOutcomes
 ): AchievementState {
-  return advanceAchievements(state, runFactsOf(game, runMerges, styleSwitches))
+  return advanceAchievements(
+    state,
+    runFactsOf(game, runMerges, styleSwitches, shenmoOutcomes)
+  )
 }
 
 /**
@@ -701,6 +815,13 @@ async function doHydrate(): Promise<void> {
       // 没有可恢复的一局 = 这一段什么都没打过：合并数、集合与祝贺都从零起。
       // 有那一局时下面的 restored 分支会把这三个字段覆盖成派生出来的那一份
       runMerges: 0,
+      // 彩蛋进度是**内存字段**（T29）：它不落盘，所以恢复一局时它从零起，
+      // 那一局还能再结一次果。父规格的架构决策 10 对二念那一颗说的就是这件事
+      shenmoOutcomes: [],
+      // 时之狭（T33）：按住的时间同样不跟这一局走。刷新不把它还回来——否则「站着
+      // 抉择等刷新」就是一条免费延时的缝（SPEC §3.1「后台、刷新不延长时限」）
+      shenmoHeldMs: 0,
+      shenmoHoldStartedAt: null,
       unlocked: [],
       toasts: [],
     }
@@ -745,6 +866,12 @@ export const useGameStore = create<GameStore>()((set) => ({
   runStartedAt: null,
   // 还没有开局，也就没切过风格（T19 的风格旅行者从零数起）
   styleSwitches: 0,
+  // 同理：开局界面上没有棋盘可打码，彩蛋进度当然是零（T29）
+  shenmoOutcomes: [],
+  // 时之狭（T33）：按住的时间同样不跟这一局走。刷新不把它还回来——否则「站着
+  // 抉择等刷新」就是一条免费延时的缝（SPEC §3.1「后台、刷新不延长时限」）
+  shenmoHeldMs: 0,
+  shenmoHoldStartedAt: null,
   // 开局时两个新桶已经在 hydrate 里读过；这里是「还没读过」的诚实初值
   records: [],
   stats: null,
@@ -814,6 +941,25 @@ export const useGameStore = create<GameStore>()((set) => ({
       return { mute: muted }
     })
   },
+  recordShenmoOutcome: (outcome) => {
+    set((state) => {
+      // 同一个果只记一次：玩家可以放任两次环流尽，而「当断即断」该只响一次
+      if (state.shenmoOutcomes.includes(outcome)) return state
+      const shenmoOutcomes = [...state.shenmoOutcomes, outcome]
+      // 彩蛋进度**不落盘**（内存字段），所以这里一次写盘都没有——成就是派生的，
+      // 集合在这一步由事实算出来，祝贺照常发号
+      return {
+        shenmoOutcomes,
+        ...advance(state, state.game, state.runMerges, state.styleSwitches, shenmoOutcomes),
+      }
+    })
+  },
+  // 一念神魔的两个占位音（T33）。**不碰任何状态**：这个动作的全部事情就是把一个
+  // 事件名与此刻的静音递给 synth——与 move 那三个助手同一条路子（「音频绝不改变
+  // 规则」，synth.ts 文件头第 3 条）。静音在这里读：读它的顺序在发声之前
+  playShenmoSound: (sound) => {
+    playShenmoSound(sound, useGameStore.getState().mute)
+  },
   // 还没开局：没有拾取、也没有选择
   swapArmed: false,
   swapSelection: null,
@@ -876,6 +1022,55 @@ export const useGameStore = create<GameStore>()((set) => ({
         : state
     )
   },
+  /**
+   * 摆下一对「合一次就达标」的相邻方块（T30 · 父规格架构决策 7 · 一念的奖品）。
+   *
+   * **照作弊交换的形状**：压历史、写 session、不计步数、不记分、只在 playing 有效、
+   * 与棋盘有关的拾取态一并收摊。于是这一对撤得回来（用户故事 25），而本局的数字照旧
+   * 说真话（用户故事 26）。「摆哪两个值、摆在哪两格」全在 `plantWishPair` 那个纯函数里，
+   * 这里只做 coordinator 那一半：三道门、进历史、写盘。
+   *
+   * 阶段守卫与 undo / selectCell 的 `ended` 守卫同一条路：写成 store 的判断而不是面板
+   * 各自判断一遍。won / stuck / ended 三个阶段是结果层在接管输入，那时摆一对方块等于
+   * 在玩家看面板的时候动他的棋盘（用户故事 24）。
+   */
+  plantWish: () => {
+    set((state) => {
+      const game = state.game
+      if (!game || game.phase !== 'playing') return state
+      // null = 盘上连两个相邻的非障碍格都没有（Walls 也不至于，纯函数只在这时说
+      // 「什么都没发生」）。于是既不加历史也不换 state——与 swap 的非法组合同一条约定
+      const planted = plantWishPair(game)
+      if (planted === null) return state
+      // 先走通的才把**操作前**那个完整前态压栈（与 move / 交换进历史同一条路子），
+      // 撤销因此白拿那一格棋盘
+      const history = [...state.history, game]
+      // 只写两条：session 记录 + 新压栈的那一个前态。栈多深都不多写（T11 实测出
+      // 不可接受的是每步把整条历史重新序列化一遍）
+      persistSession(
+        {
+          game: planted,
+          dailyDate: state.dailyDate,
+          styleId: state.styleId,
+          historyLength: history.length,
+          startedAt: state.runStartedAt,
+          styleSwitches: state.styleSwitches,
+        },
+        { kind: 'push', index: history.length - 1, game }
+      )
+      return {
+        game: planted,
+        history,
+        // 棋盘变了，等第二枚的那一枚已经不在玩家以为的地方：半个选择继续摆在屏幕上
+        // 就是在骗人（与 move / undo 同一条）
+        swapArmed: false,
+        swapSelection: null,
+        // 分数与合并数一个都不动（没有发生合并），但集合照算一遍：摆下来的那对里可能
+        // 正有「本局最高方块」跨过阈值的那一个数，而事实是派生值的唯一来源（ADR-0007）
+        ...advance(state, planted, state.runMerges, state.styleSwitches),
+      }
+    })
+  },
   dismissToast: (key) => {
     // 只把这一条移出栈：解锁集合是派生的，收起一句祝贺不改变任何事实
     set((state) =>
@@ -920,6 +1115,13 @@ export const useGameStore = create<GameStore>()((set) => ({
       // （styleSwitches 的注释），所以开局这一刻必须把它按回 0，而不是接着开局前
       // 那几次往上加——否则玩家在开局界面抖几下，新一局就凭空多出几次切换
       styleSwitches: 0,
+      // 彩蛋进度同一条理由（T29）：新一局从零起，「上一局走过的抉择」不跟着来。
+      // 走完两遍的那个笑话因此永远属于**某一局**，不会跨局累积
+      shenmoOutcomes: [],
+      // 时之狭（T33）：按住的时间同样不跟这一局走。刷新不把它还回来——否则「站着
+      // 抉择等刷新」就是一条免费延时的缝（SPEC §3.1「后台、刷新不延长时限」）
+      shenmoHeldMs: 0,
+      shenmoHoldStartedAt: null,
       // 新一局：合并数从零、集合重新派生，但**不发祝贺**——开局不是「玩家刚做成了什么」。
       // 夹具（?board= / ?score=）给出一副已经达标的局面时，这条基线把那些成就直接
       // 记成「一开始就有」，而不是补一场吹号（用户故事 10 的同一条道理）
@@ -1111,14 +1313,43 @@ export const useGameStore = create<GameStore>()((set) => ({
       return { game: next, settlementAttribution: attribution }
     })
   },
-  tick: () => {
+  tick: (clockHeld) => {
     set((state) => {
       if (!state.game) return state
-      const next = tick(state.game, Date.now())
-      // 没到期（或非限时、或已不在 playing）时引擎原样返回同一个对象：这里连新
-      // state 都不造。与 move 的无效移动同一条路子——引用相等即「什么都没发生」，
-      // zustand 的选择器因此不会触发重渲染，倒计时的读表也就不打扰棋盘那一层。
-      if (next === state.game) return state
+      // 时之狭（T33 · 父规格的架构决策 16，控制人 2026-10-01 裁定「那 30 秒真归玩家」）。
+      //
+      // **时钟是被按住，不是被改写**：`deadline` 一个字节都不动（它是绝对时间戳，
+      // SPEC §3.1），引擎对「时钟是否被按住」一无所知（它照旧只认一个绝对截止点）。
+      // 被改的只有喂给它的 now——`Date.now()` 减去累计按住的毫秒。于是：
+      //   · 窗口开着时，第一次读表记下这一段的起始时刻（`shenmoHoldStartedAt`），
+      //     之后的读表原样返回——表停着，一个字节都不动；
+      //   · 窗口一有结果，这一段的时长并进累计，然后用**被按住的时钟**问引擎。
+      //     玩家看见表停在 2:40，收摊那一刻读到的剩余时间就还是 2:40。
+      //
+      // 为什么记起始时刻而不是每次读表累加：那样「按住了多久」会依赖读表节奏（浏览器
+      // 给后台标签页降频、假时钟把 interval 整个冻住），而收摊那一下之前最后一次读表
+      // 到现在的那一段会被漏掉——正是「一格不少」要防的那种丢秒。起始时刻一记，
+      // 收摊时一次算清，与读表几次无关。
+      if (clockHeld === true) {
+        // 已经在按住：什么都不做（引用相等即「什么都没发生」，倒计时的读表因此不
+        // 打扰棋盘那一层）
+        if (state.shenmoHoldStartedAt !== null) return state
+        return { ...state, shenmoHoldStartedAt: Date.now() }
+      }
+      // 收摊：把进行中的这一段并进累计。没在按住时 held 是 0，于是不按住的老路子
+      // 与 T09 那年逐字节相同
+      const now = Date.now()
+      const held = state.shenmoHoldStartedAt === null ? 0 : now - state.shenmoHoldStartedAt
+      const heldMs = state.shenmoHeldMs + held
+      const next = tick(state.game, now - heldMs)
+      // 引擎什么都没做：没到期（或非限时、或已不在 playing）时它原样返回同一个对象。
+      // 而即便引擎什么都不做，只要这一段真被按住过，累计也必须落下来——否则下一刻的
+      // 问话又用回没有偏移的 now，那一段就白按了。没按住过就原样返回：连新 state 都不造
+      // （与 move 的无效移动同一条路子，倒计时的读表因此不打扰棋盘那一层）
+      if (next === state.game) {
+        if (held === 0) return state
+        return { shenmoHeldMs: heldMs, shenmoHoldStartedAt: null }
+      }
       // 到点强制结算（T20）：超时是「这一局没赢着结束」的另一条路，与死局同一声。
       // abandoned 不可能从 tick 出来（它只从 playing 进来，而 endReason 恒为 timeout）
       soundOfSettlement(next.endReason, state.mute)
@@ -1150,7 +1381,16 @@ export const useGameStore = create<GameStore>()((set) => ({
           { kind: 'none' }
         )
       }
-      return { game: next, swapArmed: false, swapSelection: null, settlementAttribution: attribution }
+      return {
+        game: next,
+        swapArmed: false,
+        swapSelection: null,
+        settlementAttribution: attribution,
+        // 这一段的按住收口了。放在与 game 同一次 patch 里：单独再 set 一次会让中间多
+        // 一帧「已经放开、累计还没落下」的状态，而那一次读表会用回没有偏移的 now
+        shenmoHeldMs: heldMs,
+        shenmoHoldStartedAt: null,
+      }
     })
   },
   newGame: () => {
@@ -1205,6 +1445,12 @@ export const useGameStore = create<GameStore>()((set) => ({
         swapSelection: null,
         runStartedAt: now,
         styleSwitches: 0,
+        // 彩蛋进度同一条理由（T29）：被放弃的那一局结出的果跟着它一起消失
+        shenmoOutcomes: [],
+        // 时之狭（T33）：按住的时间同样不跟这一局走。刷新不把它还回来——否则「站着
+        // 抉择等刷新」就是一条免费延时的缝（SPEC §3.1「后台、刷新不延长时限」）
+        shenmoHeldMs: 0,
+        shenmoHoldStartedAt: null,
         // 上一局的归属一起作废（T26）：新的一局没有结算过，于是结果层要读的是当前风格
         // 的记录，而不是上一局留在字段里的那一个
         settlementAttribution: null,

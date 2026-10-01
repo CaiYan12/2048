@@ -121,10 +121,10 @@ test('第一次合并就解锁「首次合并」：随便开一局也能马上�
   // 这一步没达标、也没合出 4096：祝贺里只有它一个（不是「顺手带出来一堆」）
   await expect(item).not.toContainText('首胜')
 
-  // 面板上七个成就，第一个就是它（注册表次序 = 展示次序）
+  // 面板上十一个成就，第一个就是它（注册表次序 = 展示次序）
   await openStats(page)
   const rows = page.locator('[data-achievement]')
-  await expect(rows).toHaveCount(7)
+  await expect(rows).toHaveCount(11)
   await expect(rows.first()).toContainText('首次合并')
   expect(problems).toEqual([])
 })
@@ -159,7 +159,7 @@ test('祝贺自己走掉，玩家一个按钮都不用按', async ({ page }) => 
   expect(problems).toEqual([])
 })
 
-test('StatsPanel：七个成就各一行，照实写出条件，键盘可达，且不声称谁已解锁', async ({ page }) => {
+test('StatsPanel：十一个成就各一行，照实写出条件，键盘可达，且不声称谁已解锁', async ({ page }) => {
   const problems = watchProblems(page)
   // **用确定的「一步即死局」局面**：这条用例要的是「一局死局、没赢过」的结算
   await page.goto(startUrl(ONE_STEP_FROM_DEADLOCK))
@@ -180,8 +180,9 @@ test('StatsPanel：七个成就各一行，照实写出条件，键盘可达，�
   await expect(page.locator('[data-stats-panel]')).toBeVisible()
 
   const rows = page.locator('[data-achievement]')
-  // ADR-0007 之后是六个；2026-09-28 又加了「首次合并」，所以现在是七个
-  await expect(rows).toHaveCount(7)
+  // ADR-0007 之后是六个；2026-09-28 又加了「首次合并」；T29 的一念神魔带进来三颗；
+  // T32 的二念把走火入魔补在末尾，于是十一个
+  await expect(rows).toHaveCount(11)
   for (const id of [
     'first-merge',
     'first-win',
@@ -190,6 +191,10 @@ test('StatsPanel：七个成就各一行，照实写出条件，键盘可达，�
     'quick-hand',
     'merge-machine',
     'style-traveller',
+    'shenmo-first-pass',
+    'shenmo-wrong-order',
+    'shenmo-hesitation',
+    'shenmo-second-pass',
   ]) {
     const row = page.locator(`[data-achievement="${id}"]`)
     await expect(row).toHaveCount(1)
@@ -201,6 +206,15 @@ test('StatsPanel：七个成就各一行，照实写出条件，键盘可达，�
     '本局切换 5 次以上风格'
   )
   await expect(page.locator('[data-achievement="tile-4096"]')).toContainText('本局合出 4096')
+  // 一念神魔那四颗（T29 / T32）也照实写出「本局」口径的条件——彩蛋不是例外
+  await expect(page.locator('[data-achievement="shenmo-first-pass"]')).toContainText('本局')
+  await expect(page.locator('[data-achievement="shenmo-wrong-order"]')).toContainText('本局')
+  await expect(page.locator('[data-achievement="shenmo-hesitation"]')).toContainText('本局')
+  await expect(page.locator('[data-achievement="shenmo-second-pass"]')).toContainText('本局')
+  // 走火入魔那一行说的是「第二次」：这一颗的判据是遍数，不是「发生过」
+  await expect(page.locator('[data-achievement="shenmo-second-pass"]')).toContainText(
+    '本局在抉择里第二次先 B 后 A'
+  )
   // 两个退休的成就一行都没有，界面上也不留任何占位
   await expect(page.locator('[data-achievement="mode-collector"]')).toHaveCount(0)
   await expect(page.locator('[data-achievement="daily-stand"]')).toHaveCount(0)

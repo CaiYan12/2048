@@ -16,7 +16,7 @@ import { boardOf, stateWithBoard } from './support'
  *
  * 为什么必须能这样测：本会话被明确要求不打开任何浏览器、不跑 Playwright，而「声音对不
  * 对」在这里根本不可验证（headless 浏览器里音频本来就听不见）。能验证的是**决策**：
- * 有没有在手势之前造出 AudioContext、静音时连造都不造、五个事件各自排出什么振荡器、
+ * 有没有在手势之前造出 AudioContext、静音时连造都不造、七个事件各自排出什么振荡器、
  * 音高是否随数值单调上升。这些全是数字，于是它们必须是可断言的数字——本文件钉的就是
  * 这一组。至于「好不好听」，只有 owner 在真机上说了算。
  */
@@ -202,6 +202,13 @@ function createFakeAudio(): FakeAudio {
 }
 
 /** 造一个 synth：WebAudio 走假 context，降级判断由测试现给 */
+/**
+ * 全部七个事件（T20 的四个 + 此后补的 blocked + T33 的 shatter / fanfare）。
+ * 写成一份而不是每处循环各抄一串：加第八个事件时，「静音 / 方案自洽 / 峰值音量」那几条
+ * 一把过的循环会把它一起收进来，漏一个都不会有人发现
+ */
+const EVENTS = ['move', 'merge', 'win', 'loss', 'blocked', 'shatter', 'fanfare'] as const
+
 function newSynth(audio: FakeAudio, reduced = false): Synth {
   return createSynth({
     createContext: () => audio.createContext(),
@@ -267,10 +274,10 @@ describe('静音', () => {
     expect(audio.tones).toHaveLength(afterFirst)
   })
 
-  test('五个事件在静音下一声都没有', () => {
+  test('七个事件在静音下一声都没有', () => {
     const audio = createFakeAudio()
     const sound = newSynth(audio)
-    for (const event of ['move', 'merge', 'win', 'loss', 'blocked'] as const) {
+    for (const event of EVENTS) {
       sound.play(event, { muted: true, value: 16 })
     }
     expect(audio.constructed).toBe(0)
@@ -278,9 +285,9 @@ describe('静音', () => {
   })
 })
 
-// ─── 五个事件的音色 ─────────────────────────────────────────────────────────
+// ─── 七个事件的音色 ─────────────────────────────────────────────────────────
 
-describe('五个事件各自响成什么样', () => {
+describe('七个事件各自响成什么样', () => {
   // 「最不显眼」这个头衔在第五个事件加进来之后换了主人：无法移动音比它更低更短更轻。
   // 移动音剩下的身份是「响得最勤」——它每次按键都响，所以依然不能是最大声的那个
   test('移动：一个短促低沉的正弦，固定频率不带数值', () => {
@@ -310,6 +317,55 @@ describe('五个事件各自响成什么样', () => {
     expect(tone.frequency).toBeCloseTo(110, 5)
     expect(tone.stopAt - tone.startAt).toBeCloseTo(0.05, 5)
     expect(tone.peakGain).toBeCloseTo(0.08, 5)
+  })
+
+  test('一念神魔的破碎：比「无法移动」再低一档的闷响，同样只排一个音', () => {
+    // T33 · 父Spec 的架构决策 14：低、闷、短，与 blocked 同一个档语气——它说的是
+    // 「你选的那一颗裂了」，与「走不动」是同一种「什么都没剩下」。所以三样都压在
+    // blocked 之下（低一个纯四度、同样短、再轻一点），而且**只排一个音**
+    const audio = createFakeAudio()
+    const sound = newSynth(audio)
+    sound.play('shatter', UNMUTED)
+    const [tone] = audio.tones
+    expect(audio.tones).toHaveLength(1)
+    expect(tone.type).toBe('sine')
+    // blocked 是 A2 110；破碎再往下走一个纯四度：E2 82.41
+    expect(tone.frequency).toBeCloseTo(82.41, 5)
+    expect(tone.frequency).toBeLessThan(110)
+    expect(tone.stopAt - tone.startAt).toBeCloseTo(0.05, 5)
+    expect(tone.peakGain).toBeCloseTo(0.07, 5)
+    expect(tone.peakGain).toBeLessThan(0.08)
+  })
+
+  test('一念神魔的礼炮：与胜利同一个寄存器，多一个根音的高八度收尾', () => {
+    // 父Spec 的架构决策 14：上行琶音、与 win 同一档语气。同一个寄存器、同一组琶音
+    // 参数，只多最后一个音——否则走完魔道那一刻与合出目标块那一刻**一模一样**，
+    // 玩家分不出自己刚才是赢了还是破解了一个彩蛋
+    const audio = createFakeAudio()
+    const sound = newSynth(audio)
+    sound.play('win', UNMUTED)
+    sound.play('fanfare', UNMUTED)
+    const win = audio.tones.slice(0, 3)
+    const salute = audio.tones.slice(3)
+    expect(win).toHaveLength(3)
+    expect(salute).toHaveLength(4)
+    // 三个音与胜利逐音相同（同一个寄存器、同一个时长），第四个是**根音**的高八度
+    // （C5 → C6；不是 G5 的八度，那一来就成了另一个和弦）
+    for (let index = 0; index < 3; index += 1) {
+      expect(salute[index].frequency).toBeCloseTo(win[index].frequency, 5)
+      expect(salute[index].stopAt - salute[index].startAt).toBeCloseTo(
+        win[index].stopAt - win[index].startAt,
+        5
+      )
+    }
+    expect(salute[3].frequency).toBeCloseTo(win[0].frequency * 2, 5)
+    // 上行：每个音都比前一个高，而且由 delay 一个一个排出来（琶音不许回头）
+    for (let index = 1; index < salute.length; index += 1) {
+      expect(salute[index].frequency).toBeGreaterThan(salute[index - 1].frequency)
+      expect(salute[index].startAt).toBeGreaterThan(salute[index - 1].startAt)
+    }
+    // 音量与胜利同档（0.14），三个音错开排，同时响的不超过两个
+    for (const tone of salute) expect(tone.peakGain).toBeCloseTo(0.14, 5)
   })
 
   test('合并：两个振荡器——三角波基音 + 低音量的八度泛音', () => {
@@ -462,6 +518,26 @@ describe('降低感官刺激（prefers-reduced-motion）', () => {
     expect(audio.tones[0].peakGain).toBeLessThan(0.1)
     expect(audio.tones[0].stopAt - audio.tones[0].startAt).toBeLessThan(0.06)
   })
+
+  test('礼炮的琶音也收成**一个**音——收的是最高那个（T33）', () => {
+    // 与胜利同一条路子：降低刺激时留事件的性质，丢的是华丽。礼炮收最后一个音 =
+    // 四个里最高的那个，于是「这是好事」照旧听得出来
+    const audio = createFakeAudio()
+    const sound = newSynth(audio, true)
+    sound.play('fanfare', UNMUTED)
+    expect(audio.tones).toHaveLength(1)
+    expect(audio.tones[0].frequency).toBeCloseTo(1046.5, 5)
+    expect(audio.tones[0].peakGain).toBeLessThan(0.14)
+  })
+
+  test('破碎在降低刺激下更短更轻，但仍然是一声（T33）', () => {
+    const audio = createFakeAudio()
+    const sound = newSynth(audio, true)
+    sound.play('shatter', UNMUTED)
+    expect(audio.tones).toHaveLength(1)
+    expect(audio.tones[0].peakGain).toBeLessThan(0.07)
+    expect(audio.tones[0].stopAt - audio.tones[0].startAt).toBeLessThan(0.05)
+  })
 })
 
 // ─── 炸掉不带崩游戏 ─────────────────────────────────────────────────────────
@@ -581,7 +657,7 @@ describe('mergedValueOf：这一步合出了多大的方块', () => {
 
 describe('planFor：一份方案自己说得清', () => {
   test('总时长撑得住最后一个音：delay + duration 正好收口', () => {
-    for (const event of ['move', 'merge', 'win', 'loss', 'blocked'] as const) {
+    for (const event of EVENTS) {
       const plan = planFor(event, 64, false)
       const end = plan.tones.reduce((max, tone) => Math.max(max, tone.delay + tone.duration), 0)
       expect(plan.duration).toBeCloseTo(end, 6)
@@ -589,7 +665,7 @@ describe('planFor：一份方案自己说得清', () => {
   })
 
   test('峰值音量都在 0 与 1 之间：事件叠在一起也削不了顶', () => {
-    for (const event of ['move', 'merge', 'win', 'loss', 'blocked'] as const) {
+    for (const event of EVENTS) {
       for (const tone of planFor(event, 2048, false).tones) {
         expect(tone.peakGain).toBeGreaterThan(0)
         expect(tone.peakGain).toBeLessThan(1)

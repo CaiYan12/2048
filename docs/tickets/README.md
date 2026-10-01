@@ -31,9 +31,18 @@
 | [T25](https://github.com/CaiYan12/2048/issues/27) · [本地](25-result-layer-semantics.md) | 立起「结果层」术语与它的裁决记录 | README TODO | none |
 | [T26](https://github.com/CaiYan12/2048/issues/28) · [本地](26-result-layer-scrim.md) | 交付结果层的两件套与卡片读数 | README TODO | T25 |
 | [T27](https://github.com/CaiYan12/2048/issues/29) · [本地](27-result-layer-motion.md) | 交付结果层的进出动效并跑完全量验收 | README TODO | T26 |
+| [T28](https://github.com/CaiYan12/2048/issues/31) · [本地](28-shenmo-semantics.md) | 立起「一念神魔」的术语与它的裁决记录 | README TODO · 彩蛋 | none |
+| [T29](https://github.com/CaiYan12/2048/issues/32) · [本地](29-shenmo-code.md) | 神魔码与抉择：口令被旁听到，A/B 现身，三个结局都走得通 | README TODO · 彩蛋 | none |
+| [T30](https://github.com/CaiYan12/2048/issues/33) · [本地](30-shenmo-wish.md) | 一念的奖品与礼炮 | README TODO · 彩蛋 | T29 |
+| [T31](https://github.com/CaiYan12/2048/issues/37) · [本地](31-shenmo-words.md) | 彩蛋的那几行字：卡片附加行两处用法、败局墓志铭，以及四颗成就各自的梗 | README TODO · 彩蛋 | T29 |
+| [T32](https://github.com/CaiYan12/2048/issues/34) · [本地](32-shenmo-second-pass.md) | 二念：扣下棋盘与顶端那条悬顶 | README TODO · 彩蛋 | T29, T31 |
+| [T33](https://github.com/CaiYan12/2048/issues/35) · [本地](33-shenmo-dim-clock-sound.md) | 堕落染墨、时之狭与两声 | README TODO · 彩蛋 | T29 |
+| [T34](https://github.com/CaiYan12/2048/issues/36) · [本地](34-shenmo-contract-gates.md) | 彩蛋的浏览器契约与全量闸门 | README TODO · 彩蛋 | T30, T31, T32, T33 |
 
 执行时先完成无阻塞的 T01 与 T02，再从依赖已关闭的 ticket 中选择。T03 是第一个可玩纵向切片；T13 用 Material 证明可在局中切换，T15 交付第三套 Claude 风格。T23 验收 6 × 3 = 18 组合，T24 才发布。本次未列入的九套特色风格保留在 [README TODO](../../README.md#todo远期规划)。
 
 T25–T27 是 **README TODO「成功与失败界面变更」** 这一组，父级规格是结果层 spec（[#26](https://github.com/CaiYan12/2048/issues/26)），与上表 P 阶段那一套无关。它们是线性链：T25（术语与裁决记录，无阻塞）→ T26（两件套与读数）→ T27（动效与全量验收）。
 
-远端按拓扑顺序创建了 27 张票和 67 条原生依赖。T25–T27 均标记 `ready-for-agent`；T01 标记 `ready-for-human`，规则选择需先由项目所有者确认。后续关闭 blocker 时，再按真实依赖状态更新可执行标签；不要把父级 SPEC issue 当作子票完成状态。
+T28–T34 是 **README TODO「彩蛋」** 这一组，父级规格是一念神魔 spec（[#30](https://github.com/CaiYan12/2048/issues/30)）。形状与上两组都不同：**两张根票并行**（T28 只动字、T29 只动码，文件域故意错开），T29 一落地则 T30 / T31 / T33 三路并行，T32 等 T31 的 `note` 字段，T34 收口。裁决记录是 ADR-0009——彩蛋是**共享外壳而不是第四个呈现插槽**，与 ADR-0008 对结果层的同一裁决。注意 issue 号与票号在这一组**不同序**（T31 是 #37、T32–T34 是 #34–#36）：T31 是拆票过程中新开的，编号按创建顺序而非拓扑顺序。
+
+远端按拓扑顺序创建了 34 张票和 74 条原生依赖。T25–T27 均标记 `ready-for-agent`；T01 标记 `ready-for-human`，规则选择需先由项目所有者确认。后续关闭 blocker 时，再按真实依赖状态更新可执行标签；不要把父级 SPEC issue 当作子票完成状态。

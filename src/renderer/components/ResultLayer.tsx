@@ -26,6 +26,15 @@ interface Props {
   endReason?: EndReason | null
   /** 四项读数。判定住在 records.ts 的纯函数里，这里一个字节的算术都没有 */
   readout: ResultReadout
+  /**
+   * 卡片那一行（T31 · 父规格的架构决策 17）：道通成魔那一局的梗，与死局 / 超时 /
+   * 放弃那一刻的本局总结，同一个座位两处用法。null = 这一层没什么可说——**不挂这个
+   * 元素**，而不是挂一句空话。
+   *
+   * 句子由 `resultCardLine` 从本局 facts 生成（App 现算递进来，与读数同一条路子）；
+   * 这里只管排版，一个字节的文案判断都没有。
+   */
+  line: string | null
   title: string
   sentence: string
   /**
@@ -55,8 +64,8 @@ interface Props {
  *
  * **为什么是两个元素**：半透明的前景是另一个颜色值，`getComputedStyle().color` 读不到
  * 合成结果（三张设计卡 §7 都禁「用 opacity 调文字明度」，同一条理由）。所以遮罩与卡片
- * 分开：遮罩负责让棋盘退后，卡片整个不透明，于是标题、那一句话、四项读数与按钮的对比度
- * 与改动前逐字节相同——这就是这套改动敢这么做的原因。
+ * 分开：遮罩负责让棋盘退后，卡片整个不透明，于是标题、那一句话、四项读数、那一行与
+ * 按钮的对比度与改动前逐字节相同——这就是这套改动敢这么做的原因。
  *
  * **读数为什么住在这一处**：两处各写一遍「分数 / 最高分 / 步数」必然漂开，所以 markup
  * 只有这一份，两处把自己的标题、那一句话与按钮递进来（两者的文案逐字节未改）。
@@ -80,6 +89,7 @@ export function ResultLayer({
   panel,
   endReason,
   readout,
+  line,
   title,
   sentence,
   leaving,
@@ -132,6 +142,9 @@ export function ResultLayer({
             「三个阶段都能判」与「基准线取在写入处」都定了，这里按前者三档都显示，按后者
             用写入前那条当门槛。将来若要按阶段分文案，该分的是这一句话，不是判据本身。 */}
         {readout.isNewBest && <p className="overlay__record">本局刷新了最高分</p>}
+        {/* 卡片那一行（T31）。放在记录标记之后、按钮之前——它是这张卡片的**最后一句话**，
+            对一局怎么走的总结，或者彩蛋那一局的梗。没有就不在 DOM 里留一个空节点 */}
+        {line !== null && <p className="overlay__line">{line}</p>}
         <div className="flex gap-2">{actions}</div>
       </div>
     </section>

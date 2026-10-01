@@ -6,6 +6,7 @@ import { move, swap } from '../../src/game/engine'
 import {
   ACHIEVEMENTS,
   achievementEmoji,
+  achievementNoteOf,
   countMergesAlongPath,
   FIRST_MERGE_COUNT,
   mergeCountBetween,
@@ -16,6 +17,7 @@ import {
   TILE_8192,
   unlockedAchievements,
   type RunFacts,
+  type ShenmoOutcome,
 } from '../../src/game/achievements'
 import { stateWithBoard } from './support'
 
@@ -28,6 +30,11 @@ import { stateWithBoard } from './support'
  *
  * 跨局的那两条（模式收藏家、每日坚守）已按 ADR-0007 退休：注册表里没有它们的行，
  * 界面上也没有占位，所以这里连「它不解锁」都不必断言——它们不存在。
+ *
+ * T29 起注册表长到十条（末尾三颗是一念神魔的果：道通成魔 / 学艺不精 / 当断即断），
+ * **T32 的二念把它带到十一条**（走火入魔）。四颗读的是同一个字段 `shenmoOutcomes`——
+ * 彩蛋唯一住进 store 的东西（父规格架构决策 2）。T31 又给这四颗各立了一句用户原话
+ * （注册表的可选字段 `note`），三套 toast 的下行读它。
  */
 
 /**
@@ -46,6 +53,9 @@ function facts(overrides: Partial<RunFacts> = {}): RunFacts {
     merges: 0,
     // T19 的风格切换次数：这里默认没切过，风格旅行者的用例按需覆盖它
     styleSwitches: 0,
+    // T29 / T32 的彩蛋进度：这里默认什么都没结出过。中性——一旦默认给一个果，
+    // 每个用例都会顺带解锁道通成魔，`toEqual([...])` 就再也分不清自己在验哪一条
+    shenmoOutcomes: [],
     ...overrides,
   }
 }
@@ -82,8 +92,8 @@ const PACK_ONLY: CellSpec[][] = [
   [2, 4, 8, 16],
 ]
 
-describe('注册表：七个成就，全部是「本局」口径', () => {
-  test('恰好七个，次序恒定，跨局的那两条一行都没有', () => {
+describe('注册表：十一个成就，全部是「本局」口径', () => {
+  test('恰好十一个，次序恒定，跨局的那两条一行都没有', () => {
     // 撤销了模式的收藏家与每日坚守：它们的条件是「赢遍六个模式」「连续七天」，
     // 单局内无法自证，于是连占位都没有（ADR-0007）
     expect(ACHIEVEMENTS.map((item) => item.id)).toEqual([
@@ -94,8 +104,15 @@ describe('注册表：七个成就，全部是「本局」口径', () => {
       'quick-hand',
       'merge-machine',
       'style-traveller',
+      // T29 的彩蛋三颗追加在末尾：注册表的次序就是展示次序，而它们是**后来才有**的。
+      // T32 的二念补第四颗，仍排在最后——父规格的架构决策 9 定的次序就是「一念、错序、
+      // 犹豫、二念」，即「按它们能发生的顺序」
+      'shenmo-first-pass',
+      'shenmo-wrong-order',
+      'shenmo-hesitation',
+      'shenmo-second-pass',
     ])
-    expect(ACHIEVEMENTS).toHaveLength(7)
+    expect(ACHIEVEMENTS).toHaveLength(11)
     // 六个模式还在（模式轴没变），只是没有任何成就依赖「赢遍它们」
     expect(MODES).toHaveLength(6)
   })
@@ -110,6 +127,10 @@ describe('注册表：七个成就，全部是「本局」口径', () => {
     // 取图标的那个帮手与 label 的那个对称：查不到给中性图标，不抛
     expect(achievementEmoji('first-merge')).toBe('🧩')
     expect(achievementEmoji('style-traveller')).toBe('🎨')
+    // 道通成魔占两个 emoji（一念神魔的正面与反面），仍然与其余九个两两不同
+    expect(achievementEmoji('shenmo-first-pass')).toBe('🐒👿')
+    expect(achievementEmoji('shenmo-wrong-order')).toBe('🤜')
+    expect(achievementEmoji('shenmo-hesitation')).toBe('🔏')
   })
 
   test('每一条的条件文案都自称「本局」——它必须与实现同一个口径', () => {
@@ -121,6 +142,10 @@ describe('注册表：七个成就，全部是「本局」口径', () => {
     )
     expect(ACHIEVEMENTS.find((item) => item.id === 'tile-4096')?.label).toBe('4096')
     expect(ACHIEVEMENTS.find((item) => item.id === 'tile-8192')?.label).toBe('大数猎人')
+    // 彩蛋四颗的界面用名（业主给的原话）
+    expect(ACHIEVEMENTS.find((item) => item.id === 'shenmo-first-pass')?.label).toBe('道通成魔')
+    expect(ACHIEVEMENTS.find((item) => item.id === 'shenmo-wrong-order')?.label).toBe('学艺不精')
+    expect(ACHIEVEMENTS.find((item) => item.id === 'shenmo-hesitation')?.label).toBe('当断即断')
   })
 
   test('阈值与界面说的那几个数完全一致', () => {
@@ -130,9 +155,64 @@ describe('注册表：七个成就，全部是「本局」口径', () => {
     expect(MERGE_MACHINE_COUNT).toBe(200)
     expect(STYLE_TRAVELLER_SWITCHES).toBe(5)
   })
+
+  // T31：`note` 是注册表的可选字段，只归一念神魔那几颗。三句用户原话从 T29 的注释里
+  // 搬进了定义本身——那之前它们没有地方住（`condition` 是战绩面板照实显示的「本局」
+  // 口径判据，塞一句调侃进去等于让面板说谎）。
+  test('一念神魔那四颗各带一句用户原话；其余七颗一个字节都没有', () => {
+    // 用户给的四句，逐字钉住——它们会出现在 toast 的下行，错一个字就是另一句梗
+    expect(ACHIEVEMENTS.find((item) => item.id === 'shenmo-first-pass')?.note).toBe(
+      '既见未来，为何不拜？'
+    )
+    expect(ACHIEVEMENTS.find((item) => item.id === 'shenmo-wrong-order')?.note).toBe(
+      '形不成形，意不在意'
+    )
+    expect(ACHIEVEMENTS.find((item) => item.id === 'shenmo-hesitation')?.note).toBe(
+      '心若不决，毋寻邪道'
+    )
+    // 第四句是 T32 入册时补的（那句诗在 T31 就停在注释里等它）：走火入魔也是唯一
+    // 一颗会**悬在视口顶端**的成就，所以这句诗同时是悬顶上唯一的一行字
+    expect(ACHIEVEMENTS.find((item) => item.id === 'shenmo-second-pass')?.note).toBe(
+      '一念为神，一念成魔，念念为贪，非念而魔'
+    )
+    // 其余七颗**没有** note：三套 toast 据此照旧显示各自的祝词
+    const withoutNote = ACHIEVEMENTS.filter((item) => item.note === undefined).map(
+      (item) => item.id
+    )
+    expect(withoutNote).toEqual([
+      'first-merge',
+      'first-win',
+      'tile-4096',
+      'tile-8192',
+      'quick-hand',
+      'merge-machine',
+      'style-traveller',
+    ])
+    // 末颗就是走火入魔（T32）：注册表的次序就是展示次序，二念排在四颗彩蛋的最后
+    expect(ACHIEVEMENTS.at(-1)?.id).toBe('shenmo-second-pass')
+  })
+
+  test('取梗的帮手：一条祝贺里第一个带 note 的成就；一条都没有就给 null', () => {
+    // 与 emoji / label 那两个帮手对称：按 id 查，查不到不抛
+    expect(achievementNoteOf(['shenmo-first-pass'])).toBe('既见未来，为何不拜？')
+    expect(achievementNoteOf(['shenmo-hesitation'])).toBe('心若不决，毋寻邪道')
+    expect(achievementNoteOf(['shenmo-second-pass'])).toBe(
+      '一念为神，一念成魔，念念为贪，非念而魔'
+    )
+    // 一条祝贺真的同时装着两个带 note 的成就时取第一个——宿主（advanceAchievements）
+    // 已把 ids 按注册表次序排好，于是「第一个」就是注册表最前的那个，与 names 那一行
+    // 「稳定先后」是同一回事
+    expect(achievementNoteOf(['shenmo-first-pass', 'shenmo-hesitation'])).toBe(
+      '既见未来，为何不拜？'
+    )
+    // 没有 note 的成就（含一个不存在的 id）都不影响结论
+    expect(achievementNoteOf(['first-merge', 'shenmo-wrong-order'])).toBe('形不成形，意不在意')
+    expect(achievementNoteOf(['first-merge'])).toBeNull()
+    expect(achievementNoteOf([])).toBeNull()
+  })
 })
 
-describe('七个成就：阈值下 / 正好 / 阈值上', () => {
+describe('十一个成就：阈值下 / 正好 / 阈值上', () => {
   test('首次合并：本局第一次合并就解锁（阈值 1，全场最早的那一个）', () => {
     expect(FIRST_MERGE_COUNT).toBe(1)
     expect(unlockedAchievements(facts({ merges: 0 }))).toEqual([])
@@ -188,6 +268,106 @@ describe('七个成就：阈值下 / 正好 / 阈值上', () => {
   })
 })
 
+describe('一念神魔的三个果（T29）', () => {
+  /**  shorthand：一个果 */
+  function withOutcome(outcome: ShenmoOutcome): Partial<RunFacts> {
+    return { shenmoOutcomes: [outcome] }
+  }
+
+  test('什么都没结出过：一颗彩蛋成就都不解锁', () => {
+    expect(unlockedAchievements(facts())).toEqual([])
+    expect(unlockedAchievements(facts({ shenmoOutcomes: [] }))).toEqual([])
+  })
+
+  test('先 B 后 A：道通成魔', () => {
+    expect(unlockedAchievements(facts(withOutcome('first-pass')))).toEqual(['shenmo-first-pass'])
+  })
+
+  test('先点了 A：学艺不精', () => {
+    expect(unlockedAchievements(facts(withOutcome('wrong-order')))).toEqual(['shenmo-wrong-order'])
+  })
+
+  test('放任那道环流尽：当断即断', () => {
+    expect(unlockedAchievements(facts(withOutcome('hesitated')))).toEqual(['shenmo-hesitation'])
+  })
+
+  test('三个果都在：按注册表次序一起给出（一次跃迁里几个成就合成一条，次序稳定）', () => {
+    expect(
+      unlockedAchievements(
+        facts({ shenmoOutcomes: ['hesitated', 'wrong-order', 'first-pass'] })
+      )
+    ).toEqual(['shenmo-first-pass', 'shenmo-wrong-order', 'shenmo-hesitation'])
+  })
+
+  test('同一个果结两次：还是一次解锁，不会翻倍', () => {
+    // 条件原话是「本局发生过什么」，与「发生过几次」无关
+    expect(
+      unlockedAchievements(facts({ shenmoOutcomes: ['hesitated', 'hesitated'] }))
+    ).toEqual(['shenmo-hesitation'])
+  })
+
+  test('彩蛋的果与别的成就互不打扰：一局可以同时有首胜与道通成魔', () => {
+    expect(
+      unlockedAchievements(facts({ reachedTarget: true, shenmoOutcomes: ['first-pass'] }))
+    ).toEqual(['first-win', 'shenmo-first-pass'])
+  })
+
+  test('放任**第一段**窗口流尽不在这个联合里：它什么都不授予', () => {
+    // 父规格的架构决策 5：一个打错的码不该指控任何人。`ShenmoOutcome` 里根本没有
+    // 「放任第一段」这个成员，所以这一层连表达的可能都没有——用类型钉住这件事
+    const all: readonly ShenmoOutcome[] = ['wrong-order', 'hesitated', 'first-pass']
+    expect(all).toHaveLength(3)
+    expect(all).not.toContain('first-window')
+    expect(unlockedAchievements(facts(withOutcome('wrong-order')))).not.toContain('shenmo-hesitation')
+  })
+})
+
+// T32 的二念：走火入魔是**另一个果**，不是同一个果结第二次——裁判在这里，
+// 因为「第几遍」由渲染层那台 pure machine 供（`ShenmoState.passes`），它只会把
+// 第二遍及以后结出的果写成 `second-pass`，于是这一层一个 `includes` 就够。
+describe('一念神魔的第四个果：走火入魔（T32）', () => {
+  /**  shorthand：一串果 */
+  function withOutcomes(...outcomes: ShenmoOutcome[]): Partial<RunFacts> {
+    return { shenmoOutcomes: outcomes }
+  }
+
+  test('第一遍只授予道通成魔：走火入魔神一根毛都没动', () => {
+    expect(unlockedAchievements(facts(withOutcomes('first-pass')))).toEqual(['shenmo-first-pass'])
+  })
+
+  test('第二遍授予走火入魔，而道通成魔照旧在场（它第一遍就拿到了）', () => {
+    // 一个完整的两遍：第一遍结 first-pass，第二遍结 second-pass（不是两遍 first-pass）
+    expect(unlockedAchievements(facts(withOutcomes('first-pass', 'second-pass')))).toEqual([
+      'shenmo-first-pass',
+      'shenmo-second-pass',
+    ])
+  })
+
+  test('只结出 second-pass 也解锁：这一层不追问第一遍的果去哪了', () => {
+    // 典型来路是刷新：彩蛋旗标不落盘，恢复之后第二次走完魔道就直接是第二遍
+    expect(unlockedAchievements(facts(withOutcomes('second-pass')))).toEqual(['shenmo-second-pass'])
+  })
+
+  test('四个果都在：仍按注册表次序给，二念排在最后', () => {
+    expect(
+      unlockedAchievements(
+        facts(withOutcomes('hesitated', 'second-pass', 'wrong-order', 'first-pass'))
+      )
+    ).toEqual([
+      'shenmo-first-pass',
+      'shenmo-wrong-order',
+      'shenmo-hesitation',
+      'shenmo-second-pass',
+    ])
+  })
+
+  test('第三遍、第四遍还是同一个果：轮回不翻倍，也不添新成就', () => {
+    expect(
+      unlockedAchievements(facts(withOutcomes('first-pass', 'second-pass', 'second-pass')))
+    ).toEqual(['shenmo-first-pass', 'shenmo-second-pass'])
+  })
+})
+
 describe('派生：同一份事实永远给出同一份集合', () => {
   test('连着算三遍逐字节相同，集合次序恒等于 ACHIEVEMENTS 的次序', () => {
     const run = facts({
@@ -197,6 +377,8 @@ describe('派生：同一份事实永远给出同一份集合', () => {
       score: 30000,
       merges: 250,
       styleSwitches: 5,
+      // 彩蛋三个果一起给：注册表末尾三颗因此也在集合里，次序照旧
+      shenmoOutcomes: ['wrong-order', 'first-pass', 'hesitated'],
     })
     const once = unlockedAchievements(run)
     expect(once).toEqual([
@@ -207,6 +389,9 @@ describe('派生：同一份事实永远给出同一份集合', () => {
       'quick-hand',
       'merge-machine',
       'style-traveller',
+      'shenmo-first-pass',
+      'shenmo-wrong-order',
+      'shenmo-hesitation',
     ])
     expect(unlockedAchievements(run)).toEqual(once)
     expect(unlockedAchievements(run)).toEqual(once)
@@ -225,6 +410,7 @@ describe('派生：同一份事实永远给出同一份集合', () => {
       'modeId',
       'reachedTarget',
       'score',
+      'shenmoOutcomes',
       'styleSwitches',
     ])
   })

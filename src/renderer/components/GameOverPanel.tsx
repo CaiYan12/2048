@@ -12,6 +12,11 @@ interface Props {
    */
   spec: ResultLayerSpec
   readout: ResultReadout
+  /**
+   * 卡片那一行（T31）。由 App 用 `resultCardLine` 从本局 facts 算好递进来——**不在两个
+   * 面板里各算一遍**，那正是父规格的架构决策 17 要防的两套真相
+   */
+  line: string | null
   onSettle(): void
   onNewGame(): void
   /** 撤销一步（T11）。只摆在还没结算的死局面板上——ended 之后一律不可用 */
@@ -48,12 +53,14 @@ interface Props {
  *
  * T26：结构归 ResultLayer（半透明遮罩 + 不透明卡片，ADR-0008），本文件只留自己的标题、
  * 那一句话与四个按钮——三项逐字节未改。读数由 App 用 records.ts 的纯函数算好递进来。
+ * T31：卡片那一行也由 App 算好递进来（父规格的架构决策 17）。
  * T27：App 经 `leaving` 递进退场旗标、经 `onExited` 接「退场播完了」（何时退场、何时
  * 摘层全由 ResultPresence.ts 算），本文件只转交。
  */
 export function GameOverPanel({
   spec,
   readout,
+  line,
   onSettle,
   onNewGame,
   onUndo,
@@ -72,6 +79,7 @@ export function GameOverPanel({
       panel={spec.panel}
       endReason={spec.endReason}
       readout={readout}
+      line={line}
       title={settled ? '本局已结束' : '死局'}
       sentence={settled ? endReasonLabel(spec.endReason) : STUCK_LABEL}
       leaving={leaving}

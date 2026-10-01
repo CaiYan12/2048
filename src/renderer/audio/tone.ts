@@ -21,8 +21,17 @@ import type { Board, GameState, Tile } from '../../shared/types'
  * 前四个是 T20 点名的（移动 / 合并 / 胜利 / 失败）；`blocked`（无法移动）是此后应项目
  * 所有者要求补上的**第五个**——README 的 TODO 已把它列进「各类音效调整下拉框」，而
  * 一个下拉框能列出的选项，首先得是一个事件。它的音色是占位（见 planFor 的 blocked 分支）。
+ * `shatter`（一念神魔里 B 碎掉）与 `fanfare`（走完一遍时放礼炮）是 T33 补上的第六、
+ * 第七个——父规格的架构决策 14 点名要的两个占位合成音，音色理由写在 planFor 那两个分支上。
  */
-export type SoundEvent = 'move' | 'merge' | 'win' | 'loss' | 'blocked'
+export type SoundEvent =
+  | 'move'
+  | 'merge'
+  | 'win'
+  | 'loss'
+  | 'blocked'
+  | 'shatter'
+  | 'fanfare'
 
 /** 一个振荡器的规格。synth.ts 照它建振荡器与增益包络，一个数字都不自己加 */
 export interface ToneSpec {
@@ -62,7 +71,7 @@ const BASE_FREQUENCY = 261.63
  */
 const SEMITONES_PER_DOUBLING = 2
 
-// ─── 四个事件的音色 ──────────────────────────────────────────────────────────
+// ─── 七个事件的音色 ──────────────────────────────────────────────────────────
 
 /** 移动音的固定频率（F3）：它响得最勤，所以音量与时长都压在合并音之下 */
 const MOVE_FREQUENCY = 174.61
@@ -79,6 +88,18 @@ const MOVE_PEAK_GAIN = 0.1
 const BLOCKED_FREQUENCY = 110
 const BLOCKED_DURATION = 0.05
 const BLOCKED_PEAK_GAIN = 0.08
+
+/**
+ * 一念神魔里 B 碎掉的那一声（父规格的架构决策 14：占位合成音）
+ *
+ * 「低、闷、短，与『无法移动』同一个档语气」——它的意思与 blocked 是同一种「什么都没
+ * 剩下」：玩家亲手选的那一颗裂了。所以三样都比 blocked 再压一档：低一个纯四度
+ * （E2 而不是 A2）、同样短、再轻一点。**只排一个音**：这一声不携带第二件事，
+ * 与 blocked 同一条道理（别的不说，两个音就会听起来像一次「合并」）。
+ */
+const SHATTER_FREQUENCY = 82.41
+const SHATTER_DURATION = 0.05
+const SHATTER_PEAK_GAIN = 0.07
 
 /** 合并音时长与音量。音高不在这里定，它由方块数值算出来 */
 const MERGE_DURATION = 0.16
@@ -104,6 +125,16 @@ const LOSS_NOTE_STAGGER = 0.13
 
 /** 胜利的三个音：C 大调上行琶音。上行 = 「上去了」 */
 const WIN_NOTES: readonly number[] = [523.25, 659.25, 783.99]
+
+/**
+ * 礼炮的四个音：胜利那三个音（C5 → E5 → G5）**再把根音的高八度接上**（C6）。
+ *
+ * 与胜利同一个寄存器、同一组琶音参数（「与 win 同一档语气」），只多最后一个音——
+ * 否则走完魔道那一刻响的与合出目标块那一刻**一模一样**，玩家分不出自己刚才是赢了
+ * 还是破解了一个彩蛋。多的是**根音**的八度而不是最高音的八度：那一来就成了另一个
+ * 和弦，听起来像放错了录音。
+ */
+const FANFARE_NOTES: readonly number[] = [523.25, 659.25, 783.99, 1046.5]
 /** 失败的三个音：A 小调下行。下行 = 「落了」 */
 const LOSS_NOTES: readonly number[] = [329.63, 261.63, 220]
 
@@ -248,6 +279,25 @@ export function planFor(event: SoundEvent, value: number, reduced: boolean): Voi
         },
       ])
     }
+    // 一念神魔里 B 碎掉：比「无法移动」再低一档的闷响，同样只排一个音。它是
+    // 「你选的那一颗没了」，与「走不动」是同一种语气，所以三样（音高 / 时长 /
+    // 音量）都压在 blocked 之下
+    case 'shatter': {
+      const duration = SHATTER_DURATION * durationScale
+      return planOf([
+        {
+          waveform: 'sine',
+          frequency: SHATTER_FREQUENCY,
+          peakGain: SHATTER_PEAK_GAIN * gainScale,
+          delay: 0,
+          duration,
+        },
+      ])
+    }
+    // 礼炮：走完一遍（B 之后再点 A）时放的那一声。与胜利音同一个寄存器、
+    // 同一组琶音参数，多一个高八度收尾（见 FANFARE_NOTES 的注释）
+    case 'fanfare':
+      return planOf(arpeggio(FANFARE_NOTES, NOTE_DURATION, NOTE_STAGGER, reduced))
   }
 }
 

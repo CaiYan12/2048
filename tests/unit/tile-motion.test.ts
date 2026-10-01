@@ -168,7 +168,11 @@ describe('裁决表与 board.css 逐项对得上', () => {
     expect(css).toContain(".board__tile[data-merge-pulse='up']")
     expect(css).toContain(".board__tile[data-merge-pulse='down']")
     expect(css).toContain('transition-property: translate, scale')
-    expect(css).toContain(".board__tile[data-merge-pulse='down'] {\n  scale: none;")
+    // **不在 needle 里写死换行**：这台机器上工作区是 CRLF（core.autocrlf=true），盘上读回来的
+    // 原文带着 \r\n——写死 \n 的 needle 会在一台 LF 的检出上过、在这台机器上红，而断的事情
+    // （那条规则里有 scale: none）一个比特都没变。`\s*` 同时把换行符与缩进吃掉，而
+    // `down'] {` 后面紧跟 transition-property 的那条合并规则不会被它认领（那里不是 scale）
+    expect(css).toMatch(/\.board__tile\[data-merge-pulse='down'\] \{\s*scale: none;/)
     expect(ruleBlock(css, ".board__tile[data-merge='true']")).toContain('z-index: 2')
     expect(ruleBlock(css, '.board__tile[data-merge-source-id]')).toContain('z-index: 1')
     expect(css).toContain(

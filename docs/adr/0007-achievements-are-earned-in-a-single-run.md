@@ -30,6 +30,29 @@ a player could not tell from the board in front of them what they had done.
   `first-merge` — "this run's first merge", threshold `merges >= 1`. It is not from the appendix, and
   it satisfies the same rule as the rest: a single run proves it. It sits first in the registry
   because it is the earliest milestone available in any run.)
+  (**2026-10-01, 一念神魔 (T29):** the registry gained three more, appended at the end —
+  `shenmo-first-pass` 道通成魔 (this run's 抉择 resolved B then A), `shenmo-wrong-order`
+  学艺不精 (this run clicked A first), `shenmo-hesitation` 当断即断 (this run let the thinning
+  ring run out). **Ten total; the eleventh is the second-pass achievement and comes with the
+  二念 ticket, so the count is not eleven yet.** All three read one new `RunFacts` field,
+  `shenmoOutcomes` — the only thing the easter egg puts in the store, because the code buffer,
+  the stage and the two countdowns are coordination state and live in the renderer
+  (`ShenmoChoice.ts`). Like `style-traveller`'s switch counter, that field does not roll back
+  with undo: it records events that happened, not a position on the board. The parent spec's
+  decision 6 is what makes it one field and not three: a pass counts only a complete B-then-A,
+  so "how far the player got" is exactly the set of endings the run produced.)
+  (**2026-10-01, 一念神魔 (T32):** the registry reached eleven. The second-pass achievement is
+  `shenmo-second-pass` 走火入魔 (this run walked the whole B-then-A **twice**), and it needed one
+  small correction to the plan above rather than a new field: "the second pass" is a **fourth**
+  outcome, not `first-pass` happening twice. `recordShenmoOutcome` is idempotent — the same
+  outcome recorded twice is kept once — so a second `first-pass` would have moved nothing in the
+  store and the achievement could never have lit. The machine therefore grants `second-pass` on
+  the second and every later complete pass, and `includes('second-pass')` is the whole judgement.
+  It also carries the registry's optional `note` field (added by T31), which is the only reason
+  one achievement gets a line on screen: the pinned strip at the top of the viewport reads it.
+  Nothing about the persistence rule changes — that field is memory only, so a refresh restores
+  the run with its easter-egg progress back to zero and the strip gone. That is the decision's
+  own consequence, not a leak.)
 - An achievement id stops being a persisted identity. Retiring one no longer needs a storage
   migration; ids become interface and test identities only. This is the one place where the style
   ids' rule — retirement requires a migration — deliberately does not apply.

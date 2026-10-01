@@ -20,11 +20,23 @@ import type { GameState } from '../shared/types'
  * 成就 id 因此也不再是持久化身份——退休一个成就不需要存储迁移（ADR-0007）：
  * 没有任何字节写过盘，也就没有字节要迁。
  *
- * **为什么是七个**：`mode-collector`（六个模式各赢一次）与 `daily-stand`（连续 7 个
+ * **为什么是十一个**：`mode-collector`（六个模式各赢一次）与 `daily-stand`（连续 7 个
  * UTC 日期各结算一局 Daily）跨局才成立，单局内无法自证，按 ADR-0007 直接退休——
  * 注册表里没有它们的行，界面上也不留占位。`first-merge` 是 2026-09-28 之后应所有者
  * 要求**新加**的第七个（不在原附录里）：它同样单局可自证，而且是全场最早能拿到的
  * 里程碑——玩家不必打到中后盘才第一次看见这套祝贺。
+ * **一念神魔**（T29）又把末尾三颗带进来：道通成魔 / 学艺不精 / 当断即断，条件全是
+ * 「本局在抉择里发生了什么」，由彩蛋进度那一个字段（`RunFacts.shenmoOutcomes`）供着。
+ * 父规格的架构决策 6 说得很清楚：**一遍只算完整的 B → A**，所以那一个记的是「结出的果」，
+ * 不是「走到第几步」。**第十一颗由 T32 的二念落地**：`shenmo-second-pass`（走火入魔），
+ * 条件是本局第二次完整走完 B → A——那个「第二次」落地为**一个新的果**
+ * （`second-pass`）而不是同一个果出现两遍，所以 `includes` 一个成员就够，不必计数
+ * （host 的 `recordShenmoOutcome` 本来就是幂等的，同一条记录记两遍它只认第一遍）。
+ *
+ * **`note` 字段（T31）只归一念神魔那四颗**：它是这几颗成就自己的梗，即用户给的原话。
+ * 住注册表而不是住三套风格各自的祝词里，与 emoji 同一条理由（ADR-0007 把 emoji 裁成
+ * 「内容，不是装饰」）：那是这几颗成就的笑话本身，不是风格在说话。其余七颗没有它，
+ * 于是三套 toast 照旧显示各自的祝词——一个字节不动。
  *
  * 风格轴那两条远期成就（`全风格征服` / `复古大师`）同样不在这里：它们的前提是
  * **整套特色风格上线**，在三套基准风格下连「全风格」指什么都说不清，所以
@@ -53,6 +65,44 @@ export type AchievementId =
   | 'merge-machine'
   /** 风格旅行者：本局内切换 5 次以上风格 */
   | 'style-traveller'
+  /** 道通成魔：一念神魔的第一遍——本局在抉择里先 B 后 A（T29） */
+  | 'shenmo-first-pass'
+  /** 学艺不精：本局在抉择刚开时先点了 A（T29） */
+  | 'shenmo-wrong-order'
+  /** 当断即断：本局任由那道环流尽（T29） */
+  | 'shenmo-hesitation'
+  /** 走火入魔：本局第二次在抉择里先 B 后 A（T32） */
+  | 'shenmo-second-pass'
+
+/**
+ * 「一念神魔」的抉择结出的三种果（T29 · 父规格的架构决策 5）。
+ *
+ * **只有一种是时钟到期授予的**：`hesitated`。`wrong-order` 是玩家点的，`first-pass` 也是
+ * 玩家点的，而第一段窗口到期**什么都不授予**（一个打错的码不该指控任何人）——所以它不在
+ * 这个联合里。
+ *
+ * 为什么这个类型住在 `src/game/`：它是**成就的事实**，于是 `RunFacts` 要为它开一个字段。
+ * 判定住在这一层、渲染层只负责产出它，这正是 ADR-0001 的分工反过来用——渲染层可以依赖
+ * 规则层，规则层一个字节都不碰渲染层。
+ *
+ * **`second-pass` 与 `first-pass` 是两个果，不是同一个果结两次**（T32）：二念的判据是
+ * 「这是第二遍」，而宿主记果是幂等的（同一个果只记一次）——所以第二遍若还结
+ * `first-pass`，store 那儿一个比特都不会动，走火入魔也就永远解锁不了。让机器在第二遍
+ * 结出一个**新**的果，`includes('second-pass')` 就成了最直白的判据，而「第三遍及以后」
+ * 也自然落在同一个成员上（轮回没有第三种果）。
+ */
+export type ShenmoOutcome =
+  /** 先点 A：形不成形，意不在意（学艺不精） */
+  | 'wrong-order'
+  /** 放任第二段窗口流尽：心若不决（当断即断） */
+  | 'hesitated'
+  /** 先 B 后 A：既见未来，为何不拜（道通成魔）。父规格的架构决策 6：**这才算一遍** */
+  | 'first-pass'
+  /**
+   * **第二次**先 B 后 A（T32 · 走火入魔）。第一遍之后每一遍都结它——包括第三遍、
+   * 第四遍：笑话在「你又来了一遍」，轮回没有第三种果。
+   */
+  | 'second-pass'
 
 export interface AchievementDefinition {
   id: AchievementId
@@ -68,6 +118,19 @@ export interface AchievementDefinition {
   emoji: string
   /** 达成条件的原话。战绩面板照实显示它——永远是一句「本局」的口径 */
   condition: string
+  /**
+   * 这一颗成就自己的**梗**（T31 · 父规格的架构决策 9 与 17）。一念神魔那四颗各有一句
+   * 用户给的原话，其余七颗没有这个字段。
+   *
+   * 为什么它不住 `condition`：`condition` 是战绩面板照实显示的「本局」口径判据，塞一句
+   * 调侃进去等于让面板说谎。为什么它不住三套风格各自的祝词里：emoji 在 ADR-0007 里
+   * 已被裁定为「内容，不是装饰」，这几句话是同一类东西——**它们是这几颗成就的笑话本身，
+   * 不是风格的嗓音**。祝词留给其余七颗。
+   *
+   * 它唯一的读者是 toast：成就带 `note` 时下行显示它，不带时照旧显示本套自己的祝词
+   * （三份 toast.tsx 逐条相同的那个分支）。**它不出现在战绩面板上**——那里说的是条件。
+   */
+  note?: string
 }
 
 /**
@@ -87,6 +150,49 @@ export const ACHIEVEMENTS: readonly AchievementDefinition[] = [
   { id: 'merge-machine', label: '合并机器', emoji: '⚙️', condition: '本局合并 200 次' },
   // 风格轴那一个排在最后：解锁集合按这张表排序，于是刷新前后逐字节可比
   { id: 'style-traveller', label: '风格旅行者', emoji: '🎨', condition: '本局切换 5 次以上风格' },
+  // —— 一念神魔（T29 / T32）——
+  // 追加在末尾，也因为「注册表的次序就是展示次序」，而彩蛋这四个是**后来才有**的：
+  // 前七个随便开一局就有机会看见，这四个要玩家自己打出一串口诀来。父规格的架构决策 9
+  // 定的次序是「一念、错序、犹豫、二念」，T29 落地前三颗，T32 补上第四颗。
+  //
+  // 图标与「用户原话」：道通成魔取 🐒👿（猴脸 + 角，一念神魔的正面与反面）；
+  // 学艺不精 🤜、当断即断 🔏。三句原话——「既见未来，为何不拜？」「形不成形，意不在意」
+  // 「心若不决，毋寻邪道」——**不是 `condition`**：那是战绩面板照实显示的「本局」口径
+  // 判据，塞一句调侃进去就等于让面板说谎。T31 因此把 `note` 立成注册表的可选字段，
+  // 三句话各归其位（T29 当时只能把它们记在这一段注释里）。
+  //
+  // **第四颗（二念 / 走火入魔）由 T32 入册**（T31 把那一行的形状停在注释里等它）：它就是
+  // 那颗**悬在视口顶端**的成就——走完第二遍之后页面被扣下，只剩它与一颗「重新开始」，
+  // 于是这句诗也成了这一局余下时间里唯一的一行字。emoji 取 😈：道通成魔那颗是 🐒👿
+  // （一体两面），这一颗是彻底翻过去了的那一面。
+  {
+    id: 'shenmo-first-pass',
+    label: '道通成魔',
+    emoji: '🐒👿',
+    condition: '本局在抉择里先 B 后 A',
+    note: '既见未来，为何不拜？',
+  },
+  {
+    id: 'shenmo-wrong-order',
+    label: '学艺不精',
+    emoji: '🤜',
+    condition: '本局在抉择刚开时先点了 A',
+    note: '形不成形，意不在意',
+  },
+  {
+    id: 'shenmo-hesitation',
+    label: '当断即断',
+    emoji: '🔏',
+    condition: '本局任由那道环流尽',
+    note: '心若不决，毋寻邪道',
+  },
+  {
+    id: 'shenmo-second-pass',
+    label: '走火入魔',
+    emoji: '😈',
+    condition: '本局在抉择里第二次先 B 后 A',
+    note: '一念为神，一念成魔，念念为贪，非念而魔',
+  },
 ]
 
 /**
@@ -96,6 +202,9 @@ export const ACHIEVEMENTS: readonly AchievementDefinition[] = [
  * 加它的理由与 ADR-0007 同一条：条件必须单局可自证——`merges >= 1` 在第一步合并
  * 那一刻就成立，不需要任何跨局进度。它在注册表里排第一，因为它是全场最早能拿到的
  * 里程碑（其余几个都要打到中后盘才有机会）。
+ *
+ * 「第七个」是**它当时**的序号，不是注册表现在的大小：T29 的彩蛋三颗追加在末尾、T32 的
+ * 二念补第四颗，于是注册表到十一个（见文件头）。
  */
 export const FIRST_MERGE_COUNT = 1
 
@@ -145,6 +254,20 @@ export interface RunFacts {
   merges: number
   /** 本局**真实发生**的风格切换次数。它只增不减，见 unlockedAchievements 的例外 */
   styleSwitches: number
+  /**
+   * 本局在「一念神魔」的抉择里结出过的果（T29）。**彩蛋唯一住进 store 的东西**
+   * （父规格的架构决策 2）：码缓冲、阶段、两个窗口都是协调状态，住在渲染层；而成就是从
+   * 本局事实派生的，事实只在 store 里拼得全。
+   *
+   * 三条性质，逐条对应一个会被问到的「为什么不」：
+   *   · **不跟撤销回退**——它是发生过的事件，与 `styleSwitches` 同一条理由。撤销一步
+   *     棋盘是回去了，可玩家真的点过那颗钮；
+   *   · **不落盘**——没有任何结算、记录或统计要读它，而父规格的架构决策 10 已经把二念
+   *     那一颗定成「内存字段」。刷新之后这一局的彩蛋进度从零起，果也还能再结一次；
+   *   · **只记「结出的果」，不记「走到第几步」**——父规格的架构决策 6：一遍只算完整的
+   *     B → A。放任任一段窗口流尽、或先点了 A，都**不算一遍**，不推进任何东西。
+   */
+  shenmoOutcomes: readonly ShenmoOutcome[]
 }
 
 /**
@@ -158,11 +281,20 @@ export interface RunFacts {
  *     前者顺带解锁后者）；
  *   · 快手 = 本局是 Time Attack **且**本局分数超过 20000（别的模式打再高也不算）；
  *   · 合并机器 = 本局合并次数到 200；
- *   · 风格旅行者 = 本局切换次数到 5。
+ *   · 风格旅行者 = 本局切换次数到 5；
+ *   · 道通成魔 = 本局结出过 `first-pass`（抉择里先 B 后 A，父规格的架构决策 6 的「一遍」）；
+ *   · 学艺不精 = 本局结出过 `wrong-order`（抉择刚开时先点了 A）；
+ *   · 当断即断 = 本局结出过 `hesitated`（放任那道环流尽）；
+ *   · 走火入魔 = 本局结出过 `second-pass`（**第二次**先 B 后 A，T32）。
+ *
+ * **彩蛋那一组的一个边界**：放任**第一段**窗口流尽什么都不授予（父规格的架构决策 5）——
+ * 一个打错的码不该指控任何人。所以 `ShenmoOutcome` 里没有「放任第一段」这个成员，它在
+ * 裁决这一层连表达的可能都没有。
  *
  * **唯一一处不对称**：`style-traveller` 读的切换计数**不跟撤销回退**（ADR-0003 对那个
- * 计数的裁决），所以它解锁之后本局收不回来——而其余五个都随事实回退而收回。这不是
- * 漏写：让那个计数可回退，玩家就能靠「撤销 + 再切一下」反复刷出同一条祝贺
+ * 计数的裁决），所以它解锁之后本局收不回来——而其余六个都随事实回退而收回。彩蛋那一组
+ * 同理（`shenmoOutcomes` 是发生过的事件）：撤销一步不会把玩家点过的钮变回没点。
+ * 这不是漏写：让那些事实可回退，玩家就能靠「撤销 + 再切一下」反复刷出同一条祝贺
  * （ADR-0007 把它记为刻意保留的不对称，而不是待修的缺陷）。集合仍然是从事实**派生**的，
  * 只是那份事实里有一个只增不减的分量。
  */
@@ -175,6 +307,13 @@ export function unlockedAchievements(facts: RunFacts): readonly AchievementId[] 
   if (facts.modeId === 'time-attack' && facts.score > QUICK_HAND_SCORE) satisfied.add('quick-hand')
   if (facts.merges >= MERGE_MACHINE_COUNT) satisfied.add('merge-machine')
   if (facts.styleSwitches >= STYLE_TRAVELLER_SWITCHES) satisfied.add('style-traveller')
+  // 彩蛋四个（T29 / T32）。`includes` 而不是计数：四个条件的原话都是「本局发生过什么」，
+  // 与「发生过几次」无关——同一个果发生过两次也只该祝贺一次（二念那一个靠的是**另一个**
+  // 果 `second-pass`，所以这里照样不必计数）
+  if (facts.shenmoOutcomes.includes('first-pass')) satisfied.add('shenmo-first-pass')
+  if (facts.shenmoOutcomes.includes('wrong-order')) satisfied.add('shenmo-wrong-order')
+  if (facts.shenmoOutcomes.includes('hesitated')) satisfied.add('shenmo-hesitation')
+  if (facts.shenmoOutcomes.includes('second-pass')) satisfied.add('shenmo-second-pass')
   // 按 ACHIEVEMENTS 的恒定次序落库：同一份事实 → 同一份集合，一条提示里几个成就的先后稳定
   return ACHIEVEMENTS.filter((item) => satisfied.has(item.id)).map((item) => item.id)
 }
@@ -263,4 +402,23 @@ export function achievementUnlockLabel(id: AchievementId): string {
 export function achievementEmoji(id: AchievementId): string {
   const found = ACHIEVEMENTS.find((item) => item.id === id)
   return found === undefined ? '✨' : found.emoji
+}
+
+/**
+ * 这一条祝贺的**梗**：这一批成就里第一个带 `note` 的那一句；都没有就给 null。
+ *
+ * 为什么取「第一个」而不是拼起来：note 是一句完整的话（「既见未来，为何不拜？」），
+ * 几句话拼在一行里谁也读不完。**「第一个」按 `ids` 给出的次序算**——宿主
+ * （advanceAchievements）已经把它们按 ACHIEVEMENTS 的恒定次序排好，于是这与
+ * names 那一行「稳定先后」是同一回事，不必在这里把注册表再翻一遍。
+ *
+ * null 的语义是「这一条没有自己的梗」——三套 toast 据此决定下行显示本套自己的祝词，
+ * 于是「判断哪一句」只有这一处，三份实现不会漂开。
+ */
+export function achievementNoteOf(ids: readonly AchievementId[]): string | null {
+  for (const id of ids) {
+    const note = ACHIEVEMENTS.find((item) => item.id === id)?.note
+    if (note !== undefined) return note
+  }
+  return null
 }
