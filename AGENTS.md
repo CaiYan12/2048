@@ -279,7 +279,7 @@ SDD ledger 的「依赖版本走当前」裁决。Node 需 `>=22.12.0`（`engine
 六模式的规则声明在 `src/shared/modes.ts`；本次只实现 `classic`、`material`、`claude`
 三套基准风格，放在 `src/renderer/styles/themes/`。其余特色风格见 `README.md` 的 TODO。
 当前实现范围与验收见 `docs/SPEC.md`，纵向任务见 `docs/tickets/`；原阶段蓝图见
-`docs/primal-setup-plan.md`，术语见 `CONTEXT.md`。
+`docs/primal-setup-plan.md`，术语见 `GLOSSARY.md`。
 
 **Playwright 只准在后台跑，且一律 headless。** 项目所有者会在自己的机器上同时做别的事，
 弹出的浏览器窗口会抢走键盘焦点，前台任务会被打断。具体要求：
@@ -367,7 +367,7 @@ SDD ledger 的「依赖版本走当前」裁决。Node 需 `>=22.12.0`（`engine
 T25 / T26 已实现并验收，形状与踩到的坑见上节与 `.codex/memories/result-layer.md`。这里只记
 几条**不写下来就会被改错**的：
 
-- **规范词是「结果层」**，词条在 `CONTEXT.md` 末尾新小节。`_Avoid_` 禁「面板」（已禁给棋盘、
+- **规范词是「结果层」**，词条在 `GLOSSARY.md` 末尾新小节。`_Avoid_` 禁「面板」（已禁给棋盘、
   又是记分卡的 `.panel` 类名）、「弹窗 / 通知」（已被 Toast 条目花掉）、以及拿「结算界面」
   指 `won` 阶段。本组新写与改写的正文已清；历史文档、既有用例名、`src/game/engine.ts` 与
   SPEC §5 冻结文本刻意没动，理由写在 T25 的验证节。
@@ -420,7 +420,7 @@ The five canonical defaults — `needs-triage`, `needs-info`, `ready-for-agent`,
 
 ### Domain docs
 
-Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
 ### T21 motion status (2026-09-27)
 

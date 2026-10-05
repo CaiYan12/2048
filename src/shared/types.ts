@@ -5,7 +5,7 @@ export type Direction = 'up' | 'down' | 'left' | 'right'
 
 /**
  * 稳定身份：跨移动不变。渲染层靠它做位移动画（T21），撤销靠它校验（T11）。
- * 同一个方块在一局里自始至终是同一个 id，只有位置在变（CONTEXT.md 的 Tile）。
+ * 同一个方块在一局里自始至终是同一个 id，只有位置在变（GLOSSARY.md 的 Tile）。
  */
 export interface Tile {
   id: number

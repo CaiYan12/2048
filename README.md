@@ -24,7 +24,7 @@ tiles.
 
 | Path                       | What                                                              |
 | -------------------------- | ----------------------------------------------------------------- |
-| [`CONTEXT.md`](CONTEXT.md) | Domain glossary. Terminology is enforced — see its `_Avoid_` list  |
+| [`GLOSSARY.md`](GLOSSARY.md) | Domain glossary. Terminology is enforced — see its `_Avoid_` list  |
 | `docs/primal-setup-plan.md`| The original P0–P10 blueprint and its ticket mapping |
 | `docs/SPEC.md`           | Buildable behavior, user stories, architecture and verification contract |
 | `docs/tickets/`          | Small, dependency-linked implementation tickets with acceptance checks |
@@ -111,7 +111,7 @@ SPEC、tickets 与计划文档来推进。本节只记录方向与约定，不�
 
 **约定**
 
-- 术语统一为**结果层（Result layer）**，词条见 `CONTEXT.md`。不用「结算界面」指 `won` 阶段
+- 术语统一为**结果层（Result layer）**，词条见 `GLOSSARY.md`。不用「结算界面」指 `won` 阶段
   （合出目标块不是结算，那一局还在继续），也不用「面板」（它已禁给棋盘用，又是记分卡的
   CSS 类名）。
 - 遮罩强度按阶段分三档：越是没有决定可做越暗——`stuck` 最亮（要不要 Undo 得看着棋盘定），
@@ -135,7 +135,7 @@ SPEC、tickets 与计划文档来推进。本节只记录方向与约定，不�
 
 **约定**
 
-- 术语：题述的「主题」下拉框 = **风格（Style）**。CONTEXT.md 的 `_Avoid_` 明确禁用「主题 / theme」
+- 术语：题述的「主题」下拉框 = **风格（Style）**。GLOSSARY.md 的 `_Avoid_` 明确禁用「主题 / theme」
   指代风格，文档一律写「风格」。
 - 「上帝模式」只作 UI 标签，功能词汇仍用「作弊交换」。
 - 「游戏成功」的判定按**目标块（Target tile）**，经典模式是 2048、斐波那契是 2584、
@@ -165,7 +165,7 @@ SPEC、tickets 与计划文档来推进。本节只记录方向与约定，不�
 规格：[`docs/specs/easter-egg.md`](docs/specs/easter-egg.md)（GitHub
 [#30](https://github.com/CaiYan12/2048/issues/30)）；两条裁决在
 [ADR-0009](docs/adr/0009-shenmo-is-shell-not-a-fourth-slot.md)；六个规范词在
-[`CONTEXT.md`](CONTEXT.md) 的「一念神魔」条目。
+[`GLOSSARY.md`](GLOSSARY.md) 的「一念神魔」条目。
 
 二念那一下的代价是**两拍**（2026-10-01 应所有者要求改的，规格的架构决策 20）：第一遍走完
 什么都不会发生，第二遍完整走完 B → A 之后——整个场景先染上血色（约 600ms，血是「涌」上来的，

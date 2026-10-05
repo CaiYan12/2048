@@ -262,7 +262,7 @@ every place that states it is rewritten to state the new decision and point at t
 
 ## To sync when the implementation lands
 
-`CONTEXT.md` gains the result-layer entry (and the run phase it belongs to) with the same
+`GLOSSARY.md` gains the result-layer entry (and the run phase it belongs to) with the same
 `_Avoid_` discipline as its neighbours; `docs/mode-contract.md` §3 rewrites its panel wording to
 the new term without touching a single invariant; the README TODO item is corrected — the panel
 never covered the viewport, it covered the board — and its second box is marked as existing

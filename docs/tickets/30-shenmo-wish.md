@@ -30,7 +30,7 @@
 「那一对怎么算出来」也抽成纯函数配单测（不写死任何数值）。canvas 本身与 DOM 不单测。
 
 **不属于本票**（别处的活）：卡片那一行、败局墓志铭、四颗成就的梗（T31）；二念与悬顶（T32）；
-堕落染墨、时之狭、音效（T33）；`CONTEXT.md` / ADR / README（T28 已收官）。
+堕落染墨、时之狭、音效（T33）；`GLOSSARY.md` / ADR / README（T28 已收官）。
 `src/renderer/components/ShenmoChoice.ts` **一行都没动**（它已收官并被单测钉住）——本票挂的是
 「一念达成」那个结局，而那个果早就通过 store 的 `shenmoOutcomes` 到了外壳手上。
 

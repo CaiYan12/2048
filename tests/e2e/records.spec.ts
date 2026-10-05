@@ -256,7 +256,7 @@ test('战绩与统计面板键盘可达，而且不打扰棋盘自己的行为',
   // 收摊之后棋盘照旧推得动：两枚开局方块 + 新生成的一枚 = 3
   //
   // **四个方向依次试，不假定 ArrowLeft 一定推得动**：新游戏的盘面是随机的，两枚方块本来
-  // 就靠左时左移是一次无效移动——无效移动不生成（CONTEXT.md 的 Spawn），方块数停在 2，
+  // 就靠左时左移是一次无效移动——无效移动不生成（GLOSSARY.md 的 Spawn），方块数停在 2，
   // 于是这条断言会时红时绿（实测隔离跑 3/3 过、整批跑偶发红）。
   await page.locator('[data-board]').focus()
   for (const key of ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown']) {

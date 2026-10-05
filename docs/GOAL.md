@@ -28,7 +28,7 @@
 2. **积极使用编程技能**。涉及模块设计 / 接口 / 可测试性时加载
    `/mattpocock-skills:codebase-design`、`/mattpocock-skills:tdd` 等。
 3. **待确认处采用我推荐的方案**，且该方案必须符合此前已达成的项目共识
-   （`CONTEXT.md` 词汇表、`docs/SPEC.md`、`docs/adr/`、`docs/mode-contract.md`）。
+   （`GLOSSARY.md` 词汇表、`docs/SPEC.md`、`docs/adr/`、`docs/mode-contract.md`）。
 4. **验收不只看代码通过**：必须包含 Playwright 视觉检查与**实际游玩**通过。
 
 ## 执行方式

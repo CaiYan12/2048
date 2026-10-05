@@ -66,7 +66,7 @@
 | --- | --- |
 | `toast.tsx` 文件名小写，与 AGENTS.md 的 `PascalCase.tsx` 规则冲突 | **不改**：ADR-0002 与规格都点名 `toast.tsx`，而且它是文件夹里的模块不是组件文件（同目录的 `config.ts` / `tokens.css` 也小写）。更具体的规定优先 |
 | 局部接口叫 `ItemProps`，规则要求 `interface Props` | **已改**：三份都改成 `Props` |
-| `config.ts` 注释里用「主题」指风格（违 CONTEXT.md） | **不改**：那两行是既有文字，本次没动过它；按「不动无关注释」留着 |
+| `config.ts` 注释里用「主题」指风格（违 GLOSSARY.md） | **不改**：那两行是既有文字，本次没动过它；按「不动无关注释」留着 |
 | 注释写「ADR-0007 决策 12」——ADR-0007 没有编号决策 | **已改**：编号属于规格的 Architecture decisions，7 处（含 3 张设计卡）改成指向 `docs/specs/single-run-achievements.md` |
 | 坏味：三份 `toast.tsx` 与三段 `.toast-stack` 逐字重复 | **刻意保留**：ADR-0002 增补明文接受，规格决策 8 要求每套风格在自己文件夹里交一份；防漂移靠同一套断言跑三遍 |
 | 坏味：`advanceAchievements(state, runFactsOf(...))` 在多处各拼一遍 | **已改**：抽出 `advance(state, game, runMerges, styleSwitches)`，5 处调用点收敛 |

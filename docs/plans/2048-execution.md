@@ -2,7 +2,7 @@
 
 由 24 张已发布 ticket 按依赖拓扑合成，供 subagent-driven-development 使用。
 父级规格: [SPEC](../SPEC.md)；规则契约: [mode-contract](../mode-contract.md)；
-目标与约束: [GOAL](GOAL.md)；词汇表: [CONTEXT.md](../../CONTEXT.md)。
+目标与约束: [GOAL](GOAL.md)；词汇表: [GLOSSARY.md](../../GLOSSARY.md)。
 
 **T24（CI 闸门与 Pages 发布）不在本计划内** —— GOAL 明确暂不上线部署。
 

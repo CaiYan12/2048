@@ -37,7 +37,7 @@ Use the pure catalog wherever code needs to know whether a persisted or expected
 - Delivered: `src/renderer/stores/session.ts` (`isKnownStyle` asks `STYLE_CATALOG`),
   `src/renderer/stores/records.ts` (`parseRecordKey` asks `STYLE_CATALOG`),
   `tests/e2e/task-23-matrix.spec.ts` (regex source parsing deleted; the local list is now
-  `STYLE_CATALOG`, renamed `THEMES`/`ThemeInfo` → `STYLES`/`StyleInfo` per `CONTEXT.md`
+  `STYLE_CATALOG`, renamed `THEMES`/`ThemeInfo` → `STYLES`/`StyleInfo` per `GLOSSARY.md`
   vocabulary), `tests/unit/style-catalog-consumers.test.ts` (6 tests).
 - `npm run typecheck` pass. `npm test` 751 passed / 38 files (was 745 / 37). `npm run build`
   pass (76 modules, +1: the catalog is now genuinely in the runtime graph).

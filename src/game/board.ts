@@ -49,7 +49,7 @@ export function playableCells(board: Board): readonly Coordinate[] {
 
 const DIRECTIONS: readonly Direction[] = ['up', 'down', 'left', 'right']
 
-/** 四个方向都没有合法移动即死局（CONTEXT.md 的 Game over） */
+/** 四个方向都没有合法移动即死局（GLOSSARY.md 的 Game over） */
 export function isDeadlocked(state: GameState): boolean {
   const family = getMode(state.modeId).mergeFamily
   return DIRECTIONS.every((direction) => !slideBoard(state.board, direction, family).changed)

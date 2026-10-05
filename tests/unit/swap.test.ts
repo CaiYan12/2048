@@ -188,7 +188,7 @@ describe('swap：一次合法交换', () => {
 
     expect(after?.board[0][0]).toEqual({ id: 4, value: 16 })
     expect(after?.board[1][1]).toEqual({ id: 1, value: 2 })
-    // 身份集合一个不多一个不少、也不重新编号（CONTEXT.md 的 Tile）。
+    // 身份集合一个不多一个不少、也不重新编号（GLOSSARY.md 的 Tile）。
     // 排序后比对：tilesOf 按棋盘顺序读，交换之后顺序当然变了，那是位置的事
     expect(tilesOf(after?.board ?? []).map((tile) => tile.id).sort()).toEqual(
       [...beforeTiles].sort()

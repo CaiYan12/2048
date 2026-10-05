@@ -2,7 +2,7 @@
 
 > **状态**：需求细化完成（grilling session 已收口，frontier 为空）。
 > 本文保留需求形成时的阶段蓝图；可实施的行为与验收以 [`SPEC.md`](SPEC.md) 和 [`tickets/README.md`](tickets/README.md) 为准。游戏尚未开始实现，字体资产与基础样式已有部分代码；Checkbox 以当前仓库状态为准。
-> 术语以 [`CONTEXT.md`](../CONTEXT.md) 为准，硬性架构决策见 [`docs/adr/`](../docs/adr/)。
+> 术语以 [`GLOSSARY.md`](../GLOSSARY.md) 为准，硬性架构决策见 [`docs/adr/`](../docs/adr/)。
 
 ## Context
 

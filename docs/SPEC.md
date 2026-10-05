@@ -1,6 +1,6 @@
 # 2048 多风格练习项目 · SPEC
 
-> 状态：实现参考规格，已发布为 GitHub [#1](https://github.com/CaiYan12/2048/issues/1)。由 [`primal-setup-plan.md`](primal-setup-plan.md)、[`CONTEXT.md`](../CONTEXT.md)、现有代码和 ADR-0001～0005 整理；尚未实现的能力不视为已验证。
+> 状态：实现参考规格，已发布为 GitHub [#1](https://github.com/CaiYan12/2048/issues/1)。由 [`primal-setup-plan.md`](primal-setup-plan.md)、[`GLOSSARY.md`](../GLOSSARY.md)、现有代码和 ADR-0001～0005 整理；尚未实现的能力不视为已验证。
 > 本文定义交付行为与边界；阶段清单仍留在原计划，具体实施单元由 tickets 管理。若两者发生冲突，先更新本 SPEC、相应 ADR 与 ticket，再编码。
 > 本地修订（2026-09-28）：风格目录架构已达成设计共识，尚未实现，也尚未同步至 GitHub #1；范围与验收见 [`docs/specs/style-catalog.md`](specs/style-catalog.md) 和 ADR-0006。
 

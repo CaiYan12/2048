@@ -26,7 +26,7 @@ to-tickets。
 | `docs/specs/single-run-achievements.md` | 规格：问题、33 条用户故事、14 条架构决策、14 条验收标准、三条测试缝 |
 | `docs/adr/0007-achievements-are-earned-in-a-single-run.md` | 成就不持久化、撤销收回、id 不再是持久化身份 |
 | `docs/adr/0002-style-as-folder-with-decoration-slots.md` | 修订后：装饰插槽 / 呈现插槽、每套风格必交 toast、五件套 → 六件套 |
-| `CONTEXT.md` | Achievement 与 Toast 两个词条（词汇以它为准） |
+| `GLOSSARY.md` | Achievement 与 Toast 两个词条（词汇以它为准） |
 | `.codex/memories/achievements-single-run.md` | 交接速览：八条最容易踩的 |
 
 ## 执行约束（摘自 AGENTS.md，逐条有效）

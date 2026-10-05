@@ -417,7 +417,7 @@ the game overhears.
 
 ## To sync when the implementation lands
 
-`CONTEXT.md` gains the 一念神魔 entry with the six terms and their forbidden words;
+`GLOSSARY.md` gains the 一念神魔 entry with the six terms and their forbidden words;
 `README.md` gains an easter-egg TODO group that records the feature's existence, the deferred
 gravity idea, and the fact that the code is deliberately never spelled out in the interface;
 ADR-0009 is written, and ADR-0002 and ADR-0008 get a cross-reference to it; the three design cards
