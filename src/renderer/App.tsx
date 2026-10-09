@@ -12,6 +12,7 @@ import { MuteToggle } from './components/MuteToggle'
 import { RunAnnouncer } from './components/RunAnnouncer'
 import { layerForPhase, useResultLayerPresence } from './components/ResultPresence'
 import { resultCardLine } from './components/resultCardLine'
+import { SettingsDrawer, SettingsEntry } from './components/SettingsDrawer'
 import { useShenmo, type ShenmoButton } from './components/ShenmoChoice'
 import { useShenmoFall } from './components/ShenmoFall'
 import { ShenmoStrip } from './components/ShenmoStrip'
@@ -210,6 +211,18 @@ export default function App(): JSX.Element {
   // **它记的是 `pageCleared` 而不是 `shenmoSecondPass`**（T36）：两拍终局那 1200ms 里
   // 页面还活着，而那期间 focus effect 不该动手（玩家点的抉择 A 还拿着焦点）
   const previousSecondPass = useRef(false)
+
+  // 设置抽屉的开合（T37）。住在 App 而不是 store：它是纯会话状态、明确**不落盘**
+  // （刷新进到一个开着的设置层，那是一个会记住错误的页面，父规格架构决策 16），
+  // 而 store 的每个字段都被 hydrate / setState 的字段表牵着走。
+  // **这一票是硬切**：开着即挂载、关掉即卸载，没有退场状态（T38 做动效）。
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  // 入口那颗齿轮。关掉抽屉时焦点回落到它身上（下面那个 effect）
+  const settingsEntryRef = useRef<HTMLButtonElement>(null)
+  // 抽屉容器。打开时焦点落在**容器**上而不是关闭按钮——一次误敲回车会当场关掉
+  const settingsPanelRef = useRef<HTMLDivElement>(null)
+  // 「刚关掉」与「从没开过」也要分开，与 previousStatsOpen 同一条理由
+  const previousSettingsOpen = useRef(settingsOpen)
 
   // 结果层的在场（T27 · ADR-0008 的架构决策 9 / 10）。T26 是「phase 一到就挂、一走就
   // 没」，T27 要它播完退场再走——于是「场上该有哪一层」由这一个 hook 说，phase 只回答
@@ -475,6 +488,29 @@ export default function App(): JSX.Element {
     restartRef.current?.focus()
   }, [pageCleared])
 
+  // 设置抽屉的焦点（T37 · 用户故事 15 / 16）。
+  //
+  // 打开时焦点落进抽屉、落在**容器**上（`role="dialog"` + `tabIndex={-1}`），不是落在
+  // 「收起」那颗按钮上：一次误敲回车会当场把这一层关掉（父规格架构决策 7）。这一条不是
+  // 「要不要移动焦点」的选择——页面内容 `inert` 之后焦点必然掉到 body，只剩「移到哪」。
+  //
+  // 关闭时把焦点还给入口，判据与上面三处逐字相同：**焦点真的掉了**才动手
+  // （`activeElement === document.body`），否则它会从玩家正在用的别处把焦点抢走。
+  // 入口与抽屉在 DOM 上不是同一支，所以两件事分成两个 effect：打开是「无条件移入」，
+  // 关闭是「丢了才还」。
+  useEffect(() => {
+    if (!settingsOpen) return
+    settingsPanelRef.current?.focus({ preventScroll: true })
+  }, [settingsOpen])
+
+  useEffect(() => {
+    const wasOpen = previousSettingsOpen.current
+    previousSettingsOpen.current = settingsOpen
+    if (!wasOpen || settingsOpen) return
+    if (document.activeElement !== document.body) return
+    settingsEntryRef.current?.focus({ preventScroll: true })
+  }, [settingsOpen])
+
   // 键盘住在 **App** 上（2026-09-28）。
   //
   // 它先在棋盘元素上，后来搬到 window，现在再往上搬到 App——因为所有者要求把「方向键不再
@@ -487,6 +523,22 @@ export default function App(): JSX.Element {
       // 带修饰键的组合整键放行：Alt+← 是「后退」、Ctrl/⌘+← 是文字导航。挂在棋盘上时
       // 范围小、撞得少，搬到整页之后必须让开。
       if (event.ctrlKey || event.metaKey || event.altKey) return
+      // 设置抽屉开着（T37）：方向键 / WASD / Z 先 `preventDefault` 再**吞掉**——不推棋、
+      // 不撤销、也不滚页面（SPEC §3.4「页面只由滚轮滚动」的常驻约定）。文本入口在上面那道
+      // `allowsNativeKeys` 就整键放行了，所以抽屉里将来的下拉框照旧拿得到自己的键。
+      // `Esc` 关抽屉，且优先于底下的交换摊与神魔摊——关掉最上面那一层才是 Esc 的意思。
+      // 这一段排在 `game === null` **之前**：开局界面上桌也能开抽屉，那时没有棋盘，
+      // 但「吞键」这件事一模一样。
+      if (settingsOpen) {
+        const key = event.key.toLowerCase()
+        if (key === 'escape') {
+          event.preventDefault()
+          setSettingsOpen(false)
+          return
+        }
+        if (MOVE_KEYS[key] || UNDO_KEYS[key]) event.preventDefault()
+        return
+      }
       // 开局界面（还没有这一局）与恢复中：没有棋盘可推，但方向键照样吃掉——纯观感需求，
       // 所有者要的是「页面只由滚轮滚动」，而他明确说过这一条要覆盖开局界面
       if (game === null) {
@@ -541,10 +593,17 @@ export default function App(): JSX.Element {
     swapSelection,
     shenmo,
     shenmoStage,
+    settingsOpen,
   ])
 
   // 当前风格的呈现插槽。身份只有一份（目录），实现由那一套风格自己交（themes/<id>/toast.tsx）
   const Toast = getTheme(styleId).toast
+
+  // 设置抽屉的开合（T37）。入口那一下只开（开着时它被遮罩压着，点不到第二次）；
+  // 关掉有「收起」、点外侧两条在 SettingsDrawer 里，`Esc` 在键盘 effect 里——四条路径
+  // 都落到同一个 setter 上，所以状态只有一个来源。
+  const openSettings = (): void => setSettingsOpen(true)
+  const closeSettings = (): void => setSettingsOpen(false)
 
   return (
     <main
@@ -580,284 +639,319 @@ export default function App(): JSX.Element {
           （带了就会被 toast 契约那一套断言抓住）。位置与 toast 栈共用顶端而不重叠：
           上面那个 data-shenmo-pinned 把栈的偏移设成了这条的高度。 */}
       {shenmoSecondPass && <ShenmoStrip id="shenmo-second-pass" />}
-      {restoring ? (
-        <section className="flex flex-col items-center gap-2 py-8">
-          <h1 className="shell__title text-6xl">2048</h1>
-          <p className="hint">正在恢复上次的一局…</p>
-        </section>
-      ) : game === null ? (
-        <StartScreen
-          onStart={handleStart}
-          selectedModeId={selectedModeId}
-          onSelectMode={selectMode}
-          styleId={styleId}
-          onStyleChange={setStyle}
-        />
-      ) : pageCleared ? (
-        /* 二念（T32 · 父规格的架构决策 8）：**棋盘被扣下**。这一局一点没事——
-           phase 还是 playing、不结算、不写记录、统计桶一格不动、规则内核一行没改，
-           连 store 的字段都只是照旧躺着。这里收走的只是**渲染层那一整列**：棋盘、
-           记分卡、彩蛋那两颗钮、一念的奖品、方向按钮、新游戏按钮与那行提示，一起
-           不在画面上。玩家此刻唯一能做的事就是「重新开始」——而它就是新游戏
-           （mode-contract §3：活跃局点它 = 放弃本局），与面板上那一颗同一个动作。
-         **刷新即恢复**：session 一直持着这一局，彩蛋旗标不落盘，所以回来之后还能
-           再走一次火入魔、再被扣下一次（架构决策 8 明说这是后果不是漏洞）。
-         **T36 起它等多拍终局播完才出现**：血染（600ms）→ 停一拍（200ms）→ 淡出（400ms）
-           之后再落到这一分支。从前「二念的果结出来」与「页面被扣下」是同一刻（T35 为此
-           特批过「不等菜单退场播完」：整页被扣下本身就是那一击的动画），现在中间隔着
-           1200ms，那条特例自然失效——菜单那 150ms 的退场照旧播（A 随血一起淡出去），
-           而这一分支仍在两播放完之后到达，一个字节都没改。 */
-        <section className="flex flex-col items-center gap-2 py-8">
-          <button type="button" className="control" ref={restartRef} onClick={newGame}>
-            重新开始
-          </button>
-        </section>
-      ) : (
-        <div
-          className="flex flex-col items-center gap-4"
-          // 二念的两拍终局（T36）：`dye` = 血染那一拍，`out` = 停一拍 + 淡出那一拍。
-          // 属性落在**整列**上而不是某一块上：要淡出的是「棋盘 + 信息条 + 控制钮」这一整条
-          // 游戏列（业主要的是「淡出关闭棋盘页面」），而血染的 transition 也挂在这一列的
-          // 后代上（board.css 读这一个属性）。两拍由下面那个 onAnimationEnd 推进。
-          data-shenmo-fall={falling ? fall.beat : undefined}
-          onAnimationEnd={handleShenmoFallEnd}
-        >
-          <h1 className="shell__title text-5xl">2048</h1>
-          {/* 限时模式的倒计时（T09）：外壳元素，与 StatusBar 平级摆着，不进 .board
-              ——ADR-0002 的棋盘固定 DOM 结构不许因为一个倒计时多出节点。
-              deadline 为 null 就说明这一模式不限时；结算之后表也没用了，
-              剩下的「为什么结束」由 GameOverPanel 从 endReason 读，不在这里推断。
-              T33 起多一个 `clockHeld`：堕落窗口开着时这一行读数不动（时之狭）。
-              **T36 起终局那 1200ms 也算被按住**：玩家正在看血，不能被一声超时打断——
-              而那一段结束时页面已经扣下、倒计时跟着卸载，按住的账就此不了了之（这一局
-              不会再走下去，刷新也不继承它：hydrate 把两个字段归零）。 */}
-          {game.deadline !== null && game.phase !== 'ended' && (
-            <Countdown deadline={game.deadline} clockHeld={demonOpen || falling} />
-          )}
-          <StatusBar
-            game={game}
-            swapArmed={swapArmed}
-            swapSelection={swapSelection}
-            onToggleSwap={toggleSwap}
+      {/* 礼炮（T30）：满屏 `position: fixed` 的 canvas（reduced-motion 下是一行静止的字）。
+          T37 起它从游戏列搬到这儿，与上面两条浮层并列——抽屉开着时被 `inert` 的是
+          **页面内容**，不是这些盖在页面上的浮层（父规格架构决策 6；礼炮是一个指针都不吃的
+          装饰层，inert 它没有意义）。normal 情形它是 fixed，放哪儿都不动布局。
+          **一条写下来的代价**：reduced-motion 下它退化成的 `<p class="cannon__still">`
+          是流内元素，从「棋盘下方」搬到这儿会落到内容之上——只影响「已得一念报酬 + 要求
+          少动」这一个组合，且这一行本来就没有任何测试钉它的位置（wish.spec 只断它在、
+          断它的字、断它不动、断它不横向溢出）。 */}
+      <Cannon granted={wishGranted} />
+      {/* 页面内容（T37 · 父规格架构决策 6）：收进一个包裹元素，遮罩与抽屉留在它**外面**、
+          仍在 `<main>` 里，`data-style` 令牌照旧继承。开着时整块 `inert`——指针、焦点、
+          Tab 顺序一起被拿走；`inert` 不挡 window 上的 keydown，所以键盘那一段仍由下面那个
+          effect 接管。
+          **为什么是 `display: contents`（Tailwind 的 `contents`）**：`inert` 只能挂在 DOM
+          元素上，而 main 是 `grid place-items: center`——真塞一个会生成盒子的包裹层，就把
+          「分支 + 页脚两个 grid 行」并成了「一个」，启动界面上 footer 的落点当场下移。
+          `contents` 不生成盒子，子元素照旧是 main 的 grid 项，于是这一步是**零布局变化**
+          的前置（实测：inert 挂在它上面照样挡得住编程式焦点与指针命中，Playwright 探针
+          验过——见票 T37 的验证）。 */}
+      <div className="contents" inert={settingsOpen ? true : undefined}>
+        {restoring ? (
+          <section className="flex flex-col items-center gap-2 py-8">
+            <h1 className="shell__title text-6xl">2048</h1>
+            <p className="hint">正在恢复上次的一局…</p>
+          </section>
+        ) : game === null ? (
+          <StartScreen
+            onStart={handleStart}
+            selectedModeId={selectedModeId}
+            onSelectMode={selectMode}
+            styleId={styleId}
+            onStyleChange={setStyle}
           />
-          {/* 一局的结果播报（T22 验收标准 2）。只对读屏软件存在（sr-only），不抢焦点、
-              不盖棋盘：它是 Shell 元素，与 StatusBar 平级。什么时候说话、说什么，
-              全在 RunAnnouncement.ts 那张表里。 */}
-          <RunAnnouncer game={game} />
-          {/* Daily 的日期说明（T08）：写的是这一局抽题那天的 UTC 日期，跨零点也不翻篇。
-              摆在外壳里，与 Board 平级——ADR-0002 的棋盘固定结构不许塞进来说明文字。 */}
-          {game.modeId === 'daily' && dailyDate !== null && <DailyDateLabel date={dailyDate} />}
-          {/* 局中也能换风格（T13 验收标准 2）：只写 store 的 styleId 一个字段，
-              棋盘 / 分数 / 随机进度 / 计时一个都不碰。摆在这里而不是塞进 StatusBar：
-              它是「这一局的观感」，不是「这一局的状态」。与开局界面共用同一个
-              StylePicker，列表来自 THEMES 注册表。 */}
-          <StylePicker value={styleId} onChange={setStyle} />
-          {/* 棋盘与结果层共用一个相对定位的壳。它是外壳元素（Tailwind 也只在外壳这侧），
-              不能塞进 .board：那层是 ADR-0002 的固定 DOM 结构。w-fit 让这个壳正好
-              裹住棋盘，结果层 inset:0 才只盖住棋盘，不会横铺整个页面。 */}
-          <div className="relative w-fit">
-            <Board
+        ) : pageCleared ? (
+          /* 二念（T32 · 父规格的架构决策 8）：**棋盘被扣下**。这一局一点没事——
+             phase 还是 playing、不结算、不写记录、统计桶一格不动、规则内核一行没改，
+             连 store 的字段都只是照旧躺着。这里收走的只是**渲染层那一整列**：棋盘、
+             记分卡、彩蛋那两颗钮、一念的奖品、方向按钮、新游戏按钮与那行提示，一起
+             不在画面上。玩家此刻唯一能做的事就是「重新开始」——而它就是新游戏
+             （mode-contract §3：活跃局点它 = 放弃本局），与面板上那一颗同一个动作。
+           **刷新即恢复**：session 一直持着这一局，彩蛋旗标不落盘，所以回来之后还能
+             再走一次火入魔、再被扣下一次（架构决策 8 明说这是后果不是漏洞）。
+           **T36 起它等多拍终局播完才出现**：血染（600ms）→ 停一拍（200ms）→ 淡出（400ms）
+             之后再落到这一分支。从前「二念的果结出来」与「页面被扣下」是同一刻（T35 为此
+             特批过「不等菜单退场播完」：整页被扣下本身就是那一击的动画），现在中间隔着
+             1200ms，那条特例自然失效——菜单那 150ms 的退场照旧播（A 随血一起淡出去），
+             而这一分支仍在两播放完之后到达，一个字节都没改。 */
+          <section className="flex flex-col items-center gap-2 py-8">
+            <button type="button" className="control" ref={restartRef} onClick={newGame}>
+              重新开始
+            </button>
+          </section>
+        ) : (
+          <div
+            className="flex flex-col items-center gap-4"
+            // 二念的两拍终局（T36）：`dye` = 血染那一拍，`out` = 停一拍 + 淡出那一拍。
+            // 属性落在**整列**上而不是某一块上：要淡出的是「棋盘 + 信息条 + 控制钮」这一整条
+            // 游戏列（业主要的是「淡出关闭棋盘页面」），而血染的 transition 也挂在这一列的
+            // 后代上（board.css 读这一个属性）。两拍由下面那个 onAnimationEnd 推进。
+            data-shenmo-fall={falling ? fall.beat : undefined}
+            onAnimationEnd={handleShenmoFallEnd}
+          >
+            <h1 className="shell__title text-5xl">2048</h1>
+            {/* 限时模式的倒计时（T09）：外壳元素，与 StatusBar 平级摆着，不进 .board
+                ——ADR-0002 的棋盘固定 DOM 结构不许因为一个倒计时多出节点。
+                deadline 为 null 就说明这一模式不限时；结算之后表也没用了，
+                剩下的「为什么结束」由 GameOverPanel 从 endReason 读，不在这里推断。
+                T33 起多一个 `clockHeld`：堕落窗口开着时这一行读数不动（时之狭）。
+                **T36 起终局那 1200ms 也算被按住**：玩家正在看血，不能被一声超时打断——
+                而那一段结束时页面已经扣下、倒计时跟着卸载，按住的账就此不了了之（这一局
+                不会再走下去，刷新也不继承它：hydrate 把两个字段归零）。 */}
+            {game.deadline !== null && game.phase !== 'ended' && (
+              <Countdown deadline={game.deadline} clockHeld={demonOpen || falling} />
+            )}
+            <StatusBar
               game={game}
-              boardRef={boardRef}
-              styleId={styleId}
-              moveContext={moveContext}
-              onMove={move}
               swapArmed={swapArmed}
               swapSelection={swapSelection}
-              onSelectCell={selectCell}
+              onToggleSwap={toggleSwap}
             />
-            {/* 结果层（T26 的结构 · T27 的进出动效）：**一次只在场一层**，是哪一层由
-                presence 说——它比 phase 多记住一段退场时间。T26 的两条 phase 条件合成
-                这一条：`won` 与 `stuck`/`ended` 各是自己的那一处，`leaving` 是这段多出来
-                的时间，原样递进 ResultLayer（它只负责把 data-result-leaving 挂上）。
-                读数仍在两处各自现算（与 T26 逐字节相同）：退场那一刻**不**冻结它。
-                「拾取中整层收起」那条分支没有消失——它搬进了 instantHide（见上面那段）。 */}
-            {presence.layer !== null && game !== null && (
-              presence.layer.panel === 'win' ? (
-                <WinPanel
-                  readout={resultReadout(game, records, settlementAttribution, styleId)}
-                  line={resultLine}
-                  onContinue={continueRun}
-                  onSettle={settle}
-                  onNewGame={newGame}
-                  leaving={presence.leaving}
-                  onExited={presence.drop}
-                />
-              ) : (
-                <GameOverPanel
-                  spec={presence.layer}
-                  readout={resultReadout(game, records, settlementAttribution, styleId)}
-                  line={resultLine}
-                  onSettle={settle}
-                  onNewGame={newGame}
-                  onUndo={undo}
-                  onSwap={toggleSwap}
-                  leaving={presence.leaving}
-                  onExited={presence.drop}
-                />
-              )
-            )}
-            {/* 一念神魔的两颗圆钮（T29）。住在这个壳里而不是 .board 里：ADR-0002 的棋盘
-                固定 DOM 一个节点都不许多，而**外壳**正是「可以换实现」的那一层。
-                宽视口下它们向两侧探出棋盘自己的盒子（壳不是棋盘），窄视口下落到棋盘下一行
-                （那边棋盘两侧只剩几个像素，spec 的架构决策 12 量的就是这个）。
-                **不挡棋**：容器 pointer-events: none，只有两颗钮自己接；方向键照旧走，
-                滚动照旧被吃掉。两个窗口都由 CSS 动画驱动、animationend 收尾，没有定时器。
-                **`leaving` 也渲染**（T35）：stage 只要不在 idle，容器就在 DOM 上——机器的
-                每一条终局都先落到退场，等那条退场动画播完（`handleShenmoExit` → 机器的
-                `left`）才真的离开。于是「此刻场上有没有这一摊」不再等于「机器此刻在哪个
-                阶段」，与结果层 T27 起「phase 意味着那一层、层比 phase 多活一段退场」
-                是同一条规矩。 */}
-            {shenmoStage !== 'idle' && (
-              <div
-                className="shenmo"
-                // 报的是**看得见的那一档**：退场中它是 `leavingFrom`（机器记住的「刚才还在
-                // 这一档」），挂在 `choice` / `ring` 上的两条窗口动画于是照旧放到容器淡出去
-                // 的那一刻——环还在渐薄，不会中途被抽走
-                data-shenmo-stage={shenmoVisibleStage}
-                // 退场的总开关（照 `.overlay[data-result-leaving]` 那条，ADR-0008 决策 9）：
-                // 指针当场交出去、动画换成退场那一组。它与 stage 变在**同一次提交**里落到
-                // DOM——这里读的是机器这一帧的状态，渲染期就定好了，没有 effect 中间那一帧
-                // （决策 9 为结果层立的最重要一条：多出一帧「层还在、还接指针」，继续玩之后
-                // 马上划一下的玩家就会对着不动的棋盘发懵）
-                data-shenmo-leaving={shenmoStage === 'leaving' ? 'true' : undefined}
-                onAnimationEnd={handleShenmoExit}
-              >
-                <button
-                  type="button"
-                  className="shenmo__button"
-                  data-shenmo-button="a"
-                  aria-label="抉择 A"
-                  onClick={() => chooseShenmo('a')}
-                >
-                  A
-                  {/* 那道环：两个 30 秒都挂在它身上。第一段（谁都没点）它不可见，
-                      第二段（只剩 A）它渐薄——「一个元素、两条路径」是 spec 架构决策 3
-                      特意要的形状，因为两个窗口都得有个动画可听。
-                      判 event.target === event.currentTarget：animationend 会冒泡，
-                      而 B 的破碎动画正是它的同类——不判的话 B 碎一下会被当成窗口到期。 */}
-                  <span
-                    className="shenmo__ring"
-                    aria-hidden="true"
-                    onAnimationEnd={(event) => {
-                      if (event.target !== event.currentTarget) return
-                      // 名字即身份：两条 30 秒各有一套关键帧，所以「哪一段到头了」
-                      // 由动画自己说，不必再问此刻的阶段
-                      const which = event.animationName === 'shenmo-window' ? 1 : 2
-                      shenmo.windowDone(which)
-                    }}
+            {/* 一局的结果播报（T22 验收标准 2）。只对读屏软件存在（sr-only），不抢焦点、
+                不盖棋盘：它是 Shell 元素，与 StatusBar 平级。什么时候说话、说什么，
+                全在 RunAnnouncement.ts 那张表里。 */}
+            <RunAnnouncer game={game} />
+            {/* Daily 的日期说明（T08）：写的是这一局抽题那天的 UTC 日期，跨零点也不翻篇。
+                摆在外壳里，与 Board 平级——ADR-0002 的棋盘固定结构不许塞进来说明文字。 */}
+            {game.modeId === 'daily' && dailyDate !== null && <DailyDateLabel date={dailyDate} />}
+            {/* 局中也能换风格（T13 验收标准 2）：只写 store 的 styleId 一个字段，
+                棋盘 / 分数 / 随机进度 / 计时一个都不碰。摆在这里而不是塞进 StatusBar：
+                它是「这一局的观感」，不是「这一局的状态」。与开局界面共用同一个
+                StylePicker，列表来自 THEMES 注册表。 */}
+            <StylePicker value={styleId} onChange={setStyle} />
+            {/* 棋盘与结果层共用一个相对定位的壳。它是外壳元素（Tailwind 也只在外壳这侧），
+                不能塞进 .board：那层是 ADR-0002 的固定 DOM 结构。w-fit 让这个壳正好
+                裹住棋盘，结果层 inset:0 才只盖住棋盘，不会横铺整个页面。 */}
+            <div className="relative w-fit">
+              <Board
+                game={game}
+                boardRef={boardRef}
+                styleId={styleId}
+                moveContext={moveContext}
+                onMove={move}
+                swapArmed={swapArmed}
+                swapSelection={swapSelection}
+                onSelectCell={selectCell}
+              />
+              {/* 结果层（T26 的结构 · T27 的进出动效）：**一次只在场一层**，是哪一层由
+                  presence 说——它比 phase 多记住一段退场时间。T26 的两条 phase 条件合成
+                  这一条：`won` 与 `stuck`/`ended` 各是自己的那一处，`leaving` 是这段多出来
+                  的时间，原样递进 ResultLayer（它只负责把 data-result-leaving 挂上）。
+                  读数仍在两处各自现算（与 T26 逐字节相同）：退场那一刻**不**冻结它。
+                  「拾取中整层收起」那条分支没有消失——它搬进了 instantHide（见上面那段）。 */}
+              {presence.layer !== null && game !== null && (
+                presence.layer.panel === 'win' ? (
+                  <WinPanel
+                    readout={resultReadout(game, records, settlementAttribution, styleId)}
+                    line={resultLine}
+                    onContinue={continueRun}
+                    onSettle={settle}
+                    onNewGame={newGame}
+                    leaving={presence.leaving}
+                    onExited={presence.drop}
                   />
-                </button>
-                {shenmoVisibleStage !== 'ring' && (
+                ) : (
+                  <GameOverPanel
+                    spec={presence.layer}
+                    readout={resultReadout(game, records, settlementAttribution, styleId)}
+                    line={resultLine}
+                    onSettle={settle}
+                    onNewGame={newGame}
+                    onUndo={undo}
+                    onSwap={toggleSwap}
+                    leaving={presence.leaving}
+                    onExited={presence.drop}
+                  />
+                )
+              )}
+              {/* 一念神魔的两颗圆钮（T29）。住在这个壳里而不是 .board 里：ADR-0002 的棋盘
+                  固定 DOM 一个节点都不许多，而**外壳**正是「可以换实现」的那一层。
+                  宽视口下它们向两侧探出棋盘自己的盒子（壳不是棋盘），窄视口下落到棋盘下一行
+                  （那边棋盘两侧只剩几个像素，spec 的架构决策 12 量的就是这个）。
+                  **不挡棋**：容器 pointer-events: none，只有两颗钮自己接；方向键照旧走，
+                  滚动照旧被吃掉。两个窗口都由 CSS 动画驱动、animationend 收尾，没有定时器。
+                  **`leaving` 也渲染**（T35）：stage 只要不在 idle，容器就在 DOM 上——机器的
+                  每一条终局都先落到退场，等那条退场动画播完（`handleShenmoExit` → 机器的
+                  `left`）才真的离开。于是「此刻场上有没有这一摊」不再等于「机器此刻在哪个
+                  阶段」，与结果层 T27 起「phase 意味着那一层、层比 phase 多活一段退场」
+                  是同一条规矩。 */}
+              {shenmoStage !== 'idle' && (
+                <div
+                  className="shenmo"
+                  // 报的是**看得见的那一档**：退场中它是 `leavingFrom`（机器记住的「刚才还在
+                  // 这一档」），挂在 `choice` / `ring` 上的两条窗口动画于是照旧放到容器淡出去
+                  // 的那一刻——环还在渐薄，不会中途被抽走
+                  data-shenmo-stage={shenmoVisibleStage}
+                  // 退场的总开关（照 `.overlay[data-result-leaving]` 那条，ADR-0008 决策 9）：
+                  // 指针当场交出去、动画换成退场那一组。它与 stage 变在**同一次提交**里落到
+                  // DOM——这里读的是机器这一帧的状态，渲染期就定好了，没有 effect 中间那一帧
+                  // （决策 9 为结果层立的最重要一条：多出一帧「层还在、还接指针」，继续玩之后
+                  // 马上划一下的玩家就会对着不动的棋盘发懵）
+                  data-shenmo-leaving={shenmoStage === 'leaving' ? 'true' : undefined}
+                  onAnimationEnd={handleShenmoExit}
+                >
                   <button
                     type="button"
                     className="shenmo__button"
-                    data-shenmo-button="b"
-                    // 破碎退场进行中：这一下是空气（机器与那一声都不再理会它），
-                    // 动画一结束机器切到「只剩 A」
-                    data-shenmo-breaking={shenmoVisibleStage === 'breaking' ? 'true' : undefined}
-                    aria-label="抉择 B"
-                    onClick={() => chooseShenmo('b')}
-                    onAnimationEnd={(event) => {
-                      if (event.target !== event.currentTarget) return
-                      if (event.animationName !== 'shenmo-break-fade') return
-                      shenmo.broke()
-                    }}
+                    data-shenmo-button="a"
+                    aria-label="抉择 A"
+                    onClick={() => chooseShenmo('a')}
                   >
-                    B
-                    {/* 四片碎渣（T34）：450ms 的破碎退场里各带一个 B、错开起跑朝自己的
-                        对角飞走。只在 breaking 时挂载，装饰、不进无障碍树。
-                        **它们的 animationend 也会冒泡到这颗按钮上**（四片各播一条动画）。
-                        四条动画的名字与 `shenmo-break-fade` 不同，所以 `animationName`
-                        那道判据今天就把它们挡掉了；而 `event.target !== event.currentTarget`
-                        是承重墙——T27 的教训正是「后代的动画结束事件冒泡上来冒充祖先的」，
-                        将来谁给碎片改个名、或给按钮自己加第二条动画，最先漏的就是这一道。 */}
-                    {shenmoVisibleStage === 'breaking' &&
-                      SHENMO_SHARDS.map((shard) => (
-                        <span
-                          key={shard}
-                          className="shenmo__shard"
-                          data-shenmo-shard={shard}
-                          aria-hidden="true"
-                        />
-                      ))}
+                    A
+                    {/* 那道环：两个 30 秒都挂在它身上。第一段（谁都没点）它不可见，
+                        第二段（只剩 A）它渐薄——「一个元素、两条路径」是 spec 架构决策 3
+                        特意要的形状，因为两个窗口都得有个动画可听。
+                        判 event.target === event.currentTarget：animationend 会冒泡，
+                        而 B 的破碎动画正是它的同类——不判的话 B 碎一下会被当成窗口到期。 */}
+                    <span
+                      className="shenmo__ring"
+                      aria-hidden="true"
+                      onAnimationEnd={(event) => {
+                        if (event.target !== event.currentTarget) return
+                        // 名字即身份：两条 30 秒各有一套关键帧，所以「哪一段到头了」
+                        // 由动画自己说，不必再问此刻的阶段
+                        const which = event.animationName === 'shenmo-window' ? 1 : 2
+                        shenmo.windowDone(which)
+                      }}
+                    />
                   </button>
-                )}
-              </div>
+                  {shenmoVisibleStage !== 'ring' && (
+                    <button
+                      type="button"
+                      className="shenmo__button"
+                      data-shenmo-button="b"
+                      // 破碎退场进行中：这一下是空气（机器与那一声都不再理会它），
+                      // 动画一结束机器切到「只剩 A」
+                      data-shenmo-breaking={shenmoVisibleStage === 'breaking' ? 'true' : undefined}
+                      aria-label="抉择 B"
+                      onClick={() => chooseShenmo('b')}
+                      onAnimationEnd={(event) => {
+                        if (event.target !== event.currentTarget) return
+                        if (event.animationName !== 'shenmo-break-fade') return
+                        shenmo.broke()
+                      }}
+                    >
+                      B
+                      {/* 四片碎渣（T34）：450ms 的破碎退场里各带一个 B、错开起跑朝自己的
+                          对角飞走。只在 breaking 时挂载，装饰、不进无障碍树。
+                          **它们的 animationend 也会冒泡到这颗按钮上**（四片各播一条动画）。
+                          四条动画的名字与 `shenmo-break-fade` 不同，所以 `animationName`
+                          那道判据今天就把它们挡掉了；而 `event.target !== event.currentTarget`
+                          是承重墙——T27 的教训正是「后代的动画结束事件冒泡上来冒充祖先的」，
+                          将来谁给碎片改个名、或给按钮自己加第二条动画，最先漏的就是这一道。 */}
+                      {shenmoVisibleStage === 'breaking' &&
+                        SHENMO_SHARDS.map((shard) => (
+                          <span
+                            key={shard}
+                            className="shenmo__shard"
+                            data-shenmo-shard={shard}
+                            aria-hidden="true"
+                          />
+                        ))}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            {/* 一念的两件报酬（T30）：**那颗按钮**摆在这儿。礼炮（`<Cannon>`）T37 起搬到
+                main 下的浮层那一段去了（抽屉开着时它不该被 inert）——按钮仍是「机器答话
+                之后递给你的东西」，贴着棋盘出现；从棋盘 Tab 出去，下一个停靠点就是它
+                （用户故事 39：彩蛋不是鼠标专属）。 */}
+            {/* 非 playing 阶段无效（用户故事 24）。与「新游戏」同一个形状——直接不渲染，
+                而不是一颗点不动的灰按钮：面板露头时摆一颗不能用的钮，就是在骗人。 */}
+            {game.phase === 'playing' && wishGranted && (
+              <button type="button" className="wish" onClick={plantWish}>
+                一念神魔
+              </button>
+            )}
+            {/* 屏幕方向按钮（T10）：外壳元素，与 Board 平级——ADR-0002 的棋盘固定
+                DOM 不增节点。只在触摸设备显示（styles.css 的 pointer: coarse），
+                桌面端连布局都不占。它调的是同一个 move，与键盘、滑动共用一条派发
+                路径。 */}
+            <DirectionPad onMove={move} />
+            {/* 面板露头时它自己带「新游戏」入口；这里再摆一个会同名重歧，
+                所以在活跃局才显示（mode-contract §3：活跃局直接新游戏 = 放弃本局）。
+                移动键提示同理：面板露着（won / stuck / ended）时方向键一概是空操作，
+                摆着这句提示就是在骗人，所以它跟按钮共用一个 phase 条件。 */}
+            {game.phase === 'playing' && (
+              <>
+                <button type="button" className="control" onClick={newGame}>
+                  新游戏
+                </button>
+                <p className="hint">
+                  {/* 两句话按输入设备二选一（T10）：触摸设备上没有方向键也没有 WASD，
+                      摆着那一版是在骗人。判据与方向按钮同一条 pointer: coarse。
+                      Z 撤销只写在前一句里：键盘用户才用得上它，触摸设备的撤销入口是
+                      死局面板上的「撤销」按钮。快捷键不写出来等于没有——这票加的就是
+                      一条没人告诉玩家的隐藏键。 */}
+                  <span className="hint__pointer">方向键或 WASD 移动方块，Z 撤销</span>
+                  <span className="hint__touch">滑动或点方向按钮移动方块</span>
+                </p>
+              </>
             )}
           </div>
-          {/* 一念的两件报酬（T30）：礼炮与那颗按钮。摆在**棋盘正下方、方向按钮之上**，
-              两个理由：一是「机器答话之后递给你的东西」该贴着棋盘出现，而不是沉到页面
-              最底下；二是从棋盘 Tab 出去，下一个停靠点就是它——手机上方向按钮那四个键
-              排在它后面，桌面端它是第一个，于是「彩蛋不是鼠标专属」（用户故事 39）这件
-              事与视口宽度无关。 */}
-          <Cannon granted={wishGranted} />
-          {/* 非 playing 阶段无效（用户故事 24）。与「新游戏」同一个形状——直接不渲染，
-              而不是一颗点不动的灰按钮：面板露头时摆一颗不能用的钮，就是在骗人。 */}
-          {game.phase === 'playing' && wishGranted && (
-            <button type="button" className="wish" onClick={plantWish}>
-              一念神魔
-            </button>
-          )}
-          {/* 屏幕方向按钮（T10）：外壳元素，与 Board 平级——ADR-0002 的棋盘固定
-              DOM 不增节点。只在触摸设备显示（styles.css 的 pointer: coarse），
-              桌面端连布局都不占。它调的是同一个 move，与键盘、滑动共用一条派发
-              路径。 */}
-          <DirectionPad onMove={move} />
-          {/* 面板露头时它自己带「新游戏」入口；这里再摆一个会同名重歧，
-              所以在活跃局才显示（mode-contract §3：活跃局直接新游戏 = 放弃本局）。
-              移动键提示同理：面板露着（won / stuck / ended）时方向键一概是空操作，
-              摆着这句提示就是在骗人，所以它跟按钮共用一个 phase 条件。 */}
-          {game.phase === 'playing' && (
-            <>
-              <button type="button" className="control" onClick={newGame}>
-                新游戏
-              </button>
-              <p className="hint">
-                {/* 两句话按输入设备二选一（T10）：触摸设备上没有方向键也没有 WASD，
-                    摆着那一版是在骗人。判据与方向按钮同一条 pointer: coarse。
-                    Z 撤销只写在前一句里：键盘用户才用得上它，触摸设备的撤销入口是
-                    死局面板上的「撤销」按钮。快捷键不写出来等于没有——这票加的就是
-                    一条没人告诉玩家的隐藏键。 */}
-                <span className="hint__pointer">方向键或 WASD 移动方块，Z 撤销</span>
-                <span className="hint__touch">滑动或点方向按钮移动方块</span>
-              </p>
-            </>
-          )}
-        </div>
-      )}
+        )}
 
-      {/* 战绩与统计（T17 · 用户故事 22）。摆在两个分支**外面**：开局前看得到
-          「上一局留下了什么」，局中也看得到，而入口只有一个——同一个组件、同一个
-          按钮，不按 phase 分叉。它是 `.board` 的兄弟（ADR-0002 的固定 DOM 不许
-          往棋盘里塞东西），所以打开它不盖棋盘、也不打断这一局；键盘到达它走普通
-          Tab 顺序，不带 autofocus——一把焦点从棋盘上拽走，玩家会以为这局被打断了。
-          **二念扣下时它也收起来**（T32）：那一页要的是「只剩一颗重新开始」，而这些
-          入口属于一个还能打的一局。**判据是 `pageCleared` 而不是「二念的果结出来了」**
-          （T36）：两拍终局那 1200ms 里整列还在台上，入口该跟着它一起淡出——先一步消失
-          会留下一帧「棋盘还在、统计入口没了」的半成品画面。
-          存档读写出错的那条提示不在此列——它是故障，
-          任何时候都不该被藏起来。 */}
-      {!restoring && !pageCleared && (
-        <div className="mt-4 flex flex-col items-center gap-4">
-          {/* 静音开关（T20）。与战绩面板同一个位置、同一套理由：它是设置不是
-              「这一局的状态」，所以开局前与局中都摆在同一个地方、只有一个入口。
-              写盘走 settings 桶，刷新之后照旧静音（SPEC §3.3 的 mute）。 */}
-          <MuteToggle muted={mute} onToggle={setMute} />
-          <button
-            type="button"
-            className="control"
-            ref={statsToggleRef}
-            aria-expanded={statsOpen}
-            onClick={() => setStatsOpen((open) => !open)}
-          >
-            战绩与统计
-          </button>
-          {statsOpen && (
-            <StatsPanel records={records} stats={stats} onClose={() => setStatsOpen(false)} />
-          )}
-        </div>
-      )}
+        {/* 战绩与统计（T17 · 用户故事 22）。摆在两个分支**外面**：开局前看得到
+            「上一局留下了什么」，局中也看得到，而入口只有一个——同一个组件、同一个
+            按钮，不按 phase 分叉。它是 `.board` 的兄弟（ADR-0002 的固定 DOM 不许
+            往棋盘里塞东西），所以打开它不盖棋盘、也不打断这一局；键盘到达它走普通
+            Tab 顺序，不带 autofocus——一把焦点从棋盘上拽走，玩家会以为这局被打断了。
+            **二念扣下时它也收起来**（T32）：那一页要的是「只剩一颗重新开始」，而这些
+            入口属于一个还能打的一局。**判据是 `pageCleared` 而不是「二念的果结出来了」**
+            （T36）：两拍终局那 1200ms 里整列还在台上，入口该跟着它一起淡出——先一步消失
+            会留下一帧「棋盘还在、统计入口没了」的半成品画面。
+            存档读写出错的那条提示不在此列——它是故障，
+            任何时候都不该被藏起来。 */}
+        {!restoring && !pageCleared && (
+          <div className="mt-4 flex flex-col items-center gap-4">
+            {/* 静音开关（T20）。与战绩面板同一个位置、同一套理由：它是设置不是
+                「这一局的状态」，所以开局前与局中都摆在同一个地方、只有一个入口。
+                写盘走 settings 桶，刷新之后照旧静音（SPEC §3.3 的 mute）。
+                **T39 会把它搬进抽屉**；T37 只搭外壳，所以它照旧在这场。（它此刻在
+                `inert` 那块里——抽屉开着时整页都不作数，包括这个开关。） */}
+            <MuteToggle muted={mute} onToggle={setMute} />
+            <button
+              type="button"
+              className="control"
+              ref={statsToggleRef}
+              aria-expanded={statsOpen}
+              onClick={() => setStatsOpen((open) => !open)}
+            >
+              战绩与统计
+            </button>
+            {statsOpen && (
+              <StatsPanel records={records} stats={stats} onClose={() => setStatsOpen(false)} />
+            )}
+          </div>
+        )}
+
+        {/* 设置入口（T37 · 父规格架构决策 4）：**恒可见**——开局界面、局中、结果层在场、
+            二念扣下都在同一个位置，唯一例外是读档中（`restoring`）：那一刻改的设置会被
+            盘上那份覆盖回去，把这个窗口藏起来才够不着它。
+            它住在**页面内容这一段里**：开着抽屉时会被 `inert` 一并收走——「开着」这件事
+            由抽屉自己说，而入口此刻压在遮罩底下、点它也只会点到遮罩上（父规格决策 8）。 */}
+        {!restoring && (
+          <SettingsEntry open={settingsOpen} onOpen={openSettings} entryRef={settingsEntryRef} />
+        )}
+      </div>
+
+      {/* 遮罩 + 抽屉（T37）：留在包裹元素**之外**（`inert` 不该盖住这一层自己），仍在
+          `<main>` 里——`data-style` 令牌照旧继承。这一票是硬切：`settingsOpen` 一翻就
+          挂载 / 卸载，没有退场状态（T38 补 250 / 200ms 的进出与那台在场机器）。 */}
+      {settingsOpen && <SettingsDrawer onClose={closeSettings} panelRef={settingsPanelRef} />}
     </main>
   )
 }
