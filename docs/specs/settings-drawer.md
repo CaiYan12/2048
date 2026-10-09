@@ -176,6 +176,15 @@ no version is bumped.
    This requires the page content to be wrapped in one element, with the scrim and the drawer left
    outside it but still inside the shell, so the style tokens keep inheriting.
 
+   **An accepted consequence of that scoping, recorded rather than discovered later:** the cannon sits
+   outside the wrapper too, and HTML has no way to exempt a descendant from an ancestor's inertness —
+   so its in-flow reduced-motion line (`.cannon__still`, the one visible trace a reduced-motion player
+   gets) moved from inside the game column to the top of the page, above the content it used to sit
+   under. The full-motion canvas does not care (it is `position: fixed`). Accepted because the
+   alternative is either inverting decision 6 or exempting the cannon from inertness, which the
+   platform does not allow; the placement is pinned by the e2e case that proves the still line sits
+   outside the inert block.
+
 7. **The drawer is a dialog with a name, and focus goes to the dialog itself on open.** Because the
    page content is inert, focus necessarily falls to the document body when the drawer opens — this is
    not a choice about whether to move focus, only about where to. It goes to the container rather than
@@ -185,8 +194,10 @@ no version is bumped.
 
 8. **The scrim takes all pointer input, and that is the whole of "settings blocks the page".** The
    scrim is the layer's "outside" for the purposes of click-to-close and the thing that makes "nothing
-   else is clickable" true. It is one element doing one job; the entry itself sits under it while the
-   drawer is open, so clicking the entry again lands on the scrim and closes.
+   else is clickable" true. It is one element doing one job; the entry itself sits under the scrim
+   *and* under the drawer while the drawer is open, so clicking it again hits the drawer's own panel
+   and does nothing to the page — the ways out from there are the close control and `Esc`, and the
+   scrim takes the rest of the viewport.
 
 9. **While the drawer is open the keyboard is swallowed, but still consumed.** Movement keys, `WASD`
    and the undo key are prevented from their default *and* from reaching the board — the page still
@@ -377,7 +388,7 @@ no version is bumped.
 
 - [x] Opening the drawer leaves nothing on the page clickable: every pointer path to the board, the
       direction pad, the swipe surface, the new-game button, the statistics entry and the result
-      layer's controls lands on the scrim.
+      layer's controls lands on the scrim or on the drawer itself — nothing reaches the page.
 - [x] While the drawer is open the movement keys, `WASD` and the undo key neither move the board nor
       undo nor scroll the page.
 - [x] `Tab` cannot reach the page behind the drawer.
@@ -520,21 +531,27 @@ no version is bumped.
 
 ## To sync when the implementation lands
 
-- `README.md`'s settings group: its status line and the two bullets this spec delivers.
-- `docs/SPEC.md` §3.4 (amended in place by decision 9) and §3.2 if the drawer's existence changes how
-  the style contract is described.
-- **Four in-place amendments created by the design stage, before or with the implementation.** This
-  spec's own motion decision — **done** in the revision above, and the published issue carries it. Each
-  of the three cards' §6 motion paragraph gains the drawer's exception. And Claude's card §7 stops
-  enumerating three places for its warm colour and says four. Until those three land, each of those
-  cards contains a sentence the drawer contradicts.
-- `GLOSSARY.md`: the new term and its avoid list, and the second-pass entry amended (decision 5).
-- The three design cards: a new section each (the toast and the easter egg set the precedent), plus the
-  colour roles each style gains in its §2 and the new pair notes in its §9.
-- `AGENTS.md`: a dated status section for this group, in the shape the existing status sections use.
-- The shell's own comment on the cleared page state, and the sound component's note about its
+**Every item below landed with the implementation (2026-10-09, T37–T40).** Kept as a record of what
+the group owed and delivered — not as outstanding work.
+
+- **Landed** — `README.md`'s settings group: its status line marks this first slice as delivered (the
+  entry, the drawer shell and the moved sound switch) and ticks that bullet; the group's other six
+  bullets stay open, which is what "they are not in this slice" looks like.
+- **Landed** — `docs/SPEC.md` §3.4, amended in place by decision 9. §3.2 needed no change: the drawer
+  does not alter how the style contract is described.
+- **Landed** — the four in-place amendments the design stage created: this spec's own motion decision
+  (revised above and carried by the published issue), each of the three cards' §6 motion paragraph now
+  carries the drawer's exception, and Claude's card §7 enumerates four places for its warm colour.
+- **Landed** — `GLOSSARY.md`: the 设置 section with the new term and its avoid list, and the
+  second-pass entry amended (decision 5).
+- **Landed** — the three design cards: a new §12 each (the toast and the easter egg set the precedent),
+  the colour roles their §2 gained and the new pair notes in their §9.
+- **Landed** — `AGENTS.md`: a dated status section for this group, in the shape the existing status
+  sections use.
+- **Landed** — the shell's comment on the cleared page state, and the sound component's note about its
   accessible name (decision 14).
-- The design process's state file, so the next session sees this group's design stage as done.
+- **Landed** — the design process's state file, so the next session reads this group's design stage as
+  done.
 
 ## Evidence
 
@@ -544,8 +561,9 @@ numbers, run on the final tree with four styles' worth of files untouched:
 - `npm run typecheck` — **0 errors**.
 - `npm test` — **910 passed / 49 files**.
 - `npm run build` — **✓ 89 modules**.
-- `npm run check:contrast` — **3 styles, 141 pairs** (was **125** before this group; the `settings`
-  scene is the eighth in `SCENES` and in `contrast-computed.spec.ts`'s `setupScene`).
+- `npm run check:contrast` — **3 styles, 141 pairs** (was **131** before this group: the `settings`
+  scene adds ten pairs — six switch pairs, two per style, plus each style's drawer-surface title and
+  row label — and it is the eighth in `SCENES` and in `contrast-computed.spec.ts`'s `setupScene`).
 - Full Playwright (**background, headless**, `workers: 4`) — **842 passed / 14 skipped / 0 failed**.
 - `game.spec.ts --repeat-each=4` — **40 passed / 0 failed**.
 - `tests/e2e/settings-drawer.spec.ts` — **90 passed / 0 failed** (14 cases per style × 3 styles ×

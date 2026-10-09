@@ -3,7 +3,7 @@ import {
   EMPTY_DRAWER_PRESENCE,
   nextDrawerPresence,
   type DrawerPresenceState,
-} from '../../src/renderer/components/SettingsPresence'
+} from '../../src/renderer/components/DrawerPresence'
 
 /**
  * T38 设置抽屉的**在场**裁决（父规格 docs/specs/settings-drawer.md 的架构决策 10 / 11 ·

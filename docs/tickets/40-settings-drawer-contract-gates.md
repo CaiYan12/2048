@@ -25,7 +25,7 @@
       那一页现在还有设置入口）。
 - [x] `README.md` 该组标状态；`AGENTS.md` 加一节带日期的状态（照既有状态小节的形状）。
 - [x] 四道闸门：`npm run typecheck` 0 错、`npm test` 全绿、`npm run build` 通过、
-      `npm run check:contrast` 三套风格（对数以实际为准，当前基线 **131 对**）；全量 Playwright
+      `npm run check:contrast` 三套风格（对数以实际为准，当前基线 **141 对**（T39 落地后））；全量 Playwright
       （后台、headless）**0 failed**，`game.spec.ts` 按既有做法另跑 `--repeat-each=4`。
 - [ ] 人眼复核：三套风格 × 桌面 / 手机，看入口、抽屉、开关，以及**被打断的那一次进场弹跳**
       （250ms 内又关掉）。**——没有做**（headless 约定下不能由 agent 代做，见 Evidence「没有验证的」）。

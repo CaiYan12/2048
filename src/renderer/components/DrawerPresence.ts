@@ -14,7 +14,7 @@ import { useCallback, useState } from 'react'
  * 是把呈现细节升格成领域事实（SPEC §4：store 是协调者，不替界面记账）。
  *
  * **形状照两个先例**：纯函数 + 一个薄 hook，函数里没有 React。于是判断能在 node 单测里逐条
- * 驱动（`tests/unit/settings-presence.test.ts`），挂不挂得上（DOM、动画、指针）归 e2e。
+ * 驱动（`tests/unit/drawer-presence.test.ts`），挂不挂得上（DOM、动画、指针）归 e2e。
  *
  * **为什么退场靠动画结束事件而不是定时器**：装假时钟的测试（`page.clock`）会把 `setTimeout`
  * 整个冻住，退场就永远播不完——结果层与彩蛋菜单都为这件事各付过一遍代价
