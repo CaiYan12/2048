@@ -973,6 +973,25 @@
   transform: translate(1rem, -50%);
 }
 
+/* 两态切换不是瞬跳（2026-10-09 人眼复核 BLOCK 的第二项）：滑块的位移与换色、轨道的换色
+   都走 150ms + 内置 ease-out——与方块那套小位移同一个数（board.css 的
+   --tile-move-duration），不是抽屉那套 250/200：ADR-0010 把那套值的作用域只给了整页层，
+   一颗开关不在此列。时长住一处自定义属性，几条规则共用，谁改就改这一个地方。 */
+.settings-switch,
+.settings-switch__thumb {
+  --switch-state-duration: 150ms;
+  transition-duration: var(--switch-state-duration);
+  transition-timing-function: ease-out;
+}
+
+.settings-switch {
+  transition-property: background-color;
+}
+
+.settings-switch__thumb {
+  transition-property: transform, background-color;
+}
+
 /* —— 设置抽屉的进出动效（T38 · 父规格决策 10 / 11 · ADR-0010）——
    **抽屉自取一套值，不借用上面那套共享的 150ms**：进 250ms / 出 200ms，曲线
    `cubic-bezier(0.32, 0.72, 0, 1)`。**作用域只到抽屉与将来同类的整页层**——结果层与彩蛋
@@ -1085,6 +1104,12 @@
 
   .settings-drawer[data-settings-leaving] {
     animation-name: settings-fade-out;
+  }
+
+  /* 开关滑块的位移过渡也撤（同一条降级路子）：位置瞬时就位，换色的淡变保留——
+     reduced motion 要的是「少一点动」，不是「少一点反馈」。 */
+  .settings-switch__thumb {
+    transition-property: background-color;
   }
 }
 

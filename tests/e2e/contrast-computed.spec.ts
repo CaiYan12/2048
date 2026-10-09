@@ -504,6 +504,9 @@ async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<v
   const toggled = pairs.filter((pair) => pair.probe?.toggle === true)
   if (toggled.length > 0) {
     await page.locator(toggled[0].probe?.selector ?? '').first().click()
+    // 状态过渡（150ms）播完再读：transition 是补间，读到半路就是半路的色，
+    // 声明的比值会对不上（T40 的人眼复核给开关补了过渡，这条落定是跟它一起来的）
+    await page.waitForTimeout(250)
     for (const pair of toggled) await expectPair(page, pair)
   }
 

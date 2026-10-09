@@ -429,7 +429,15 @@
 
 [data-style='classic'] .settings-switch {
   background: var(--switch-track);
-  border-radius: var(--cell-radius);
+  /* 胶囊形（999px）：滑块是圆的，轨道的角必须跟它切合（2026-10-09 人眼复核 BLOCK 的
+     第一项；--cell-radius 的 6px 压不住 20px 高的轨道）。 */
+  border-radius: 999px;
+  /* 关态轨道与抽屉面取的是同一个值（--control-bg），没有这条发丝线，轨道会整块隐入
+     底面——「关」看起来像开关消失、「开」看起来像凭空长出来（人眼复核 BLOCK 的第三项）。
+     线取开态轨道那个色：开态时线与底同色自然隐去，关态时它是轨道仅存的边界。outline
+     不改盒子尺寸，与 Claude 那套开关的细线是同一个做法。 */
+  outline: 1px solid var(--control-bg-selected);
+  outline-offset: -1px;
 }
 
 [data-style='classic'] .settings-switch[aria-checked='true'] {

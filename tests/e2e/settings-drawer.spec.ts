@@ -965,6 +965,22 @@ for (const style of STYLE_CATALOG) {
           easing: 'cubic-bezier(0.32, 0.72, 0, 1)',
         })
 
+        // 开关滑块的位移过渡也撤（与抽屉同一条降级路子）：transition-property 里没有
+        // transform（位置瞬时就位），换色的淡变保留。在退场之前读——抽屉还在、是落定态
+        const thumbTransition = await page.evaluate(() =>
+          getComputedStyle(
+            document.querySelector('.settings-switch__thumb') as Element
+          ).transitionProperty
+        )
+        expect(
+          thumbTransition,
+          `${style.label}：reduced-motion 下滑块的位移过渡没撤`
+        ).not.toContain('transform')
+        expect(
+          thumbTransition,
+          `${style.label}：reduced-motion 下滑块换色的淡变也没了`
+        ).toContain('background-color')
+
         // 退场：同样只淡出、不位移，且仍是 200ms
         const exit = await page.evaluate(
           () =>
@@ -1062,6 +1078,9 @@ for (const style of STYLE_CATALOG) {
       await expect(sw).toHaveAttribute('aria-checked', 'false')
       await expect(sw).toHaveAttribute('data-mute', 'true')
       await expect(sw, `${style.label}：可访问名随状态变了`).toHaveAccessibleName('音效')
+      // 状态过渡（150ms）播完再读计算样式：transition 是补间，读到半路就是半路的色、
+      // 半路的位移（过渡本身是 2026-10-09 人眼复核 BLOCK 之后才有的）
+      await page.waitForTimeout(250)
       const off = await readSwitch(page)
 
       // ⑤ 两态靠**滑块位置 + 轨道换色**说：行程正好 1rem（16px），轨道底色两态不同
@@ -1082,6 +1101,42 @@ for (const style of STYLE_CATALOG) {
       } else {
         expect(off.thumbBg, `${style.label}：声明了滑块开态色，滑块却没换色`).not.toBe(on.thumbBg)
       }
+
+      // ⑥.5 人眼复核（2026-10-09 BLOCK）补上的三项守卫：轨道是胶囊形（与圆形滑块切合）、
+      //      两态切换有 150ms 过渡（不瞬跳）、关态的轨道仍读得出是一根轨道（Classic 的
+      //      关态底色与抽屉面同一个值，靠一圈开态色的发丝线站住——否则开关一关，轨道
+      //      整块隐入底面，切换就成了「什么都没变」）。此刻开关正处于关态（④点过）。
+      const switchSkin = await row.evaluate((element) => {
+        const track = element.querySelector('.settings-switch') as HTMLElement
+        const thumb = element.querySelector('.settings-switch__thumb') as HTMLElement
+        const trackCS = getComputedStyle(track)
+        const thumbCS = getComputedStyle(thumb)
+        const drawerCS = getComputedStyle(track.closest('[data-settings-drawer]') as HTMLElement)
+        return {
+          radius: trackCS.borderRadius,
+          trackTransition: trackCS.transitionProperty,
+          thumbTransition: thumbCS.transitionProperty,
+          thumbDuration: thumbCS.transitionDuration,
+          trackBg: trackCS.backgroundColor,
+          drawerBg: drawerCS.backgroundColor,
+          trackOutline: `${trackCS.outlineStyle} ${trackCS.outlineWidth}`,
+        }
+      })
+      expect(switchSkin.radius, `${style.label}：轨道不是胶囊形（圆滑块切不合直角轨道）`).toBe(
+        '999px'
+      )
+      expect(switchSkin.thumbTransition, `${style.label}：滑块位移没有过渡`).toContain('transform')
+      expect(switchSkin.thumbTransition, `${style.label}：滑块换色没有过渡`).toContain(
+        'background-color'
+      )
+      expect(switchSkin.thumbDuration, `${style.label}：滑块过渡不是 150ms`).toContain('0.15s')
+      expect(switchSkin.trackTransition, `${style.label}：轨道换色没有过渡`).toContain(
+        'background-color'
+      )
+      expect(
+        switchSkin.trackBg !== switchSkin.drawerBg || switchSkin.trackOutline !== 'none 0px',
+        `${style.label}：关态轨道与抽屉面同色又没有描边——轨道整块隐入底面`
+      ).toBe(true)
 
       // ⑦ 再点回来（这回点**开关自己**：点它冒泡到行处理器，也只翻一次，不是两遍）
       await sw.click()

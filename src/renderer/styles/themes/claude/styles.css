@@ -447,7 +447,9 @@
 
 [data-style='claude'] .settings-switch {
   background: var(--switch-track);
-  border-radius: var(--board-radius);
+  /* 胶囊形（999px）：滑块是圆的，轨道的角必须跟它切合（2026-10-09 人眼复核 BLOCK 的
+     第一项；--board-radius 的 4px 压不住 20px 高的轨道）。outline 会跟着圆角走。 */
+  border-radius: 999px;
   outline: 1px solid var(--control-border);
   outline-offset: -1px;
 }
