@@ -13,6 +13,7 @@ import { RunAnnouncer } from './components/RunAnnouncer'
 import { layerForPhase, useResultLayerPresence } from './components/ResultPresence'
 import { resultCardLine } from './components/resultCardLine'
 import { SettingsDrawer, SettingsEntry } from './components/SettingsDrawer'
+import { useDrawerPresence } from './components/SettingsPresence'
 import { useShenmo, type ShenmoButton } from './components/ShenmoChoice'
 import { useShenmoFall } from './components/ShenmoFall'
 import { ShenmoStrip } from './components/ShenmoStrip'
@@ -215,14 +216,19 @@ export default function App(): JSX.Element {
   // 设置抽屉的开合（T37）。住在 App 而不是 store：它是纯会话状态、明确**不落盘**
   // （刷新进到一个开着的设置层，那是一个会记住错误的页面，父规格架构决策 16），
   // 而 store 的每个字段都被 hydrate / setState 的字段表牵着走。
-  // **这一票是硬切**：开着即挂载、关掉即卸载，没有退场状态（T38 做动效）。
   const [settingsOpen, setSettingsOpen] = useState(false)
   // 入口那颗齿轮。关掉抽屉时焦点回落到它身上（下面那个 effect）
   const settingsEntryRef = useRef<HTMLButtonElement>(null)
   // 抽屉容器。打开时焦点落在**容器**上而不是关闭按钮——一次误敲回车会当场关掉
   const settingsPanelRef = useRef<HTMLDivElement>(null)
-  // 「刚关掉」与「从没开过」也要分开，与 previousStatsOpen 同一条理由
-  const previousSettingsOpen = useRef(settingsOpen)
+  // 抽屉的**在场**（T38 · 父规格决策 10 / 11）。T37 是「开着即挂载、关掉即卸载」的硬切；
+  // T38 起这一层要比关闭多活一段退场动画，于是「在场上」不再等于「开着」——那台裁决住在
+  // SettingsPresence.ts（纯函数 + 薄 hook）。渲染期校正保证 `data-settings-leaving` 与开合
+  // 状态在同一次提交落 DOM。
+  const drawer = useDrawerPresence(settingsOpen)
+  // 「刚离开 DOM」与「从没挂过」也要分开，与 previousStatsOpen 同一条理由。依赖是
+  // `drawer.mounted` 而不是 `settingsOpen`——见下面那个焦点 effect
+  const previousDrawerMounted = useRef(drawer.mounted)
 
   // 结果层的在场（T27 · ADR-0008 的架构决策 9 / 10）。T26 是「phase 一到就挂、一走就
   // 没」，T27 要它播完退场再走——于是「场上该有哪一层」由这一个 hook 说，phase 只回答
@@ -503,13 +509,19 @@ export default function App(): JSX.Element {
     settingsPanelRef.current?.focus({ preventScroll: true })
   }, [settingsOpen])
 
+  // 关闭时把焦点还给入口。**判据是「抽屉真的离开了 DOM」（drawer.mounted 翻下去），
+  // 不是「settingsOpen 翻了」**——T38 起这一层比关闭多活一段退场动画：`settingsOpen`
+  // 翻下去那一刻容器还在台上、还拿着焦点（`activeElement !== body`，判据不成立），等退场
+  // 播完容器卸载、焦点掉到 body 时，`settingsOpen` 已经不再变，挂在它上面的 effect 再也不跑。
+  // 这与结果层 T27 把依赖从 `game` 换成 `presence.layer` 是同一条教训
+  // （`.codex/memories/result-layer.md` 第 7 条），区别只在于这里「在不在场上」是布尔量。
   useEffect(() => {
-    const wasOpen = previousSettingsOpen.current
-    previousSettingsOpen.current = settingsOpen
-    if (!wasOpen || settingsOpen) return
+    const wasMounted = previousDrawerMounted.current
+    previousDrawerMounted.current = drawer.mounted
+    if (!wasMounted || drawer.mounted) return
     if (document.activeElement !== document.body) return
     settingsEntryRef.current?.focus({ preventScroll: true })
-  }, [settingsOpen])
+  }, [drawer.mounted])
 
   // 键盘住在 **App** 上（2026-09-28）。
   //
@@ -948,10 +960,19 @@ export default function App(): JSX.Element {
         )}
       </div>
 
-      {/* 遮罩 + 抽屉（T37）：留在包裹元素**之外**（`inert` 不该盖住这一层自己），仍在
-          `<main>` 里——`data-style` 令牌照旧继承。这一票是硬切：`settingsOpen` 一翻就
-          挂载 / 卸载，没有退场状态（T38 补 250 / 200ms 的进出与那台在场机器）。 */}
-      {settingsOpen && <SettingsDrawer onClose={closeSettings} panelRef={settingsPanelRef} />}
+      {/* 遮罩 + 抽屉（T37 的结构 · T38 的进出）：留在包裹元素**之外**（`inert` 不该盖住
+          这一层自己），仍在 `<main>` 里——`data-style` 令牌照旧继承。
+          **挂载条件换成 `drawer.mounted` 而不是 `settingsOpen`**：关掉之后容器还要多活一段
+          退场动画（那台裁决在 SettingsPresence.ts），退场动画结束时它自己上报 `onExited`
+          （`drawer.drop`）才卸载。`leaving` 由 App 递进去，只用来挂 `data-settings-leaving`。 */}
+      {drawer.mounted && (
+        <SettingsDrawer
+          onClose={closeSettings}
+          panelRef={settingsPanelRef}
+          leaving={drawer.leaving}
+          onExited={drawer.drop}
+        />
+      )}
     </main>
   )
 }

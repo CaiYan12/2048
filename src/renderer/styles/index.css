@@ -860,15 +860,13 @@
   line-height: 1.3;
 }
 
-/* —— 设置抽屉（T37 · 父规格 docs/specs/settings-drawer.md · ADR-0010）——
-   分界线与结果层、与彩蛋同一条：**结构、摆位与层级住在这一层**（共享外壳），
+/* —— 设置抽屉（T37 搭壳 / T38 补进出 · 父规格 docs/specs/settings-drawer.md · ADR-0010）——
+   分界线与结果层、与彩蛋同一条：**结构、摆位、层级与两个时长住在这一层**（共享外壳），
    **底面 / 圆角 / 内边距 / 标题字体**在三套风格自己的 tokens.css 与 styles.css 里。
    抽屉不是第五个插槽（ADR-0010，判据同结果层与彩蛋）。
    层级一次写全：**入口 6 / 遮罩 7 / 抽屉 8**——都在既有 toast 栈 4、礼炮 5 之上。
    不写这三个数，「窄视口上入口与 toast 栈共享视口顶端那一条带」就由书写顺序说了算，
-   效果如何全看打包顺序。
-   **这一票是硬切**：没有动画、没有时长、没有退场属性——进出动效是 T38，它才引入
-   250 / 200ms 与那台「挂载 ≠ 打开」的在场机器。 */
+   效果如何全看打包顺序。 */
 
 /* 入口：`position: fixed` 贴视口右上角、内缩 1rem。3rem 的命中区——与方向键、两颗圆钮
    同一个数。形状（圆角）与三个状态（hover / 焦点环 / 开着）的颜色归各风格：
@@ -932,5 +930,120 @@
 /* 标题的字体归各风格；这里只清掉 UA 给 `h2` 的外边距——那一条会把内容整体顶下去 */
 .settings-drawer__title {
   margin: 0;
+}
+
+/* —— 设置抽屉的进出动效（T38 · 父规格决策 10 / 11 · ADR-0010）——
+   **抽屉自取一套值，不借用上面那套共享的 150ms**：进 250ms / 出 200ms，曲线
+   `cubic-bezier(0.32, 0.72, 0, 1)`。**作用域只到抽屉与将来同类的整页层**——结果层与彩蛋
+   菜单继续用 150ms + 内置 ease-out，不许被这一段改动带走：它们的验收是按那一套做的、已经
+   关闭，而「一整屏的行程要一条起步快、落点软的曲线」这条理由对 4px 的升降根本不成立
+   （这就是「作用域没有漏」的凭证：两个时长与曲线只在这一处声明）。
+   进出**不对称**（250 vs 200）不是装饰：项目自己有一条直觉「落下比升起轻」，结果层的卡片
+   退场比进场短一半就是它的另一个投影。慢的那半留给玩家做决定，快的那半留给系统答话。
+   退场的终点**不靠 JS 计时**：SettingsDrawer 听抽屉那条动画的 `animationend` 通知宿主把层
+   摘掉，所以 200ms 只活在这一个文件里——没有第二个副本等着谁忘改（与结果层同一条纪律）。 */
+
+/* 两个时长与那条曲线只声明一次。为什么写成自定义属性而不是每条动画各写一遍字面量：
+   四条 `animation` 各要一个时长与一条曲线，字面量会散成八处，谁改一处就漂一处。 */
+.settings-scrim,
+.settings-drawer {
+  --settings-in-duration: 250ms;
+  --settings-out-duration: 200ms;
+  --settings-motion-curve: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* 只淡入淡出那一对：遮罩全程用它，抽屉在 reduced-motion 下也退到这一对（见文件末尾的
+   @media）。名字说「淡入淡出」而不是「遮罩」——抽屉在 reduced-motion 下用的正是这一对。 */
+@keyframes settings-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes settings-fade-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+/* 抽屉进场：淡入 + 自右滑入（从整块宽度之外推回来）。起点不可见（opacity 0）、且在视口
+   之外，所以它是第一帧就画上去的，**不需要** T21 在胜利标题上讨论的那种 rAF 状态门控。 */
+@keyframes settings-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 抽屉退场：淡出 + 滑回右侧。方向与进场相反、时长更短——「落下比升起轻」，与结果层的
+   卡片退场同一条理由（`result-card-out` 的注释原话）。起点是 opacity 1，所以 `both`
+   保证的是动画一换上就从「完全在场」起跑，末帧停在 0——层被摘掉之前不会跳回不透明。 */
+@keyframes settings-drawer-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+/* `both` 是硬要求：动画开始前它用第一帧填充（于是第一屏就是 opacity 0、位移在视口外，
+   没有闪帧），结束后停在终态（退场那一组放到 opacity 0，层被摘掉之前不会跳回不透明）。 */
+.settings-scrim {
+  animation: settings-fade-in var(--settings-in-duration) var(--settings-motion-curve) 1 both;
+}
+
+.settings-drawer {
+  animation: settings-drawer-in var(--settings-in-duration) var(--settings-motion-curve) 1 both;
+}
+
+/* 退场：同一个元素上多一个属性，动画整组换掉。属性选择器的特异性（0,2,0）高于上面两条
+   （0,1,0），所以不依赖书写顺序。 */
+.settings-scrim[data-settings-leaving] {
+  animation: settings-fade-out var(--settings-out-duration) var(--settings-motion-curve) 1 both;
+}
+
+.settings-drawer[data-settings-leaving] {
+  animation: settings-drawer-out var(--settings-out-duration) var(--settings-motion-curve) 1 both;
+}
+
+/* 退场的那一帧起整块不再接指针（父规格决策 10，抄 `.overlay[data-result-leaving]`）。
+   `settingsOpen` 一变，`data-settings-leaving` 在同一次提交里就落到 DOM 上
+   （SettingsPresence.ts 的渲染期校正保证这一点），于是从那一帧起这一层不再接指针：关掉
+   之后马上点「新游戏」的玩家拿到的是页面，不是一块还在淡出的层。遮罩与抽屉是**两个兄弟**，
+   没有共同容器可以挂一个属性，所以两边各挂一个——`pointer-events` 只沿树继承、跨不过兄弟。 */
+.settings-scrim[data-settings-leaving],
+.settings-drawer[data-settings-leaving] {
+  pointer-events: none;
+}
+
+/* reduced-motion：撤掉位移、只留淡入淡出（SPEC §3.2 · 用户故事 17；与结果层那条、与
+   各风格声明里的 --tile-*-duration: 0ms 是同一条降级路子）。**两个时长不变**：reduced
+   motion 要的是「少一点动」，不是「少一点反馈」——层来了 / 走了仍然要说出来，不动的只是身体。
+   只换 `animation-name`，时长与曲线（都在简写里）跟着保留。 */
+@media (prefers-reduced-motion: reduce) {
+  .settings-drawer {
+    animation-name: settings-fade-in;
+  }
+
+  .settings-drawer[data-settings-leaving] {
+    animation-name: settings-fade-out;
+  }
 }
 
