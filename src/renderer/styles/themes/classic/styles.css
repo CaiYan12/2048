@@ -377,3 +377,43 @@
   background: var(--shenmo-strip-surface);
   color: var(--shenmo-strip-ink);
 }
+
+/* —— 设置抽屉（T37 · §12 · ADR-0010）——
+   结构 / 摆位 / 三个层级在共享外壳（styles/index.css 的 .settings-*），这里只出
+   底面、圆角与标题字体——抽屉不是第五个插槽。入口与 .control 完全同族：深棕实底、
+   `--ink-bright` 图标，它是一颗按钮、里面画的是图形而不是字。 */
+[data-style='classic'] .settings-entry {
+  background: var(--control-bg);
+  color: var(--ink-bright);
+  border-radius: var(--cell-radius);
+}
+
+[data-style='classic'] .settings-entry:hover {
+  background: var(--control-bg-hover);
+}
+
+/* 焦点：与 .control、两颗圆钮、棋盘同一对「页面色垫圈 + 深色描边」双环 */
+[data-style='classic'] .settings-entry:focus-visible {
+  outline: 0;
+  box-shadow:
+    0 0 0 2px var(--page),
+    0 0 0 4px var(--focus);
+}
+
+/* 抽屉面：深棕面、**不带投影**——深底压在纸面上本身就是本套说「在上」的方式，
+   它对这件事已经这么说了三次（toast、两颗圆钮、悬顶）。这一处刻意不学结果层那张卡：
+   那张卡是 `--page` 色的纸压在棋盘上，而这是一整条盖住页面的面板。
+   圆角只在**左侧两个角**——贴右边缘那一侧是齐边的。 */
+[data-style='classic'] .settings-drawer {
+  background: var(--control-bg);
+  color: var(--ink-bright);
+  border-radius: var(--cell-radius) 0 0 var(--cell-radius);
+  padding: 0.5rem 0.875rem;
+}
+
+[data-style='classic'] .settings-drawer__title {
+  color: var(--ink-bright);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 600;
+}

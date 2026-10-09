@@ -1,0 +1,747 @@
+import { expect, test, type Locator, type Page } from '@playwright/test'
+import { STYLE_CATALOG, type StyleId } from '../../src/shared/styleCatalog'
+
+/**
+ * T37 设置抽屉：打开、拦住、关掉，回到原处（父规格 docs/specs/settings-drawer.md ·
+ * ADR-0010 · GitHub #39）。
+ *
+ * 同一套断言对三套风格各跑一遍（接结果层与彩蛋那两条既有缝）：抽屉是**外壳**不是第五个
+ * 插槽，三套只出 token 与 CSS，所以唯一能防漂移的就是同一组不变量跑三遍。文件里没有一句
+ * 「Classic 会这样、Material 会那样」的分叉——差别只通过各自的计算样式体现。
+ *
+ * 契约逐条（与票据 T37 的验收标准一一对应）：
+ *   1. 入口在开局界面 / 局中 / 结果层在场 / 二念扣下时同址，只在读档中隐藏；
+ *   2. 入口是纯图标按钮：可访问名「设置」、3rem 命中区、`aria-expanded`、只有三个状态；
+ *   3. 图形是一份三套共用的内联 SVG，颜色走 `currentColor`；
+ *   4. 打开之后每一条指针路径都落在遮罩 / 抽屉上；
+ *   5. 打开之后方向键 / WASD / Z 被吃掉、不滚页面；滚轮照旧；文本入口照旧拿得到自己的键；
+ *   6. 打开之后 `Tab` 到不了遮罩后面（页面内容 `inert`）；
+ *   7. 三种关法都通；`Esc` 优先于底下的交换摊；
+ *   8. 关掉之后回到离开时的状态；焦点打开时落在容器、关闭时回到入口；
+ *   9. 抽屉是 `role="dialog"` + 名字、不加 `aria-modal`；贴右铺满、宽 `min(22rem,100vw)`。
+ *
+ * **这一票是硬切**（T38 才做动效）：没有退场状态、没有动画时长，所以这里一条都不量
+ * 进出动效——那些是 T38 的账。
+ *
+ * 局面确定性来自 `?seed=` + `?board=`（开局夹具）。**显式局面优先于存档**
+ * （`hasExplicitStart`），所以每个状态各 goto 一次就各自拿一页干净的，不会互相串。
+ */
+
+/** 行优先局面 → board 参数值（空串 = 空格） */
+function boardQuery(rows: (number | null)[][]): string {
+  return rows.flat().map((value) => value ?? '').join(',')
+}
+
+/** 开局 URL：固定种子让「移动之后的生成」也可预期 */
+function startUrl(rows: (number | null)[][]): string {
+  return `/?seed=20260926&board=${boardQuery(rows)}`
+}
+
+/**
+ * 活跃局：第 3 行右端留一个空格，四个方向都推得动。用来验「正在打的一局还在打」与
+ * 「打开抽屉不推棋」——它有合法移动，所以棋盘动不动是可观测的。
+ */
+const ACTIVE: (number | null)[][] = [
+  [2, 4, 8, 16],
+  [4, 8, 16, 2],
+  [8, 16, 2, 4],
+  [16, 2, 4, null],
+]
+
+/** 四个 1024：一次左移合出两个 2048（第一次达标），结果层当场挂上 */
+const FOUR_1024: (number | null)[][] = [
+  [1024, 1024, 1024, 1024],
+  [null, null, null, null],
+  [null, null, null, null],
+  [null, null, null, null],
+]
+
+/** 满盘十六档、两两不相等：神魔码那八下全是无效移动，棋盘一个格子都不动 */
+const LADDER_FULL_BOARD =
+  '2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768,65536'
+
+/** 神魔码的八下（↑↑↓↓←→←→） */
+const CODE_KEYS: readonly string[] = [
+  'ArrowUp',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowLeft',
+  'ArrowRight',
+]
+
+/**
+ * 页面上所有可能成为 Tab 停靠点的元素（原生可聚焦 + 正的 tabindex）。
+ * 与 task-22-a11y / contrast-computed 同一份口径——三处都从它推导走查，不各写一套。
+ */
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
+  'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+/** 收集 console / page 错误：新挂的层与新挂的属性若有 React 警告要当场看见 */
+function watchProblems(page: Page): string[] {
+  const problems: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'error') problems.push(`console: ${message.text()}`)
+  })
+  page.on('pageerror', (error) => problems.push(`pageerror: ${error.message}`))
+  return problems
+}
+
+/** 从 DOM 还原棋盘：棋盘是固定结构，有方块才有 data-tile-id */
+async function readBoard(page: Page): Promise<(number | null)[][]> {
+  const cellCount = await page.locator('.board__cell').count()
+  const size = Math.sqrt(cellCount)
+  const grid: (number | null)[][] = Array.from({ length: size }, () =>
+    Array.from({ length: size }, (): number | null => null)
+  )
+  const tiles = page.locator('[data-tile-id]')
+  for (let index = 0; index < (await tiles.count()); index += 1) {
+    const tile = tiles.nth(index)
+    const row = Number(await tile.getAttribute('data-row'))
+    const col = Number(await tile.getAttribute('data-col'))
+    grid[row][col] = Number(await tile.getAttribute('data-value'))
+  }
+  return grid
+}
+
+async function pickStyle(page: Page, label: string): Promise<void> {
+  await page.getByRole('group', { name: '风格' }).getByRole('button', { name: label }).click()
+}
+
+/** 开局：选风格 → 开始游戏 */
+async function startRun(page: Page, style: StyleId, url: string): Promise<void> {
+  await page.goto(url)
+  const label = STYLE_CATALOG.find((entry) => entry.id === style)?.label ?? style
+  await pickStyle(page, label)
+  await expect(page.locator('main')).toHaveAttribute('data-style', style)
+  await page.getByRole('button', { name: '开始游戏' }).click()
+  await expect(page.locator('[data-board]')).toBeVisible()
+}
+
+/** 入口那颗齿轮（可访问名是「设置」） */
+const entry = (page: Page): Locator => page.locator('.settings-entry')
+const drawer = (page: Page): Locator => page.locator('[data-settings-drawer]')
+
+/** 打开抽屉：点入口，等抽屉就位 */
+async function openDrawer(page: Page): Promise<void> {
+  await entry(page).click()
+  await expect(drawer(page)).toBeVisible()
+}
+
+/** 关掉抽屉：点「收起」，等它整个离开 DOM（硬切，没有退场帧） */
+async function closeDrawer(page: Page): Promise<void> {
+  await drawer(page).getByRole('button', { name: '收起' }).click()
+  await expect(drawer(page)).toHaveCount(0)
+}
+
+/** 入口的矩形（取到 0.1px，避免浮点噪声把「同址」比出假的差） */
+async function entryBox(page: Page): Promise<{ x: number; y: number; w: number; h: number } | null> {
+  return entry(page).evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    const round = (value: number): number => Math.round(value * 10) / 10
+    return { x: round(rect.x), y: round(rect.y), w: round(rect.width), h: round(rect.height) }
+  })
+}
+
+/** 元素的计算底色 */
+function background(page: Page, selector: string): Promise<string> {
+  return page.locator(selector).evaluate((element) => getComputedStyle(element).backgroundColor)
+}
+
+/**
+ * 焦点元素那一圈环（与 task-22-a11y 同一把尺子）：Material / Claude 用 outline，
+ * Classic 用「页面色垫圈 + 深色描边」的 box-shadow 双环，取最宽的一圈。
+ */
+async function activeRing(page: Page): Promise<{ width: number; colour: string | null }> {
+  return page.evaluate(() => {
+    const element = document.activeElement
+    if (element === null || element === document.body) return { width: 0, colour: null }
+    const style = getComputedStyle(element)
+    const outlineWidth = parseFloat(style.outlineWidth)
+    if (style.outlineStyle !== 'none' && outlineWidth > 0) {
+      return { width: outlineWidth, colour: style.outlineColor }
+    }
+    const layers = [
+      ...style.boxShadow.matchAll(
+        /rgba?\([^)]*\)\s+(?:-?\d+(?:\.\d+)?px\s+){3}(\d+(?:\.\d+)?)px/g
+      ),
+    ].map((layer) => ({
+      colour: layer[0].slice(0, layer[0].indexOf(')') + 1),
+      spread: Number(layer[1]),
+    }))
+    if (layers.length === 0) return { width: 0, colour: null }
+    const widest = layers.reduce((a, b) => (b.spread > a.spread ? b : a))
+    return { width: widest.spread, colour: widest.colour }
+  })
+}
+
+/** 一直按 Tab，直到焦点落在设置入口上（步数上限从 DOM 数出来，不写死） */
+async function tabToEntry(page: Page): Promise<void> {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  const limit = (await page.locator(FOCUSABLE).count()) + 2
+  for (let step = 0; step <= limit; step += 1) {
+    const focused = await entry(page).evaluate((element) => element === document.activeElement)
+    if (focused) return
+    await page.keyboard.press('Tab')
+  }
+  throw new Error('按遍了 Tab 也没走到设置入口')
+}
+
+/**
+ * 按一下某键，回报**应用有没有把它吃掉**（`preventDefault`）。
+ *
+ * 探针监听器注册在应用的 window 监听**之后**，所以它看到的 `defaultPrevented` 就是应用
+ * 上报的那个值（game.spec.ts 的 arrowDownConsumed 同一条路）。注册之后才按键——不等
+ * 就是竞态。
+ */
+async function keyConsumed(page: Page, key: string): Promise<boolean | undefined> {
+  await page.evaluate(() => {
+    ;(window as typeof window & { __t37Prevented?: boolean }).__t37Prevented = undefined
+    window.addEventListener('keydown', (event) => {
+      ;(window as typeof window & { __t37Prevented?: boolean }).__t37Prevented =
+        event.defaultPrevented
+    })
+  })
+  await page.keyboard.press(key)
+  return page.evaluate(
+    () => (window as typeof window & { __t37Prevented?: boolean }).__t37Prevented
+  )
+}
+
+/**
+ * 把一个控件中心的那一击交给浏览器点，断言它落在遮罩或抽屉上。
+ *
+ * 「看得见」不等于「点得到」：这正是抽屉拦人的全部所指（result-layer.md 第 1 条）。
+ * 结果层那两条几何用例证明的是同一件事的另一半——那里是遮罩接住棋盘角落。
+ */
+async function expectPointerBlocked(page: Page, target: Locator, label: string): Promise<void> {
+  const box = await target.boundingBox()
+  expect(box, `${label} 量不到矩形（它不在布局里）`).not.toBeNull()
+  if (box === null) return
+  const hit = await page.evaluate(
+    ({ x, y }) => {
+      const element = document.elementFromPoint(x, y)
+      return {
+        tag: element === null ? null : element.tagName,
+        inLayer:
+          element instanceof Element &&
+          element.closest('[data-settings-scrim],[data-settings-drawer]') !== null,
+      }
+    },
+    { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  )
+  expect(
+    hit.inLayer,
+    `${label} 那一击没有落在遮罩 / 抽屉上（落到了 <${hit.tag}>）`
+  ).toBe(true)
+}
+
+/** 打一遍神魔码（棋盘得先拿到焦点，脚本才收得到那八下） */
+async function typeCode(page: Page): Promise<void> {
+  await page.locator('[data-board]').focus()
+  for (const key of CODE_KEYS) await page.keyboard.press(key)
+}
+
+/** 派一条合成的 `animationend`，把「B 碎完了」说给机器听（不靠墙钟） */
+async function breakB(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    document
+      .querySelector('[data-shenmo-button="b"]')
+      ?.dispatchEvent(
+        new AnimationEvent('animationend', { bubbles: true, animationName: 'shenmo-break-fade' })
+      )
+  })
+}
+
+/** 走完一遍完整的 B → A（第一遍授予一念、第二遍触发二念的两拍终局） */
+async function completePass(page: Page): Promise<void> {
+  await typeCode(page)
+  await expect(page.locator('.shenmo')).toHaveAttribute('data-shenmo-stage', 'choice')
+  await page.getByRole('button', { name: '抉择 B' }).click()
+  await breakB(page)
+  await expect(page.locator('.shenmo')).toHaveAttribute('data-shenmo-stage', 'ring')
+  await page.getByRole('button', { name: '抉择 A' }).click()
+  await expect(page.locator('.shenmo')).toHaveCount(0)
+}
+
+/** 两遍走完 → 页面被扣下（只剩一颗「重新开始」） */
+async function reachPageCleared(page: Page): Promise<void> {
+  await completePass(page)
+  await completePass(page)
+  await expect(page.getByRole('button', { name: '重新开始' })).toBeVisible()
+}
+
+for (const style of STYLE_CATALOG) {
+  test.describe(`${style.label} · 设置抽屉`, () => {
+    test('入口在四种页面状态下同址；开合之后回到原处', async ({ page }) => {
+      const problems = watchProblems(page)
+
+      // ① 开局界面：入口就在，开合一次照旧
+      await page.goto('/?seed=20260926')
+      await pickStyle(page, style.label)
+      await expect(page.getByRole('button', { name: '开始游戏' })).toBeVisible()
+      const startBox = await entryBox(page)
+      await openDrawer(page)
+      await closeDrawer(page)
+      await expect(page.getByRole('button', { name: '开始游戏' })).toBeVisible()
+      expect(await entryBox(page), `${style.label}：开局界面开合之后入口挪了地`).toEqual(startBox)
+
+      // ② 局中：开关抽屉不许碰这一局
+      await startRun(page, style.id, startUrl(ACTIVE))
+      const runBox = await entryBox(page)
+      const runBoard = await readBoard(page)
+      await openDrawer(page)
+      await closeDrawer(page)
+      expect(await readBoard(page), `${style.label}：开关抽屉把棋盘动了`).toEqual(runBoard)
+      // 正在打的一局还在打：关掉之后同一动照旧推得动
+      const beforeMove = await readBoard(page)
+      await page.locator('[data-board]').focus()
+      await page.keyboard.press('ArrowRight')
+      expect(await readBoard(page), `${style.label}：关掉抽屉后棋盘推不动了`).not.toEqual(
+        beforeMove
+      )
+      expect(await entryBox(page), `${style.label}：局中入口与开局界面不同址`).toEqual(startBox)
+      expect(await entryBox(page)).toEqual(runBox)
+
+      // ③ 结果层在场：开关抽屉不许把结果层弄丢
+      await startRun(page, style.id, startUrl(FOUR_1024))
+      await page.locator('[data-board]').focus()
+      await page.keyboard.press('ArrowLeft')
+      await expect(page.locator('[data-result-tier="won"]')).toBeVisible()
+      const winBox = await entryBox(page)
+      await openDrawer(page)
+      await closeDrawer(page)
+      await expect(page.locator('[data-result-tier="won"]')).toBeVisible()
+      expect(await entryBox(page), `${style.label}：结果层在场时入口不同址`).toEqual(startBox)
+      expect(winBox).toEqual(startBox)
+
+      // ④ 二念扣下：入口照旧，且悬顶**不在**被 inert 的那一块里（父规格架构决策 6）。
+      //
+      // **这里不断言礼炮**：它在第一遍走完时授予、粒子一熄就 `onSpent` 卸载自己
+      // （`Cannon`：`granted` 只在 false→true 那一下复位 `spent`，二念走完时它早已是
+      // true 且不再变化），从第一遍到这一页之间隔着第二遍与 1200ms 两拍终局，
+      // 到这儿 `.cannon` 早已不在场——抓它只会抓到一条与本票无关的红。要证的是
+      // 「浮层不被 inert」，悬顶是这一类里**稳定在场**的那个，由它来证（Toast 栈与
+      // 礼炮同样住在 `.contents` 之外、是它的兄弟，证据在 App.tsx 的结构里）。
+      await startRun(page, style.id, `/?seed=20260926&board=${LADDER_FULL_BOARD}`)
+      await reachPageCleared(page)
+      const clearedBox = await entryBox(page)
+      await openDrawer(page)
+      const structure = await page.evaluate(() => {
+        const wrapper = document.querySelector('main > div.contents')
+        // 这一页的**页面内容**只剩「重新开始」与入口——棋盘早被二念收走了（那一分支
+        // 只渲染一颗按钮），所以不能拿棋盘当「页面内容在 inert 里」的证据
+        const buttons = wrapper === null ? [] : [...wrapper.querySelectorAll('button')]
+        const hasRestart = buttons.some((button) => (button.textContent ?? '').trim() === '重新开始')
+        const strip = document.querySelector('.shenmo-strip')
+        return {
+          inert: wrapper?.hasAttribute('inert') ?? false,
+          hasRestart,
+          containsEntry: wrapper !== null && wrapper.contains(document.querySelector('.settings-entry')),
+          stripPresent: strip !== null,
+          containsStrip: wrapper !== null && strip !== null && wrapper.contains(strip),
+        }
+      })
+      // 页面内容确实被 inert 收走（那一页的按钮与入口都在那一块里）
+      expect(structure.inert, `${style.label}：页面那块没有被 inert`).toBe(true)
+      expect(structure.hasRestart, `${style.label}：重新开始不在 inert 那一块里`).toBe(true)
+      expect(structure.containsEntry).toBe(true)
+      // 而悬顶是**浮层**，不在 inert 那一块里（父规格架构决策 6）
+      expect(structure.stripPresent, `${style.label}：二念扣下时悬顶应该在`).toBe(true)
+      expect(structure.containsStrip, `${style.label}：悬顶被 inert 一起收走了`).toBe(false)
+      await closeDrawer(page)
+      // 被扣下的那一页还是被扣下
+      await expect(page.getByRole('button', { name: '重新开始' })).toBeVisible()
+      expect(await entryBox(page), `${style.label}：二念扣下时入口不同址`).toEqual(startBox)
+      expect(clearedBox).toEqual(startBox)
+
+      expect(problems).toEqual([])
+    })
+
+    test('入口是纯图标按钮：名字、3rem 命中区、aria-expanded、只有三个状态', async ({ page }) => {
+      const problems = watchProblems(page)
+      await page.goto('/?seed=20260926')
+      await pickStyle(page, style.label)
+
+      // 纯图标：可访问名是「设置」，自身一个可见字都没有
+      await expect(page.getByRole('button', { name: '设置' })).toHaveCount(1)
+      await expect(entry(page)).toBeVisible()
+      expect((await entry(page).innerText()).trim(), `${style.label}：入口里混进了文字`).toBe('')
+      await expect(entry(page)).toHaveAttribute('aria-expanded', 'false')
+
+      // 3rem 命中区（48px），正方形
+      const box = await entry(page).boundingBox()
+      expect(box?.width, `${style.label}：入口命中区不是 3rem`).toBe(48)
+      expect(box?.height, `${style.label}：入口命中区不是 3rem`).toBe(48)
+
+      // 状态一：静止。状态二：悬停——底色真的换了一档
+      const rest = await background(page, '.settings-entry')
+      await entry(page).hover()
+      const hover = await background(page, '.settings-entry')
+      expect(hover, `${style.label}：入口没有悬停态`).not.toBe(rest)
+
+      // 状态三：键盘焦点环，看得见
+      await page.mouse.move(0, 0)
+      await tabToEntry(page)
+      const ring = await activeRing(page)
+      expect(ring.width, `${style.label}：入口的焦点环看不见`).toBeGreaterThanOrEqual(2)
+      expect(ring.colour, `${style.label}：入口的焦点环没有颜色`).not.toBeNull()
+
+      // 刻意没有按下反馈（父规格决策 22）：悬停 + 按住与只悬停同一个底色，也没有位移
+      await entry(page).hover()
+      const hoverTransform = await entry(page).evaluate((el) => getComputedStyle(el).transform)
+      const pressed = await (async () => {
+        const rect = await entry(page).boundingBox()
+        if (rect === null) throw new Error('入口量不到矩形')
+        await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2)
+        await page.mouse.down()
+        const state = await entry(page).evaluate((element) => ({
+          bg: getComputedStyle(element).backgroundColor,
+          transform: getComputedStyle(element).transform,
+          active: element.matches(':active'),
+        }))
+        await page.mouse.move(0, 0)
+        await page.mouse.up()
+        return state
+      })()
+      expect(pressed.active, '按下没有真的落在入口上').toBe(true)
+      expect(pressed.bg, `${style.label}：入口有按下反馈（换了底色）`).toBe(hover)
+      expect(pressed.transform, `${style.label}：入口有按下反馈（动了形状）`).toBe(hoverTransform)
+
+      // 「开着」是第三个状态，由 aria-expanded 报出（开着不换底色——那是「选中」的意思）
+      await openDrawer(page)
+      await expect(entry(page)).toHaveAttribute('aria-expanded', 'true')
+      await expect(entry(page)).toHaveAttribute('data-settings-open', 'true')
+      await closeDrawer(page)
+      await expect(entry(page)).toHaveAttribute('aria-expanded', 'false')
+
+      expect(problems).toEqual([])
+    })
+
+    test('打开：每一条指针路径都落在遮罩上；抽屉是 dialog + 名字、形状贴右铺满', async ({
+      page,
+    }) => {
+      const problems = watchProblems(page)
+
+      // 窄屏铺满整屏（父规格决策 21）：宽 320 → min(22rem, 100vw) = 320，左右都齐边。
+      //
+      // **在开局界面上量，不在局中量**：本套契约在 mobile 项目里也要跑一遍，而移动端
+      // 上棋盘在 320 视口里比视口宽，内容一横向溢出，移动端 Chromium 就把整页缩到「适配」
+      // 比例——那时 `window.innerWidth`（视觉视口，约 444）不再等于 `100vw`（布局视口，
+      // 320），抽屉 `right: 0; width: min(22rem, 100vw)` 于是钉在放大后的视觉视口右缘、
+      // 却只有布局视口那么宽，看着像差了一截。那截差是浏览器为「棋盘溢出」做的缩放，
+      // 不是抽屉的尺寸。开局界面没有棋盘、不溢出，两把尺子重合，量的才是抽屉自己的 CSS。
+      await page.goto('/?seed=20260926')
+      await pickStyle(page, style.label)
+      await page.setViewportSize({ width: 320, height: 700 })
+      await openDrawer(page)
+      const narrow = await drawer(page).evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        return { x: rect.x, w: rect.width, vw: window.innerWidth }
+      })
+      expect(narrow.w, `${style.label}：窄屏抽屉没有铺满整屏`).toBe(narrow.vw)
+      expect(narrow.x, `${style.label}：窄屏抽屉没有齐左边缘`).toBe(0)
+      await closeDrawer(page)
+
+      // 撑高视口：页脚那几个入口在默认 720 高之下，撑开它们全在视口里才好量中心
+      await page.setViewportSize({ width: 1280, height: 1400 })
+      await startRun(page, style.id, startUrl(ACTIVE))
+
+      await openDrawer(page)
+
+      // 形状与语义（这一票的验收标准「The drawer's shape」与「Focus and assistive technology」）
+      const shape = await drawer(page).evaluate((element) => {
+        const rect = element.getBoundingClientRect()
+        const style = getComputedStyle(element)
+        return {
+          position: style.position,
+          role: element.getAttribute('role'),
+          label: element.getAttribute('aria-label'),
+          modal: element.getAttribute('aria-modal'),
+          x: rect.x,
+          y: rect.y,
+          w: rect.width,
+          h: rect.height,
+          vw: window.innerWidth,
+          vh: window.innerHeight,
+        }
+      })
+      expect(shape.position, `${style.label}：抽屉没有脱离布局`).toBe('fixed')
+      expect(shape.role, `${style.label}：抽屉不是 dialog`).toBe('dialog')
+      expect(shape.label, `${style.label}：抽屉没有名字`).toBe('设置')
+      // 不加 aria-modal：背景已经被 inert 说了同一件事，不必说两遍
+      expect(shape.modal, `${style.label}：抽屉不该加 aria-modal`).toBeNull()
+      expect(shape.x + shape.w, `${style.label}：抽屉没有贴住右边缘`).toBeCloseTo(shape.vw, 0)
+      expect(shape.y, `${style.label}：抽屉没有顶上边缘`).toBe(0)
+      expect(shape.h, `${style.label}：抽屉没有铺满高度`).toBe(shape.vh)
+      expect(shape.w, `${style.label}：抽屉宽度不是 min(22rem, 100vw)`).toBeCloseTo(
+        Math.min(22 * 16, shape.vw),
+        0
+      )
+
+      // 窄屏铺满整屏已在文件开头量过（开局界面）——上面这一套是宽视口下的形状
+      await closeDrawer(page)
+
+      // 指针路径逐条过：宽视口下点得到棋盘、方向键、新游戏、交换、战绩入口、风格按钮
+      const targets: [Locator, string][] = [
+        [page.locator('[data-board]'), '棋盘'],
+        [page.getByRole('button', { name: '新游戏' }), '新游戏'],
+        [page.getByRole('button', { name: '交换' }), '交换'],
+        [page.getByRole('button', { name: '战绩与统计' }), '战绩入口'],
+        [page.getByRole('group', { name: '风格' }).getByRole('button', { name: style.label }), '风格按钮'],
+      ]
+      const dpad = page.getByRole('group', { name: '方向按钮' }).getByRole('button', { name: '向上' })
+      if (await dpad.isVisible()) targets.push([dpad, '方向按钮'])
+
+      await openDrawer(page)
+      for (const [target, label] of targets) {
+        if (!(await target.isVisible())) continue
+        await expectPointerBlocked(page, target, `${style.label}：${label}`)
+      }
+      await closeDrawer(page)
+
+      // 结果层的按钮：开着棋盘上的那种盘，抽屉照旧接得住
+      await startRun(page, style.id, startUrl(FOUR_1024))
+      await page.locator('[data-board]').focus()
+      await page.keyboard.press('ArrowLeft')
+      await expect(page.locator('[data-result-tier="won"]')).toBeVisible()
+      await openDrawer(page)
+      await expectPointerBlocked(
+        page,
+        page.locator('[data-panel="win"]').getByRole('button', { name: '继续玩' }),
+        `${style.label}：结果层的按钮`
+      )
+      await closeDrawer(page)
+
+      expect(problems).toEqual([])
+    })
+
+    test('打开：方向键 / WASD / Z 被吃掉、不滚页面；滚轮照旧；文本入口照旧拿到键', async ({
+      page,
+    }) => {
+      const problems = watchProblems(page)
+      // 逼仄的视口：页面一定比它高，于是「滚不滚」是可观测的（game.spec 同款）
+      await page.setViewportSize({ width: 1100, height: 420 })
+      await startRun(page, style.id, startUrl(ACTIVE))
+      await page.evaluate(() => window.scrollTo(0, 0))
+
+      await openDrawer(page)
+      const board = await readBoard(page)
+      const score = await page.locator('[data-score]').textContent()
+
+      // 方向键 / WASD / Z 一律先 preventDefault 再吞掉：不推棋、不撤销、也不滚页面
+      for (const key of ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'w', 'a', 's', 'd', 'z', 'Z']) {
+        expect(
+          await keyConsumed(page, key),
+          `${style.label}：抽屉开着时 ${key} 没有被吃掉`
+        ).toBe(true)
+      }
+      expect(await readBoard(page), `${style.label}：抽屉开着时棋盘被推动了`).toEqual(board)
+      await expect(page.locator('[data-score]')).toHaveText(score ?? '')
+      expect(await page.evaluate(() => window.scrollY), `${style.label}：方向键把页面滚走了`).toBe(0)
+      // 一路吞键之后抽屉照旧开着
+      await expect(drawer(page)).toBeVisible()
+
+      // 滚轮照旧能滚（页面只由滚轮滚动那条常驻约定）——指针搁在遮罩上
+      await page.mouse.move(4, 200)
+      await page.mouse.wheel(0, 400)
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+
+      // 文本入口（T39 会往抽屉里放静音行；这里先验守卫本身）照旧拿得到自己的键：
+      // 事件目标是输入框时应用整键放行，方向键是「移光标」不是「推棋盘」
+      await page.evaluate(() => {
+        const panel = document.querySelector('[data-settings-drawer]')
+        if (panel === null) throw new Error('抽屉不在 DOM 里')
+        const input = document.createElement('input')
+        input.type = 'text'
+        input.id = 't37-probe-input'
+        panel.append(input)
+        input.focus()
+      })
+      expect(
+        await keyConsumed(page, 'ArrowLeft'),
+        `${style.label}：抽屉里的文本入口没拿回自己的方向键`
+      ).toBe(false)
+
+      expect(problems).toEqual([])
+    })
+
+    test('打开：Tab 到不了遮罩后面的页面（页面内容 inert）', async ({ page }) => {
+      const problems = watchProblems(page)
+      await startRun(page, style.id, startUrl(ACTIVE))
+      await openDrawer(page)
+
+      // 机制：页面内容整块挂着 inert，棋盘与入口都在那一块里
+      const structure = await page.evaluate(() => {
+        const wrapper = document.querySelector('main > div.contents')
+        return {
+          inert: wrapper?.getAttribute('inert') !== null,
+          containsBoard: wrapper !== null && wrapper.contains(document.querySelector('[data-board]')),
+          containsEntry: wrapper !== null && wrapper.contains(document.querySelector('.settings-entry')),
+        }
+      })
+      expect(structure.inert, `${style.label}：抽屉开着时页面那块没被 inert`).toBe(true)
+      expect(structure.containsBoard).toBe(true)
+      expect(structure.containsEntry).toBe(true)
+
+      // 走查：连按 Tab，焦点一次都不许落在遮罩后面的页面上。
+      // 判据用 closest 分类，而不是「停在第几个」——有界地转到为止（T13 / T18 的教训）
+      let sawDrawer = false
+      for (let step = 0; step < 12; step += 1) {
+        await page.keyboard.press('Tab')
+        const where = await page.evaluate(() => {
+          const element = document.activeElement
+          if (element === null || element === document.body) return { kind: 'body' as const, tag: 'body' }
+          if (element.closest('[data-settings-drawer]') !== null) {
+            return { kind: 'drawer' as const, tag: element.tagName }
+          }
+          if (element.closest('main > div.contents') !== null) {
+            return { kind: 'page' as const, tag: element.tagName }
+          }
+          return { kind: 'other' as const, tag: element.tagName }
+        })
+        if (where.kind === 'drawer') sawDrawer = true
+        expect(
+          where.kind,
+          `${style.label}：Tab 之后焦点落到了遮罩后面的 <${where.tag}> 上`
+        ).not.toBe('page')
+      }
+      // 焦点确实在抽屉里转过（不是「哪儿都到不了」那种假绿）
+      expect(sawDrawer, `${style.label}：Tab 怎么按都进不了抽屉`).toBe(true)
+
+      // 抽屉照旧开着
+      await expect(drawer(page)).toBeVisible()
+      expect(problems).toEqual([])
+    })
+
+    test('三种关法都通；Esc 优先于底下的交换摊；焦点进出到位', async ({ page }) => {
+      const problems = watchProblems(page)
+      await startRun(page, style.id, startUrl(ACTIVE))
+
+      // 关法一：点外侧（遮罩）
+      await openDrawer(page)
+      // 焦点落在**容器**上，不是关闭按钮——一次误敲回车会当场关掉（父规格决策 7）
+      const focusedOnOpen = await page.evaluate(() => ({
+        isPanel: document.activeElement?.hasAttribute('data-settings-drawer') ?? false,
+        isCloseButton:
+          (document.activeElement?.textContent ?? '').trim() === '收起',
+      }))
+      expect(focusedOnOpen.isPanel, `${style.label}：打开时焦点没有落在容器上`).toBe(true)
+      expect(focusedOnOpen.isCloseButton, `${style.label}：打开时焦点落在了关闭按钮上`).toBe(false)
+
+      await page.mouse.click(4, 300)
+      await expect(drawer(page)).toHaveCount(0)
+      // 焦点回到入口（判据是「焦点真的掉了」，见 App 里那个 effect）
+      await expect(entry(page)).toBeFocused()
+
+      // 关法二：抽屉里的「收起」
+      await openDrawer(page)
+      await closeDrawer(page)
+      await expect(entry(page)).toBeFocused()
+
+      // 关法三：Esc
+      await openDrawer(page)
+      await page.keyboard.press('Escape')
+      await expect(drawer(page)).toHaveCount(0)
+      await expect(entry(page)).toBeFocused()
+
+      // Esc 优先于底下的交换摊：抽屉开着时先关抽屉，摊照旧开着；再按一次才收摊
+      await page.getByRole('button', { name: '交换' }).click()
+      await expect(page.locator('.board__tile[data-selectable="true"]')).not.toHaveCount(0)
+      await openDrawer(page)
+      await page.keyboard.press('Escape')
+      await expect(drawer(page)).toHaveCount(0)
+      await expect(
+        page.locator('.board__tile[data-selectable="true"]'),
+        `${style.label}：关抽屉那一下把底下的交换摊也收了`
+      ).not.toHaveCount(0)
+      await page.keyboard.press('Escape')
+      await expect(page.locator('.board__tile[data-selectable="true"]')).toHaveCount(0)
+
+      expect(problems).toEqual([])
+    })
+  })
+}
+
+/**
+ * 读档中（`restoring`）入口与抽屉都不在——这一条与风格无关，只跑一遍。
+ *
+ * 怎么把那一帧冻住：初始化的 `hydrate()` 打开 IndexedDB，把那一步换成一只**永不落地**的
+ * 请求（挂上的 `onsuccess` / `onerror` 一辈子不响），于是 `restoring` 恒为 true。这是唯一
+ * 能稳定站进那个窗口的办法——真跑的话那几毫秒一闪而过，按墙钟去抢是竞态。
+ */
+test('读档中入口与抽屉都不在', async ({ page }) => {
+  const problems = watchProblems(page)
+  await page.addInitScript(() => {
+    const never = (): unknown => ({
+      onsuccess: null,
+      onerror: null,
+      onupgradeneeded: null,
+      result: null,
+      error: null,
+    })
+    Object.defineProperty(indexedDB, 'open', { value: never, configurable: true })
+  })
+
+  await page.goto('/?seed=20260926')
+  // 正在恢复那句话在，说明确实卡在读档窗口里
+  await expect(page.getByText('正在恢复上次的一局…')).toBeVisible()
+  await expect(entry(page)).toHaveCount(0)
+  await expect(drawer(page)).toHaveCount(0)
+
+  expect(problems).toEqual([])
+})
+
+/**
+ * 入口的图形是一份**三套共用**的内联 SVG、颜色走 `currentColor`。与风格无关，只跑一遍。
+ *
+ * 「共用一份」怎么证：三套各自渲染出来的 `path` 的 `d` **逐字相同**。三份拷贝一旦有人
+ * 单独改一笔，这里就红——这正是 ADR-0002 要的「一份实现」的可测版本。真要证「同一个源
+ * 文件」得看仓库结构（`SettingsDrawer.tsx` 里只有一份 GEAR_PATH），e2e 够不着源码。
+ */
+test('三套风格共用同一份齿轮：path 逐字相同、颜色走 currentColor', async ({ page }) => {
+  const problems = watchProblems(page)
+  const gears: { label: string; d: string }[] = []
+
+  for (const style of STYLE_CATALOG) {
+    await page.goto('/?seed=20260926')
+    await pickStyle(page, style.label)
+    const svg = entry(page).locator('svg.settings-entry__icon')
+    await expect(svg).toHaveCount(1)
+    await expect(svg.locator('path')).toHaveCount(1)
+
+    const read = await svg.evaluate((element) => {
+      const path = element.querySelector('path')
+      if (path === null) return null
+      return {
+        d: path.getAttribute('d') ?? '',
+        fillAttr: element.getAttribute('fill'),
+        // currentColor 落到最后：图形的填充色就是按钮自己的文字色
+        fillComputed: getComputedStyle(path).fill,
+        buttonColour: getComputedStyle(element.parentElement as Element).color,
+        ariaHidden: element.getAttribute('aria-hidden'),
+      }
+    })
+    expect(read, `${style.label}：找不到齿轮那条 path`).not.toBeNull()
+    if (read === null) continue
+    expect(read.d.length, `${style.label}：齿轮 path 是空的`).toBeGreaterThan(20)
+    expect(read.fillAttr, `${style.label}：齿轮没有走 currentColor`).toBe('currentColor')
+    expect(read.fillComputed, `${style.label}：currentColor 没有解析成按钮的文字色`).toBe(
+      read.buttonColour
+    )
+    // 装饰图形不进无障碍树：名字已经由按钮的 aria-label 说全了
+    expect(read.ariaHidden, `${style.label}：齿轮图没有对读屏软件隐藏`).toBe('true')
+    gears.push({ label: style.label, d: read.d })
+  }
+
+  const distinct = new Set(gears.map((gear) => gear.d))
+  expect(
+    distinct.size,
+    `${gears.map((gear) => gear.label).join(' / ')} 的齿轮 path 不是同一份`
+  ).toBe(1)
+
+  expect(problems).toEqual([])
+})

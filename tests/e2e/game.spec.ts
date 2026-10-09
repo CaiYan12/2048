@@ -229,6 +229,18 @@ test('方向键处处归棋盘、不再滚动页面（连开局界面一起）�
   await page.mouse.move(550, 200)
   await page.mouse.wheel(0, 400)
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
+
+  // ④ 设置抽屉开着（T37 · 父规格 docs/specs/settings-drawer.md）：这一层把整页吃光，
+  //    方向键先 `preventDefault` 再吞掉——与 ①② 同一个结论，只是挡在最前面；滚轮照旧
+  //    （③ 已经验过「它是唯一的滚动方式」，这里续上「抽屉开着时它仍是」）。
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await page.locator('.settings-entry').click()
+  await expect(page.locator('[data-settings-drawer]')).toBeVisible()
+  expect(await arrowDownConsumed(page), '抽屉开着时方向键没有被吃掉').toBe(true)
+  expect(await page.evaluate(() => window.scrollY), '抽屉开着时方向键把页面滚走了').toBe(0)
+  await page.mouse.move(550, 200)
+  await page.mouse.wheel(0, 400)
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
 })
 
 test('键位落在棋盘区内的控件上时不移动棋盘（守卫未来插槽控件的路径）', async ({

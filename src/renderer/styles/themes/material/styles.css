@@ -375,3 +375,45 @@
   color: var(--shenmo-strip-ink);
   box-shadow: var(--shenmo-strip-shadow);
 }
+
+/* —— 设置抽屉（T37 · §12 · ADR-0010）——
+   结构 / 摆位 / 三个层级在共享外壳（styles/index.css 的 .settings-*），这里只出
+   底面、圆角与标题字体——抽屉不是第五个插槽。入口与 .control 完全同族：tonal 底 +
+   `--control-ink` 图标；3rem 的方块按钮配全圆角（M3 的按钮形状），读起来是一颗圆钮。 */
+[data-style='material'] .settings-entry {
+  background: var(--control-bg);
+  color: var(--control-ink);
+  border-radius: 999px;
+}
+
+[data-style='material'] .settings-entry:hover {
+  background: var(--control-bg-hover);
+}
+
+/* 焦点用 outline 而不是投影：本套的层级语言就是投影，焦点再叠一层会让读者分不清
+   哪层是焦点、哪层是 elevation（与控件、板面同一条） */
+[data-style='material'] .settings-entry:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* 抽屉面：tonal 面 + elevation，与 toast 同一组投影——M3 里浮层高于版面是正常读法。
+   圆角只在**左侧两个角**（M3 large，与板面同尺）；贴右边缘那一侧是齐边的。 */
+[data-style='material'] .settings-drawer {
+  background: var(--control-bg);
+  color: var(--control-ink);
+  border-radius: var(--board-radius) 0 0 var(--board-radius);
+  padding: 0.75rem 1rem;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.12),
+    0 4px 8px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* 标题走 M3 的 label 口径（字重 500、0.12em 字距，与 §3 同一条） */
+[data-style='material'] .settings-drawer__title {
+  color: var(--control-ink);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+}

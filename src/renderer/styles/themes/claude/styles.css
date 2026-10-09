@@ -387,3 +387,50 @@
   color: var(--shenmo-strip-ink);
   border-bottom: 1px solid var(--shenmo-strip-rule);
 }
+
+/* —— 设置抽屉（T37 · §12 · ADR-0010）——
+   结构 / 摆位 / 三个层级在共享外壳（styles/index.css 的 .settings-*），这里只出
+   底面、那圈细线、圆角与标题字体——抽屉不是第五个插槽。
+   入口与 .control 完全同族：纸面底 + 一圈 `--control-border` 描边 + `--control-ink`
+   图标（本套的控件不填色）。描边**必须用 outline 而不是 border**：border 会改盒子
+   尺寸（§5 / §7），而 outline 也让闸门的 ring 探针读得到它。 */
+[data-style='claude'] .settings-entry {
+  background: var(--control-bg);
+  color: var(--control-ink);
+  border-radius: 3px;
+  outline: 1px solid var(--control-border);
+  outline-offset: -1px;
+}
+
+[data-style='claude'] .settings-entry:hover {
+  background: var(--control-bg-hover);
+}
+
+/* 焦点：换成暖色的、更粗的一圈，并且挪到盒子外面——与静止态描边在粗细、颜色、位置上
+   三样都不同（与 .control、两颗圆钮同一条） */
+[data-style='claude'] .settings-entry:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* 抽屉面：**一张比页面亮一档的纸 + 一圈细线**——底就是 `--board`（本套板面用的那张纸），
+   外侧描一圈 `--rule` 的 1px outline，正是本套板面自己的造法（纸 + 细线，不靠投影、
+   不靠色块）。于是抽屉与棋盘在这一套里读起来是「同一种东西放在两个地方」。
+   圆角只在**左侧两个角**（与板面同尺）；贴右边缘那一侧是齐边的。
+   **这一套的底面比另两套多欠两条对比度的账**（`--board` 在本表里此前从没载过文字）——
+   那两条在 T39 的闸门那一票里量，§12 的表格已经先把它们记下来了。 */
+[data-style='claude'] .settings-drawer {
+  background: var(--board);
+  color: var(--ink);
+  border-radius: var(--board-radius) 0 0 var(--board-radius);
+  padding: 0.875rem 1.5rem;
+  outline: 1px solid var(--rule);
+}
+
+/* 标题用**展示衬线**（本套用排印说身份，§3） */
+[data-style='claude'] .settings-drawer__title {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
