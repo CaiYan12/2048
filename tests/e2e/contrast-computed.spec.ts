@@ -42,7 +42,7 @@ import materialContrast from '../../src/renderer/styles/themes/material/contrast
  * 要求不启动 Playwright、不开任何浏览器。全部断言都走真实 DOM 与计算样式。
  */
 
-type Scene = 'start' | 'run' | 'walls' | 'milestone' | 'egg' | 'wish' | 'pinned'
+type Scene = 'start' | 'run' | 'walls' | 'milestone' | 'egg' | 'wish' | 'pinned' | 'settings'
 
 /** 与 contrast.json 的 scene 字段一一对应；多一个场景就在此登记，并补一个 setupScene 分支 */
 const SCENES: readonly Scene[] = [
@@ -53,6 +53,7 @@ const SCENES: readonly Scene[] = [
   'egg',
   'wish',
   'pinned',
+  'settings',
 ]
 
 interface StyleFixture {
@@ -273,6 +274,20 @@ async function setupScene(page: Page, scene: Scene, label: string): Promise<void
       await expect(page.locator('main')).toHaveAttribute('data-shenmo-pinned', 'true')
       return
     }
+    case 'settings': {
+      // T39 的设置抽屉：右上角那颗齿轮打开的一层。这一幕量两批东西——**抽屉面自己的
+      // 标题与行标签**（抽屉是 T37 才长出来的一整面，一面此前没载过文字就继承不到任何一次
+      // 测量），以及**静音开关的两态**（滑块 vs 关态 / 开态轨道）。
+      //
+      // 开关默认是开的（mute 默认 false），所以**开态那一对直接量**；关态那一对由
+      // checkPairs 先点一下开关（`probe.toggle`）再量。在开局界面上开抽屉即可——这一幕不需要
+      // 一局棋，齿轮开局界面就有。
+      await page.goto('/?seed=20260926')
+      await pickStyle(page, label)
+      await page.locator('.settings-entry').click()
+      await expect(page.locator('[data-settings-drawer]')).toBeVisible()
+      return
+    }
   }
 }
 
@@ -463,9 +478,12 @@ async function nextFocusStopAfterBoard(page: Page): Promise<number> {
   }, FOCUSABLE)
 }
 
-/** 同一幕里探针有先后顺序：静态 → 悬停 → 静止态环 → 键盘焦点环 → 交换拾取 */
+/** 同一幕里探针有先后顺序：静态 → 悬停 → 翻转开关 → 静止态环 → 键盘焦点环 → 交换拾取 */
 async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<void> {
-  const plain = pairs.filter((pair) => pair.probe?.hover !== true && pair.probe?.read !== 'ring')
+  const plain = pairs.filter(
+    (pair) =>
+      pair.probe?.hover !== true && pair.probe?.read !== 'ring' && pair.probe?.toggle !== true
+  )
   for (const pair of plain) await expectPair(page, pair)
 
   const hovered = pairs.filter((pair) => pair.probe?.hover === true)
@@ -477,6 +495,16 @@ async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<v
     // ——Claude 的表上两对都探 `.control`（悬停对 #e3dccc / 静止描边对纸面 #f0eee6），
     // 于是描边那一对读到的是悬停底色，报「背景对不上」（实测红了两个视口）。
     await page.mouse.move(0, 0)
+  }
+
+  // 开关的另一态（T39 · 静音开关）：默认态那几对在上面那批已经量过；带 `toggle` 的这几对
+  // 要**先把开关点一下**（翻到另一态）再读。点的是这一对自己的滑块——它是按钮的子节点，
+  // 点击冒泡上去正是开关那一下（与指针玩家点开关走的是同一条路）。放在悬停之后：悬停那一步
+  // 会把指针挪到元素上，而这一步是一次点击，两者互不打扰。
+  const toggled = pairs.filter((pair) => pair.probe?.toggle === true)
+  if (toggled.length > 0) {
+    await page.locator(toggled[0].probe?.selector ?? '').first().click()
+    for (const pair of toggled) await expectPair(page, pair)
   }
 
   // 静止态的环（Claude 控件那一圈 1px 描边）要在键盘导航**之前**读：Tab 之后同一边的

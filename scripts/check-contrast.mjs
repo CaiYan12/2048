@@ -47,6 +47,11 @@ const THEMES_DIR = join(REPO_ROOT, 'src', 'renderer', 'styles', 'themes');
  * 可交互控件，一句话说「别让一个玩笑花掉可读性」就要把它也量了。
  * T32 加 pinned：**第二遍走完**（先 B 后 A 两遍）——棋盘被扣下，视口顶端多出那条
  * 悬顶，它是这一票新长出来的**一整面**（不是一个控件），所以也归这句话管。
+ * T39 加 settings：**设置抽屉开着**（右上角那颗齿轮点开）——抽屉是 T37 才长出来的
+ * 一整面，一面此前没载过文字就继承不到任何一次测量，所以抽屉面自己的标题与行标签要入表；
+ * 而抽屉里那个静音开关是新长出来的可交互控件，两态（滑块 vs 关态 / 开态轨道）各一对。
+ * 开关默认是开的，所以开态那几对直接量；关态那几对由浏览器那一层先点一下开关
+ * （`probe.toggle`）再量。
  */
 export const SCENES = Object.freeze([
   'start',
@@ -56,6 +61,7 @@ export const SCENES = Object.freeze([
   'egg',
   'wish',
   'pinned',
+  'settings',
 ]);
 
 /**
@@ -244,6 +250,9 @@ export function auditPair(tokensCss, pair) {
   }
   if (probe.hover !== undefined && typeof probe.hover !== 'boolean') {
     problems.push('probe.hover 必须是布尔');
+  }
+  if (probe.toggle !== undefined && typeof probe.toggle !== 'boolean') {
+    problems.push('probe.toggle 必须是布尔');
   }
 
   if (problems.length === 0) return problems;

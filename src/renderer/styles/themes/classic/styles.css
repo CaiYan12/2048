@@ -417,3 +417,33 @@
   font-size: 1rem;
   font-weight: 600;
 }
+
+/* —— 静音行（T39 · §12）——
+   行标签与标题同色（--ink-bright）；开关几何在共享外壳，本套只出色与圆角。关态轨道就是
+   抽屉面那一块棕（与 .control 同族），开态换成最深的墨；**滑块恒用 --ink-bright**——
+   亮墨在两个轨道色上都过 3:1，所以本套不需要第二个滑块色（它是三套里唯一这样的）。
+   圆角取 `--cell-radius`（与控件、棋盘、方格同尺）。 */
+[data-style='classic'] .settings-row__label {
+  color: var(--ink-bright);
+}
+
+[data-style='classic'] .settings-switch {
+  background: var(--switch-track);
+  border-radius: var(--cell-radius);
+}
+
+[data-style='classic'] .settings-switch[aria-checked='true'] {
+  background: var(--switch-track-on);
+}
+
+[data-style='classic'] .settings-switch__thumb {
+  background: var(--ink-bright);
+}
+
+/* 焦点：与 .control、两颗圆钮、棋盘同一对「页面色垫圈 + 深色描边」双环 */
+[data-style='classic'] .settings-switch:focus-visible {
+  outline: 0;
+  box-shadow:
+    0 0 0 2px var(--page),
+    0 0 0 4px var(--focus);
+}

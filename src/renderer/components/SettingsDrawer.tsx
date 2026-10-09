@@ -1,4 +1,5 @@
 import type { AnimationEvent, JSX, RefObject } from 'react'
+import { MuteToggle } from './MuteToggle'
 
 /**
  * 设置抽屉（T37 搭壳 / T38 补进出动效 · 父规格 docs/specs/settings-drawer.md · ADR-0010）
@@ -103,6 +104,10 @@ interface DrawerProps {
    * 永远播不完；动画结束事件来自渲染管线，假时钟够不着它（结果层与菜单各付过一遍学费）。
    */
   onExited(): void
+  /** 此刻是否静音（T39 的静音行）。抽屉的第一件租客 */
+  muted: boolean
+  /** 静音开关翻一下。参数是翻转之后的值，与 MuteToggle 的契约同一个 */
+  onToggle(muted: boolean): void
 }
 
 /**
@@ -115,8 +120,9 @@ interface DrawerProps {
  * **不加 `aria-modal`**：背景已经被 `inert` 从无障碍树里摘掉了，同一件事不说两遍
  * （父规格架构决策 7）。
  *
- * 内容这一票只有两件：标题「设置」与一颗写「收起」的 `.control`——后者与战绩面板
- * 用的是同一个说法，一个仓库里「关掉一层」不该有两种叫法。静音行是 T39 的事。
+ * 内容：标题「设置」、一颗写「收起」的 `.control`——后者与战绩面板用的是同一个说法，
+ * 一个仓库里「关掉一层」不该有两种叫法——以及 **T39 搬进来的静音行**（左静态标签 +
+ * 右开关，`MuteToggle`）。静音行是抽屉的第一件租客，往后 README 里那一串设置都往这里长。
  *
  * **进出动效（T38）**：两条动画都写在共享外壳 `styles/index.css`，两个时长与曲线都住在
  * 那里（作用域只到抽屉与将来同类的整页层）。`data-settings-leaving` 是这一切的开关：
@@ -133,6 +139,8 @@ export function SettingsDrawer({
   panelRef,
   leaving,
   onExited,
+  muted,
+  onToggle,
 }: DrawerProps): JSX.Element {
   const handleAnimationEnd = (event: AnimationEvent<HTMLDivElement>): void => {
     // 进场那一组放完时 `leaving` 还是 false——这一句就是判据，于是「动画是哪一条关键帧」
@@ -163,6 +171,9 @@ export function SettingsDrawer({
             收起
           </button>
         </div>
+        {/* T39 的第一件租客：静音行（左静态标签 + 右开关）。它就长在这块面板里，
+            是抽屉内容的第一行，也是这一票动到的唯一一处内容 */}
+        <MuteToggle muted={muted} onToggle={onToggle} />
       </div>
     </>
   )

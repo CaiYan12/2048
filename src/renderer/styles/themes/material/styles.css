@@ -417,3 +417,35 @@
   font-weight: 500;
   letter-spacing: 0.12em;
 }
+
+/* —— 静音行（T39 · §12）——
+   行标签与标题同色（--control-ink）；开关几何在共享外壳，本套只出色与圆角。
+   轨道关态是 surface-container-highest、开态是 filled primary；**滑块换色**——白滑块
+   压在关态轨道上够不到非文字门槛，所以关态取 outline 色、开态取 on-primary 的白，这正是
+   M3 开关本来的做法。圆角走 M3 的开关形状（全圆）。 */
+[data-style='material'] .settings-row__label {
+  color: var(--control-ink);
+}
+
+[data-style='material'] .settings-switch {
+  background: var(--switch-track);
+  border-radius: 999px;
+}
+
+[data-style='material'] .settings-switch[aria-checked='true'] {
+  background: var(--switch-track-on);
+}
+
+[data-style='material'] .settings-switch__thumb {
+  background: var(--switch-thumb);
+}
+
+[data-style='material'] .settings-switch[aria-checked='true'] .settings-switch__thumb {
+  background: var(--switch-thumb-on);
+}
+
+/* 焦点用 outline 而不是投影：本套的层级语言就是投影，焦点再叠一层会与 elevation 打架 */
+[data-style='material'] .settings-switch:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}

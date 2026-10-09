@@ -8,7 +8,6 @@ import { Countdown } from './components/Countdown'
 import { DailyDateLabel } from './components/DailyDateLabel'
 import { DirectionPad } from './components/DirectionPad'
 import { GameOverPanel } from './components/GameOverPanel'
-import { MuteToggle } from './components/MuteToggle'
 import { RunAnnouncer } from './components/RunAnnouncer'
 import { layerForPhase, useResultLayerPresence } from './components/ResultPresence'
 import { resultCardLine } from './components/resultCardLine'
@@ -929,12 +928,9 @@ export default function App(): JSX.Element {
             任何时候都不该被藏起来。 */}
         {!restoring && !pageCleared && (
           <div className="mt-4 flex flex-col items-center gap-4">
-            {/* 静音开关（T20）。与战绩面板同一个位置、同一套理由：它是设置不是
-                「这一局的状态」，所以开局前与局中都摆在同一个地方、只有一个入口。
-                写盘走 settings 桶，刷新之后照旧静音（SPEC §3.3 的 mute）。
-                **T39 会把它搬进抽屉**；T37 只搭外壳，所以它照旧在这场。（它此刻在
-                `inert` 那块里——抽屉开着时整页都不作数，包括这个开关。） */}
-            <MuteToggle muted={mute} onToggle={setMute} />
+            {/* 静音开关（T20）**T39 起搬进了抽屉**：它现在是那层壳里的第一件设置
+                （左静态标签 + 右开关的一行），不再是这场里的一颗裸按钮。
+                store 的字段、落盘与语义一个都没动——只换了位置与长相。 */}
             <button
               type="button"
               className="control"
@@ -971,6 +967,8 @@ export default function App(): JSX.Element {
           panelRef={settingsPanelRef}
           leaving={drawer.leaving}
           onExited={drawer.drop}
+          muted={mute}
+          onToggle={setMute}
         />
       )}
     </main>

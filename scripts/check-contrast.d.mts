@@ -24,10 +24,22 @@ export interface ContrastPair {
     read?: string;
     background?: string;
     hover?: boolean;
+    /** 读到这一对之前先把开关点一下（翻到另一态）——T39 的静音开关两态各一对，默认态那
+     * 几对直接量，带这个旗标的几对由浏览器那一层先点一下开关再读 */
+    toggle?: boolean;
   };
 }
 
-export declare const SCENES: readonly ['start', 'run', 'walls'];
+export declare const SCENES: readonly [
+  'start',
+  'run',
+  'walls',
+  'milestone',
+  'egg',
+  'wish',
+  'pinned',
+  'settings',
+];
 
 export declare const BASIS_MINIMUM: Readonly<Record<string, number>>;
 
