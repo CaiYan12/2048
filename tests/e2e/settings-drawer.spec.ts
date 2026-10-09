@@ -1,5 +1,8 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { STYLE_CATALOG, type StyleId } from '../../src/shared/styleCatalog'
+// T42：开/关抽屉与选风格的助手收编到共享模块（父规格决策 13）——本文件原先自己抄的
+// pickStyle / openDrawer / closeDrawer / settledAnimations 删除，调用方改走下面这一份
+import { closeSettings, openSettings, pickStyle } from './settings-helpers'
 
 /**
  * 设置抽屉：打开、拦住、关掉、回到原处（T37），进出动效（T38），以及静音行（T39）。
@@ -33,8 +36,9 @@ import { STYLE_CATALOG, type StyleId } from '../../src/shared/styleCatalog'
  *      （粒子熄完就卸载），改用 reduced-motion 下那行**整局都在场**的 `.cannon__still` 证
  *      同一条 DOM 归属（两种形态是同一个 `<Cannon>` 的兄弟节点，结构逐字相同）。
  *
- * **T38 起关掉抽屉不再是硬切**：容器比「关闭」多活一段退场动画，所以 `openDrawer` 与
- * `closeDrawer` 都要等动画收尾（下面两个 helper）。那些「关掉之后立刻 count 0」的旧断言
+ * **T38 起关掉抽屉不再是硬切**：容器比「关闭」多活一段退场动画，所以开与关都要等动画
+ * 收尾——那两个助手自 T42 起收编在共享模块 `settings-helpers.ts`（`openSettings` /
+ * `closeSettings`），本文件的调用方一并迁移。那些「关掉之后立刻 count 0」的旧断言
  * 改成「等退场播完再 count 0」，是规格决策 10 要求的行为变化，不是为了让新用例变绿。
  *
  * 局面确定性来自 `?seed=` + `?board=`（开局夹具）。**显式局面优先于存档**
@@ -133,10 +137,6 @@ async function readBoard(page: Page): Promise<(number | null)[][]> {
   return grid
 }
 
-async function pickStyle(page: Page, label: string): Promise<void> {
-  await page.getByRole('group', { name: '风格' }).getByRole('button', { name: label }).click()
-}
-
 /** 开局：选风格 → 开始游戏 */
 async function startRun(page: Page, style: StyleId, url: string): Promise<void> {
   await page.goto(url)
@@ -150,48 +150,6 @@ async function startRun(page: Page, style: StyleId, url: string): Promise<void> 
 /** 入口那颗齿轮（可访问名是「设置」） */
 const entry = (page: Page): Locator => page.locator('.settings-entry')
 const drawer = (page: Page): Locator => page.locator('[data-settings-drawer]')
-
-/**
- * 等抽屉的进出动画播完（T38）。
- *
- * 为什么需要它：加了动效之后 `toBeVisible()` 在抽屉**还在滑进来的路上**就已经成立（元素
- * 有盒子，只是部分在视口外），紧接着去量矩形会量到一帧中间态。所以开与关之后都先等动画
- * 收尾。用 `getAnimations()` 而不是写死 250 / 200ms：时长只该活在 CSS 一处，测试里再写一个
- * 数就是给「有人改了 CSS 忘了改测试」上税。`polling: 50` 明写出来，是为了不依赖页面的
- * requestAnimationFrame（那也正是假时钟会冻住的东西）。
- */
-async function settledAnimations(page: Page): Promise<void> {
-  await page.waitForFunction(
-    () => {
-      const element = document.querySelector('[data-settings-drawer]')
-      if (element === null) return true
-      const animations = element.getAnimations()
-      return animations.length > 0 && animations.every((item) => item.playState !== 'running')
-    },
-    undefined,
-    { polling: 50 }
-  )
-}
-
-/** 打开抽屉：点入口，等抽屉就位、且进场动画播完（不然下一秒量的矩形是中间态） */
-async function openDrawer(page: Page): Promise<void> {
-  await entry(page).click()
-  await expect(drawer(page)).toBeVisible()
-  await settledAnimations(page)
-}
-
-/**
- * 关掉抽屉：点「收起」，等**退场动画播完**再等它离开 DOM（T38）。
- *
- * T37 的硬切下这一句是「点完立刻 count 0」；加了退场之后容器会多活 200ms，所以
- * `toHaveCount(0)` 现在等的是 animationend 驱动的卸载（Playwright 的重试会自动等够）。
- * 先 `settledAnimations` 是为了让调用方返回时退场真的播完了，而不是停在中间态。
- */
-async function closeDrawer(page: Page): Promise<void> {
-  await drawer(page).getByRole('button', { name: '收起' }).click()
-  await settledAnimations(page)
-  await expect(drawer(page)).toHaveCount(0)
-}
 
 /** 读抽屉与遮罩此刻的计算动效：动画名 + 时长 + 曲线（换风格不该换这三个数——它们是外壳的） */
 function motionTiming(page: Page): Promise<{
@@ -418,8 +376,8 @@ for (const style of STYLE_CATALOG) {
       await pickStyle(page, style.label)
       await expect(page.getByRole('button', { name: '开始游戏' })).toBeVisible()
       const startBox = await entryBox(page)
-      await openDrawer(page)
-      await closeDrawer(page)
+      await openSettings(page)
+      await closeSettings(page)
       await expect(page.getByRole('button', { name: '开始游戏' })).toBeVisible()
       expect(await entryBox(page), `${style.label}：开局界面开合之后入口挪了地`).toEqual(startBox)
 
@@ -427,8 +385,8 @@ for (const style of STYLE_CATALOG) {
       await startRun(page, style.id, startUrl(ACTIVE))
       const runBox = await entryBox(page)
       const runBoard = await readBoard(page)
-      await openDrawer(page)
-      await closeDrawer(page)
+      await openSettings(page)
+      await closeSettings(page)
       expect(await readBoard(page), `${style.label}：开关抽屉把棋盘动了`).toEqual(runBoard)
       // 正在打的一局还在打：关掉之后同一动照旧推得动
       const beforeMove = await readBoard(page)
@@ -446,8 +404,8 @@ for (const style of STYLE_CATALOG) {
       await page.keyboard.press('ArrowLeft')
       await expect(page.locator('[data-result-tier="won"]')).toBeVisible()
       const winBox = await entryBox(page)
-      await openDrawer(page)
-      await closeDrawer(page)
+      await openSettings(page)
+      await closeSettings(page)
       await expect(page.locator('[data-result-tier="won"]')).toBeVisible()
       expect(await entryBox(page), `${style.label}：结果层在场时入口不同址`).toEqual(startBox)
       expect(winBox).toEqual(startBox)
@@ -463,7 +421,7 @@ for (const style of STYLE_CATALOG) {
       await startRun(page, style.id, `/?seed=20260926&board=${LADDER_FULL_BOARD}`)
       await reachPageCleared(page)
       const clearedBox = await entryBox(page)
-      await openDrawer(page)
+      await openSettings(page)
       const structure = await page.evaluate(() => {
         const wrapper = document.querySelector('main > div.contents')
         // 这一页的**页面内容**只剩「重新开始」与入口——棋盘早被二念收走了（那一分支
@@ -486,7 +444,7 @@ for (const style of STYLE_CATALOG) {
       // 而悬顶是**浮层**，不在 inert 那一块里（父规格架构决策 6）
       expect(structure.stripPresent, `${style.label}：二念扣下时悬顶应该在`).toBe(true)
       expect(structure.containsStrip, `${style.label}：悬顶被 inert 一起收走了`).toBe(false)
-      await closeDrawer(page)
+      await closeSettings(page)
       // 被扣下的那一页还是被扣下
       await expect(page.getByRole('button', { name: '重新开始' })).toBeVisible()
       expect(await entryBox(page), `${style.label}：二念扣下时入口不同址`).toEqual(startBox)
@@ -546,10 +504,10 @@ for (const style of STYLE_CATALOG) {
       expect(pressed.transform, `${style.label}：入口有按下反馈（动了形状）`).toBe(hoverTransform)
 
       // 「开着」是第三个状态，由 aria-expanded 报出（开着不换底色——那是「选中」的意思）
-      await openDrawer(page)
+      await openSettings(page)
       await expect(entry(page)).toHaveAttribute('aria-expanded', 'true')
       await expect(entry(page)).toHaveAttribute('data-settings-open', 'true')
-      await closeDrawer(page)
+      await closeSettings(page)
       await expect(entry(page)).toHaveAttribute('aria-expanded', 'false')
 
       expect(problems).toEqual([])
@@ -571,20 +529,20 @@ for (const style of STYLE_CATALOG) {
       await page.goto('/?seed=20260926')
       await pickStyle(page, style.label)
       await page.setViewportSize({ width: 320, height: 700 })
-      await openDrawer(page)
+      await openSettings(page)
       const narrow = await drawer(page).evaluate((element) => {
         const rect = element.getBoundingClientRect()
         return { x: rect.x, w: rect.width, vw: window.innerWidth }
       })
       expect(narrow.w, `${style.label}：窄屏抽屉没有铺满整屏`).toBe(narrow.vw)
       expect(narrow.x, `${style.label}：窄屏抽屉没有齐左边缘`).toBe(0)
-      await closeDrawer(page)
+      await closeSettings(page)
 
       // 撑高视口：页脚那几个入口在默认 720 高之下，撑开它们全在视口里才好量中心
       await page.setViewportSize({ width: 1280, height: 1400 })
       await startRun(page, style.id, startUrl(ACTIVE))
 
-      await openDrawer(page)
+      await openSettings(page)
 
       // 形状与语义（这一票的验收标准「The drawer's shape」与「Focus and assistive technology」）
       const shape = await drawer(page).evaluate((element) => {
@@ -617,38 +575,40 @@ for (const style of STYLE_CATALOG) {
       )
 
       // 窄屏铺满整屏已在文件开头量过（开局界面）——上面这一套是宽视口下的形状
-      await closeDrawer(page)
+      await closeSettings(page)
 
-      // 指针路径逐条过：宽视口下点得到棋盘、方向键、新游戏、交换、战绩入口、风格按钮
+      // 指针路径逐条过：宽视口下点得到棋盘、方向键、新游戏、交换、战绩入口。
+      // **「风格按钮」这一条随 T42 摘掉了**：主面板那组风格按钮已经搬进抽屉（行为变化
+      // 要求的更新，不是放松断言），局中页面上不再有这一颗可点的目标——风格行的指针
+      // 路径由 style-row 那份契约逐条量
       const targets: [Locator, string][] = [
         [page.locator('[data-board]'), '棋盘'],
         [page.getByRole('button', { name: '新游戏' }), '新游戏'],
         [page.getByRole('button', { name: '交换' }), '交换'],
         [page.getByRole('button', { name: '战绩与统计' }), '战绩入口'],
-        [page.getByRole('group', { name: '风格' }).getByRole('button', { name: style.label }), '风格按钮'],
       ]
       const dpad = page.getByRole('group', { name: '方向按钮' }).getByRole('button', { name: '向上' })
       if (await dpad.isVisible()) targets.push([dpad, '方向按钮'])
 
-      await openDrawer(page)
+      await openSettings(page)
       for (const [target, label] of targets) {
         if (!(await target.isVisible())) continue
         await expectPointerBlocked(page, target, `${style.label}：${label}`)
       }
-      await closeDrawer(page)
+      await closeSettings(page)
 
       // 结果层的按钮：开着棋盘上的那种盘，抽屉照旧接得住
       await startRun(page, style.id, startUrl(FOUR_1024))
       await page.locator('[data-board]').focus()
       await page.keyboard.press('ArrowLeft')
       await expect(page.locator('[data-result-tier="won"]')).toBeVisible()
-      await openDrawer(page)
+      await openSettings(page)
       await expectPointerBlocked(
         page,
         page.locator('[data-panel="win"]').getByRole('button', { name: '继续玩' }),
         `${style.label}：结果层的按钮`
       )
-      await closeDrawer(page)
+      await closeSettings(page)
 
       expect(problems).toEqual([])
     })
@@ -662,7 +622,7 @@ for (const style of STYLE_CATALOG) {
       await startRun(page, style.id, startUrl(ACTIVE))
       await page.evaluate(() => window.scrollTo(0, 0))
 
-      await openDrawer(page)
+      await openSettings(page)
       const board = await readBoard(page)
       const score = await page.locator('[data-score]').textContent()
 
@@ -706,7 +666,7 @@ for (const style of STYLE_CATALOG) {
     test('打开：Tab 到不了遮罩后面的页面（页面内容 inert）', async ({ page }) => {
       const problems = watchProblems(page)
       await startRun(page, style.id, startUrl(ACTIVE))
-      await openDrawer(page)
+      await openSettings(page)
 
       // 机制：页面内容整块挂着 inert，棋盘与入口都在那一块里
       const structure = await page.evaluate(() => {
@@ -756,7 +716,7 @@ for (const style of STYLE_CATALOG) {
       await startRun(page, style.id, startUrl(ACTIVE))
 
       // 关法一：点外侧（遮罩）
-      await openDrawer(page)
+      await openSettings(page)
       // 焦点落在**容器**上，不是关闭按钮——一次误敲回车会当场关掉（父规格决策 7）
       const focusedOnOpen = await page.evaluate(() => ({
         isPanel: document.activeElement?.hasAttribute('data-settings-drawer') ?? false,
@@ -772,12 +732,12 @@ for (const style of STYLE_CATALOG) {
       await expect(entry(page)).toBeFocused()
 
       // 关法二：抽屉里的「收起」
-      await openDrawer(page)
-      await closeDrawer(page)
+      await openSettings(page)
+      await closeSettings(page)
       await expect(entry(page)).toBeFocused()
 
       // 关法三：Esc
-      await openDrawer(page)
+      await openSettings(page)
       await page.keyboard.press('Escape')
       await expect(drawer(page)).toHaveCount(0)
       await expect(entry(page)).toBeFocused()
@@ -785,7 +745,7 @@ for (const style of STYLE_CATALOG) {
       // Esc 优先于底下的交换摊：抽屉开着时先关抽屉，摊照旧开着；再按一次才收摊
       await page.getByRole('button', { name: '交换' }).click()
       await expect(page.locator('.board__tile[data-selectable="true"]')).not.toHaveCount(0)
-      await openDrawer(page)
+      await openSettings(page)
       await page.keyboard.press('Escape')
       await expect(drawer(page)).toHaveCount(0)
       await expect(
@@ -861,7 +821,7 @@ for (const style of STYLE_CATALOG) {
     test('退场第一帧就交出指针：data-settings-leaving 与开合同一次提交', async ({ page }) => {
       const problems = watchProblems(page)
       await startRun(page, style.id, startUrl(ACTIVE))
-      await openDrawer(page)
+      await openSettings(page)
 
       // 点遮罩（=「外侧」）那一帧与读 DOM 在同一个 evaluate：开合状态变的同一次提交里，
       // 遮罩与抽屉都必须已标着退场、且不再接指针（父规格决策 10）
@@ -926,7 +886,7 @@ for (const style of STYLE_CATALOG) {
       await page.clock.pauseAt(Date.now())
       await startRun(page, style.id, startUrl(ACTIVE))
 
-      // 不用 openDrawer / closeDrawer：那两个 helper 里有一段 waitForFunction 轮询，
+      // 不用 openSettings / closeSettings：那两个共享助手里有一段 waitForFunction 轮询，
       // 而假时钟下不该拿它去赌。直接点、直接等卸载
       await entry(page).click()
       await expect(drawer(page)).toBeVisible()
@@ -1021,7 +981,7 @@ for (const style of STYLE_CATALOG) {
       const problems = watchProblems(page)
       await page.goto('/?seed=20260926')
       await pickStyle(page, style.label)
-      await openDrawer(page)
+      await openSettings(page)
 
       const row = page.locator('.settings-row')
       const label = row.locator('.settings-row__label')
@@ -1156,7 +1116,7 @@ for (const style of STYLE_CATALOG) {
       await typeCode(page)
       await expect(page.locator('.shenmo')).toHaveAttribute('data-shenmo-stage', 'choice')
 
-      await openDrawer(page)
+      await openSettings(page)
       await page.keyboard.press('Escape')
       await expect(drawer(page)).toHaveCount(0)
       await expect(
@@ -1181,7 +1141,7 @@ for (const style of STYLE_CATALOG) {
       await page.keyboard.press('ArrowLeft')
       await expect(page.locator('[data-toast-stack]')).toHaveCount(1)
 
-      await openDrawer(page)
+      await openSettings(page)
       const where = await page.evaluate(() => {
         const wrapper = document.querySelector('main > div.contents')
         const stack = document.querySelector('[data-toast-stack]')
@@ -1196,7 +1156,7 @@ for (const style of STYLE_CATALOG) {
       // 而 Toast 栈是浮层，住在那个包裹元素之外，不被一起收走（架构决策 6）
       expect(where.stackPresent, `${style.label}：开着抽屉时 Toast 栈不见了`).toBe(true)
       expect(where.containsStack, `${style.label}：Toast 栈被 inert 一起收走了`).toBe(false)
-      await closeDrawer(page)
+      await closeSettings(page)
 
       expect(problems).toEqual([])
     })
@@ -1217,7 +1177,7 @@ for (const style of STYLE_CATALOG) {
         await completePass(page)
         await expect(page.locator('.cannon__still')).toHaveCount(1)
 
-        await openDrawer(page)
+        await openSettings(page)
         const where = await page.evaluate(() => {
           const wrapper = document.querySelector('main > div.contents')
           const cannon = document.querySelector('.cannon__still')
@@ -1230,7 +1190,7 @@ for (const style of STYLE_CATALOG) {
         expect(where.inert, `${style.label}：开着抽屉时页面那块没被 inert`).toBe(true)
         expect(where.cannonPresent, `${style.label}：开着抽屉时礼炮那一层不见了`).toBe(true)
         expect(where.containsCannon, `${style.label}：礼炮那一层被 inert 一起收走了`).toBe(false)
-        await closeDrawer(page)
+        await closeSettings(page)
 
         expect(problems).toEqual([])
       } finally {

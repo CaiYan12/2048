@@ -622,6 +622,46 @@
         "read": "background",
         "background": ".settings-switch"
       }
+    },
+    {
+      "usage": "风格列表的选项文字 vs 列表底面（--ink on --board，与抽屉标题同一对色值、换一个 usage 入表）。T42 新场景增补：列表是抽屉里新长出来的一块载字面，选项文字此前没有被任何一幕量过。列表展开后焦点落在选中项上，但选项文字三套同色，探针取第一枚选项即可",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#faf8f2",
+      "minimum": 4.5,
+      "ratio": 14.6,
+      "scene": "settings",
+      "probe": {
+        "selector": ".settings-style__option",
+        "background": ".settings-style__list",
+        "expandList": true
+      }
+    },
+    {
+      "usage": "风格列表聚焦的选项：选项文字 vs 聚焦底（--ink on --control-bg-hover）。T42 新场景增补：聚焦高亮就是底色本身（非选中项 = hover 底，父规格决策 14），所以这一对量的是「非选中项拿到 DOM 焦点时」的读法——浏览器那一层展开列表（焦点先落在选中项）后按一次 ArrowDown 把焦点挪开再量",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#e3dccc",
+      "minimum": 4.5,
+      "ratio": 11.35,
+      "scene": "settings",
+      "probe": {
+        "selector": ".settings-style__option:focus",
+        "expandList": true
+      }
+    },
+    {
+      "usage": "风格列表选中的选项：选项文字 vs 选中底（--ink-bright on --control-bg-selected）。与目标档那一对同一条既有色对（5.50——深墨压暖色只有 2.68，选中项的文字取亮墨，与滑块同一条理由），换一个角色入表。选中项即使拿到焦点也保持选中底（焦点恒可见为两者之一），所以展开即量",
+      "basis": "regular",
+      "foreground": "#fbf9f4",
+      "background": "#a8482b",
+      "minimum": 4.5,
+      "ratio": 5.5,
+      "scene": "settings",
+      "probe": {
+        "selector": ".settings-style__option[aria-selected='true']",
+        "expandList": true
+      }
     }
   ]
 }

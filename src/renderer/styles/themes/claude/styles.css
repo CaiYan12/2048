@@ -472,3 +472,28 @@
   outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
+
+/* —— 风格行（T42 · §12）——
+   触发钮是 `.control`（纸面 + `--control-border` 描边，既有色对），展开与否由
+   `aria-expanded` 说。展开的选项列表：底面 = 抽屉面 `--board`，选项文字 = `--ink`；
+   **聚焦的选项**（DOM 焦点即高亮）底 = `--control-bg-hover`；**选中的选项**底 =
+   `--control-bg-selected` 那块暖色（配 `--ink-bright`——深墨压它只有 2.68，选中项的
+   文字取亮墨，与滑块同一条理由）。焦点恒可见：非选中项靠 hover 底、选中项靠选中底
+   （父规格决策 14）——所以选中项在拿到焦点时也保持选中底（这条规则写在 `:focus` 之后，
+   特异性压过它）。几何在共享外壳 index.css。 */
+[data-style='claude'] .settings-style__list {
+  background: var(--board);
+}
+
+[data-style='claude'] .settings-style__option {
+  color: var(--ink);
+}
+
+[data-style='claude'] .settings-style__option:focus {
+  background: var(--control-bg-hover);
+}
+
+[data-style='claude'] .settings-style__option[aria-selected='true'],
+[data-style='claude'] .settings-style__option[aria-selected='true']:focus {
+  background: var(--control-bg-selected);
+}

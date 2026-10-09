@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
+// T42：选风格的助手收编到共享模块（父规格决策 13）——本文件原先自己抄的 pickStyle 删除，
+// 调用方改走抽屉路径（开抽屉 → 触发钮 → 选项 → 收抽屉）
+import { pickStyle } from './settings-helpers'
 
 /**
  * T16 的存档纵向切片：刷新后续上上一局，旧版 / 损坏 / 写不进去都不假装。
@@ -53,11 +56,6 @@ async function readRun(page: Page): Promise<RunSnapshot> {
     score: (await page.locator('[data-score]').textContent()) ?? '',
     tiles: snapshots,
   }
-}
-
-/** 选择器上按名字点一套风格 */
-async function pickStyle(page: Page, label: string): Promise<void> {
-  await page.getByRole('group', { name: '风格' }).getByRole('button', { name: label }).click()
 }
 
 /** 开局（同一条 seed） */

@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { STYLE_CATALOG, type StyleId } from '../../src/shared/styleCatalog'
+// T42：局中换风格改走抽屉路径（共享助手）——主面板那组风格按钮已搬进设置抽屉
+import { pickStyle } from './settings-helpers'
 
 /**
  * 结果层的**共享契约**：同一套断言对三套风格各跑一遍（ADR-0008 · T26）。
@@ -476,10 +478,7 @@ for (const style of STYLE_CATALOG) {
       await settleFromStuck(page)
       // 结算之后换回本风格去：这一局归的是另一套，读数仍读**结算那一刻**的那一套
       // （250），不是当前这一套的 500——两者都不同，所以哪一边都不含糊
-      await page
-        .getByRole('group', { name: '风格' })
-        .getByRole('button', { name: style.label })
-        .click()
+      await pickStyle(page, style.label)
       await expect(page.locator('main')).toHaveAttribute('data-style', style.id)
       expect(await readoutText(page)).toBe(`分数${SECOND_RUN_SCORE}最高分${SECOND_RUN_SCORE}步数1`)
 

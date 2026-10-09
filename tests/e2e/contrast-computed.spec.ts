@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
+// T42：选风格的助手收编到共享模块（父规格决策 13）——本文件原先自己抄的 pickStyle 删除，
+// 调用方改走抽屉路径（开抽屉 → 触发钮 → 选项 → 收抽屉）
+import { pickStyle } from './settings-helpers'
 import type { ContrastPair } from '../../scripts/check-contrast.mjs'
 import classicContrast from '../../src/renderer/styles/themes/classic/contrast.json' with { type: 'json' }
 import claudeContrast from '../../src/renderer/styles/themes/claude/contrast.json' with { type: 'json' }
@@ -92,10 +95,6 @@ const MILESTONE_BOARD = '1024,1024,1024,1024,,,,,,,,,,,,'
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
   'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-
-async function pickStyle(page: Page, label: string): Promise<void> {
-  await page.getByRole('group', { name: '风格' }).getByRole('button', { name: label }).click()
-}
 
 async function setupScene(page: Page, scene: Scene, label: string): Promise<void> {
   switch (scene) {
@@ -508,6 +507,27 @@ async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<v
     // 声明的比值会对不上（T40 的人眼复核给开关补了过渡，这条落定是跟它一起来的）
     await page.waitForTimeout(250)
     for (const pair of toggled) await expectPair(page, pair)
+  }
+
+  // 风格列表（T42）：带 `expandList` 的这几对要**先把列表展开**再读——列表只在开着时
+  // 存在（没有进场动画，决策 10，展开即成形）。展开用触发钮的真实点击（可访问名来自
+  // `aria-labelledby` 引用的行标签），与指针玩家同一条路。展开那一刻焦点落在**选中项**上
+  // （父规格决策 5）；选择器里带 `:focus` 的那几对量的是**非选中项**的聚焦底，所以先按
+  // 一次 ArrowDown 把焦点挪到相邻选项（三枚里只有一枚选中，从选中项出发的下一步必不是它）。
+  // 读完把列表收上（Esc——三层优先序的第一层，只收列表），后面的步骤从收着的状态开始。
+  const listboxPairs = pairs.filter((pair) => pair.probe?.expandList === true)
+  if (listboxPairs.length > 0) {
+    await page.getByRole('button', { name: '风格' }).click()
+    await expect(page.locator('[data-style-list]')).toBeVisible()
+    if (listboxPairs.some((pair) => (pair.probe?.selector ?? '').includes(':focus'))) {
+      await page.keyboard.press('ArrowDown')
+    }
+    // 等焦点真的进了列表再读：展开后的落焦是 React 提交之后的一次 effect，抢在它前面
+    // 读到的就是「焦点还在触发钮上」的半路
+    await expect(page.locator('.settings-style__option:focus')).toHaveCount(1)
+    for (const pair of listboxPairs) await expectPair(page, pair)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('[data-style-list]')).toHaveCount(0)
   }
 
   // 静止态的环（Claude 控件那一圈 1px 描边）要在键盘导航**之前**读：Tab 之后同一边的

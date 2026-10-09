@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
+// T42：选风格的助手收编到共享模块（父规格决策 13）——本文件原先自己抄的 pickStyle 删除，
+// 调用方改走抽屉路径（开抽屉 → 触发钮 → 选项 → 收抽屉）
+import { openSettings, pickStyle } from './settings-helpers'
 
 /**
  * T13 的风格切换纵向切片：material ⇄ classic 在局中来回切换，规则状态一个字节都不动。
@@ -51,11 +54,6 @@ async function readRun(page: Page): Promise<RunSnapshot> {
     score: (await page.locator('[data-score]').textContent()) ?? '',
     tiles: snapshots,
   }
-}
-
-/** 选择器上按名字点一套风格 */
-async function pickStyle(page: Page, label: string): Promise<void> {
-  await page.getByRole('group', { name: '风格' }).getByRole('button', { name: label }).click()
 }
 
 /** 开局（同一条 seed），可选地在开局前先选风格 */
@@ -154,22 +152,25 @@ test('风格选择器只列注册表里的三套，没有第四套', async ({ pa
   // T15：第三套。选择器只遍历 THEMES，所以这一行同时证明了它注册进来了
   await expect(startPicker.getByRole('button', { name: 'Claude' })).toBeVisible()
 
-  // 局中：同一个组件、同一份注册表
+  // 局中（T42 起）：**页面上不再有那组按钮**，选择器是设置抽屉里的列表——同样的注册表、
+  // 同样的顺序，选中项标 aria-selected。这一半是行为变化要求的改写（主面板的选择器搬进了
+  // 抽屉），不是放松断言：能力本身（注册表全量三套、顺序一致、选中态在列）由列表继续钉，
+  // 「局中 3 颗 aria-pressed 按钮」的旧形状随之失效
   await page.getByRole('button', { name: '开始游戏' }).click()
   await expect(page.locator('[data-board]')).toBeVisible()
-  const runPicker = page.getByRole('group', { name: '风格' })
-  await expect(runPicker.getByRole('button')).toHaveCount(3)
+  await openSettings(page)
+  await page.getByRole('button', { name: '风格' }).click()
+  const options = page.getByRole('option')
+  await expect(options).toHaveCount(3)
+  await expect(page.getByRole('option', { name: 'Classic' })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
+  // 先收列表再走助手：列表开着时再点触发钮是「收起」，助手的「展开」会变成一次收合
+  await page.keyboard.press('Escape')
 
-  // 选中态跟着 data-style 走（aria-pressed 同时喂给 .control[aria-pressed='true'] 的配色）
-  await expect(runPicker.getByRole('button', { name: 'Classic' })).toHaveAttribute(
-    'aria-pressed',
-    'true'
-  )
+  // 选中态跟着 data-style 走（列表里由 aria-selected 说，外壳上由 data-style 说）
   await pickStyle(page, 'Claude')
-  await expect(runPicker.getByRole('button', { name: 'Claude' })).toHaveAttribute(
-    'aria-pressed',
-    'true'
-  )
   await expect(page.locator('main')).toHaveAttribute('data-style', 'claude')
   await pickStyle(page, 'Material')
   await expect(page.locator('main')).toHaveAttribute('data-style', 'material')

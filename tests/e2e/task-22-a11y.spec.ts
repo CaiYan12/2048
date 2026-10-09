@@ -621,8 +621,9 @@ for (const style of STYLES) {
     await expect(page.locator('[data-board]')).toBeVisible()
 
     // 局中：把焦点用键盘送到棋盘（点过按钮之后 :focus-visible 不成立，Tab 才成立），
-    // 再走到下一个外壳控件
-    await page.getByRole('group', { name: '风格' }).getByRole('button').last().focus()
+    // 再走到下一个外壳控件。T42 起风格选择器搬进了抽屉，棋盘的上一个停靠点回到
+    // 状态条上的「交换」——出发点随之换掉（行为变化要求的更新，不是放松断言）
+    await page.getByRole('button', { name: '交换' }).focus()
     await page.keyboard.press('Tab')
     await expect(page.locator('[data-board]')).toBeFocused()
     await expectRingVisible(page, SHELL_BACKGROUND)

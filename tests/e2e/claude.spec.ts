@@ -1,5 +1,9 @@
 import { expect, test, type Page } from '@playwright/test'
 import { createBoardLayout, fitCellSize } from '../../src/renderer/components/BoardLayout'
+// T42：选风格的助手收编到共享模块（父规格决策 13）——本文件原先自己抄的 pickStyle 删除，
+// 调用方改走抽屉路径（开抽屉 → 触发钮 → 选项 → 收抽屉）；开局界面按钮组自己的两条测试
+//（选择器按得动 / 窄屏折行）保持本地查询不动——它们测的就是那组按钮
+import { pickStyle } from './settings-helpers'
 
 /**
  * T15 的 Claude 纵向切片：三套风格之外的第三套，从开局界面到局中、从键盘到窄屏。
@@ -56,10 +60,6 @@ async function readRun(page: Page): Promise<RunSnapshot> {
   }
 }
 
-async function pickStyle(page: Page, label: string): Promise<void> {
-  await page.getByRole('group', { name: '风格' }).getByRole('button', { name: label }).click()
-}
-
 /** 收 console error / pageerror；返回的数组必须是空数组 */
 function watchProblems(page: Page): string[] {
   const problems: string[] = []
@@ -78,7 +78,8 @@ test('开局前选 Claude：选择器列得出、按得动，开局界面就是�
   await page.goto(SEED_URL)
   const picker = page.getByRole('group', { name: '风格' })
   await expect(picker.getByRole('button', { name: 'Claude' })).toBeVisible()
-  await pickStyle(page, 'Claude')
+  // 这一条测的就是开局界面那组按钮（T42 起它是全仓唯一的「风格」group），点击保持本地
+  await picker.getByRole('button', { name: 'Claude' }).click()
 
   // 选中态与外壳上的 data-style 同时跟上：后者是整套换肤机制唯一的钩子
   await expect(picker.getByRole('button', { name: 'Claude' })).toHaveAttribute(
@@ -332,7 +333,8 @@ test('窄屏（Pixel 5 视口）：三套风格的按钮折成两行，棋盘不
   // 验收标准 2。设计卡 §8：风格选择器按 flex-auto + flex-wrap 折行，不把棋盘挤出屏外
   await page.setViewportSize({ width: 393, height: 727 })
   await page.goto(SEED_URL)
-  await pickStyle(page, 'Claude')
+  // 这一条测的也是开局界面那组按钮（折行几何），点击保持本地
+  await page.getByRole('group', { name: '风格' }).getByRole('button', { name: 'Claude' }).click()
 
   const group = page.getByRole('group', { name: '风格' })
   const buttons = group.getByRole('button')

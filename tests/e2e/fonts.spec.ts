@@ -1,4 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
+// T42：选风格的助手收编到共享模块（父规格决策 13）——本文件原先自己抄的 pickStyle 删除，
+// 调用方改走抽屉路径（开抽屉 → 触发钮 → 选项 → 收抽屉）
+import { pickStyle } from './settings-helpers'
 
 /**
  * T14：字体状态机与自托管字体的本地加载
@@ -69,11 +72,6 @@ async function effectiveFamily(page: Page): Promise<string> {
     const stack = getComputedStyle(shell).getPropertyValue('--font-body')
     return stack.split(',')[0].trim().replace(/^['"]|['"]$/g, '')
   })
-}
-
-/** 选择器上按名字点一套风格（同 style-switch.spec.ts 的路子） */
-async function pickStyle(page: Page, label: string): Promise<void> {
-  await page.getByRole('group', { name: '风格' }).getByRole('button', { name: label }).click()
 }
 
 /** 装成慢网：拖 700ms 再放行，好让 loading 窗口是可观测的、不靠运气 */
