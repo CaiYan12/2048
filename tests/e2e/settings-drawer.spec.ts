@@ -875,9 +875,13 @@ for (const style of STYLE_CATALOG) {
 
     test('假时钟下关掉抽屉照旧卸载：退场的终点是 animationend，不是定时器', async ({ page }) => {
       const problems = watchProblems(page)
-      // 装了假时钟之后任何藏在 JS 里的 setTimeout 都会冻住——若退场靠定时器，这里就永远
-      // 摘不掉那一层。动画结束事件来自渲染管线，假时钟够不着它（结果层与菜单各付过一遍学费）
+      // `install` 只装假定时器（并允许 `resume()` 让时间按真实速度流），**不冻时间**；要冻住
+      // 必须紧跟着 `pauseAt`。所以这里两步都做：装上之后立刻停表，藏在 JS 里的 setTimeout
+      // 才真的冻住——若退场靠定时器，这里就永远摘不掉那一层。动画结束事件来自渲染管线，
+      // 假时钟够不着它（结果层与菜单各付过一遍学费）。先例见 time-attack.spec.ts 第 7–11 行
+      // 的说明与第 95–96 行的 `install` + `pauseAt`。
       await page.clock.install()
+      await page.clock.pauseAt(Date.now())
       await startRun(page, style.id, startUrl(ACTIVE))
 
       // 不用 openDrawer / closeDrawer：那两个 helper 里有一段 waitForFunction 轮询，
