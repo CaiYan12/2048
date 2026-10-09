@@ -1066,7 +1066,7 @@
 
 /* 退场的那一帧起整块不再接指针（父规格决策 10，抄 `.overlay[data-result-leaving]`）。
    `settingsOpen` 一变，`data-settings-leaving` 在同一次提交里就落到 DOM 上
-   （SettingsPresence.ts 的渲染期校正保证这一点），于是从那一帧起这一层不再接指针：关掉
+   （DrawerPresence.ts 的渲染期校正保证这一点），于是从那一帧起这一层不再接指针：关掉
    之后马上点「新游戏」的玩家拿到的是页面，不是一块还在淡出的层。遮罩与抽屉是**两个兄弟**，
    没有共同容器可以挂一个属性，所以两边各挂一个——`pointer-events` 只沿树继承、跨不过兄弟。 */
 .settings-scrim[data-settings-leaving],

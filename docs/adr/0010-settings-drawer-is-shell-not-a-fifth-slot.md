@@ -1,6 +1,6 @@
 # Settings drawer is shell, not a fifth slot — and it carries its own motion pair
 
-**Status: Accepted; 2026-10-09, implementation pending (parent spec GitHub #38)**
+**Status: Accepted and implemented; 2026-10-09 (parent spec GitHub #38)**
 
 A settings entry appears in the page's top-right corner. It opens a drawer that slides in from the
 right edge, covers the page with a scrim while it is open, and takes the whole page out of play —

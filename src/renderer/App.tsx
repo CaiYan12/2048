@@ -12,7 +12,7 @@ import { RunAnnouncer } from './components/RunAnnouncer'
 import { layerForPhase, useResultLayerPresence } from './components/ResultPresence'
 import { resultCardLine } from './components/resultCardLine'
 import { SettingsDrawer, SettingsEntry } from './components/SettingsDrawer'
-import { useDrawerPresence } from './components/SettingsPresence'
+import { useDrawerPresence } from './components/DrawerPresence'
 import { useShenmo, type ShenmoButton } from './components/ShenmoChoice'
 import { useShenmoFall } from './components/ShenmoFall'
 import { ShenmoStrip } from './components/ShenmoStrip'
@@ -222,7 +222,7 @@ export default function App(): JSX.Element {
   const settingsPanelRef = useRef<HTMLDivElement>(null)
   // 抽屉的**在场**（T38 · 父规格决策 10 / 11）。T37 是「开着即挂载、关掉即卸载」的硬切；
   // T38 起这一层要比关闭多活一段退场动画，于是「在场上」不再等于「开着」——那台裁决住在
-  // SettingsPresence.ts（纯函数 + 薄 hook）。渲染期校正保证 `data-settings-leaving` 与开合
+  // DrawerPresence.ts（纯函数 + 薄 hook）。渲染期校正保证 `data-settings-leaving` 与开合
   // 状态在同一次提交落 DOM。
   const drawer = useDrawerPresence(settingsOpen)
   // 「刚离开 DOM」与「从没挂过」也要分开，与 previousStatsOpen 同一条理由。依赖是
@@ -960,7 +960,7 @@ export default function App(): JSX.Element {
       {/* 遮罩 + 抽屉（T37 的结构 · T38 的进出）：留在包裹元素**之外**（`inert` 不该盖住
           这一层自己），仍在 `<main>` 里——`data-style` 令牌照旧继承。
           **挂载条件换成 `drawer.mounted` 而不是 `settingsOpen`**：关掉之后容器还要多活一段
-          退场动画（那台裁决在 SettingsPresence.ts），退场动画结束时它自己上报 `onExited`
+          退场动画（那台裁决在 DrawerPresence.ts），退场动画结束时它自己上报 `onExited`
           （`drawer.drop`）才卸载。`leaving` 由 App 递进去，只用来挂 `data-settings-leaving`。 */}
       {drawer.mounted && (
         <SettingsDrawer

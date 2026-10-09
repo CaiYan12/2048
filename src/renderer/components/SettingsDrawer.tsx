@@ -14,7 +14,7 @@ import { MuteToggle } from './MuteToggle'
  * **T38 起进出有动效**：进 250ms、出 200ms、曲线 `cubic-bezier(0.32, 0.72, 0, 1)`
  * （三个值都在共享外壳 `styles/index.css` 一处声明，作用域只到抽屉与将来同类的整页层）。
  * 于是「在场上」不再等于「开着」：关掉之后容器还要多活一段退场动画——那台裁决在
- * `SettingsPresence.ts`（纯函数 + 薄 hook），这一层只负责把 `data-settings-leaving`
+ * `DrawerPresence.ts`（纯函数 + 薄 hook），这一层只负责把 `data-settings-leaving`
  * 挂到 DOM 上、并在退场动画结束时上报 `onExited`。三条关法（点外侧 / 「收起」/ `Esc`）
  * 与焦点进出仍由 `App` 编排。
  *
@@ -93,12 +93,12 @@ interface DrawerProps {
    * 长相**，组件只负责在正确的时刻把它挂上去。
    *
    * 什么时候该由谁挂：App 每次把当前的开合状态连同这个旗标一起递进来（旗标本身由
-   * `SettingsPresence.ts` 算），所以这里不做任何计时。
+   * `DrawerPresence.ts` 算），所以这里不做任何计时。
    */
   leaving: boolean
   /**
    * 退场播完了（T38）。由抽屉那条退场动画的 `animationend` 触发，宿主（App 经
-   * `SettingsPresence.ts`）据此把层从 DOM 上摘掉。
+   * `DrawerPresence.ts`）据此把层从 DOM 上摘掉。
    *
    * **为什么是动画结束而不是定时器**：装假时钟的测试会把 `setTimeout` 冻住，层的退场就
    * 永远播不完；动画结束事件来自渲染管线，假时钟够不着它（结果层与菜单各付过一遍学费）。
