@@ -587,11 +587,17 @@ colour from three places to four), and the units in one `contrast.test.ts` title
 positions**, six **colour-value pairs** in the table). The README's settings group carries a status
 line and `AGENTS.md` a dated section.
 
-**Not verified — human review.** Computed-style checks prove declarations, not experience. As the
-Test strategy says, each of the three styles still needs the entry, the drawer and the switch looked
-at in a real run, on desktop and on a phone, and the interrupted-arrival case (closing within the
-250ms arrival) needs an eye. This machine's convention is background, headless Playwright and no
-tool that opens a real window, so this half cannot be done by an agent and is carried as owed.
+**Human review — done (2026-10-09); one BLOCK, fixed and re-confirmed.** The owner reviewed the
+running app in a real browser and returned a BLOCK on the switch: its track corners did not fit the
+circular thumb (Classic's 6px, Claude's 4px), there was no toggle transition, and toggling produced
+no visible state change — that last one because Classic's off-track colour **is** the drawer surface,
+so the track vanished the moment the switch went off. Fixed in `c80dc52` (pill tracks on all three
+styles, a 150ms ease-out state transition, Classic's hairline) and `5bd9d3d` (Material's hairline,
+ruled by the owner), with three guards added to the shared contract (pill radius, transition, an
+off-track hairline required in every style); the owner then confirmed the panel's form. The
+interrupted-arrival bounce was not separately named by the owner and stands as the cost ADR-0010
+already accepted. Everything else in this spec was still verified headless, per this machine's
+convention.
 
 ## Existing SPEC alignment before implementation
 
