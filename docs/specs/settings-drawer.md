@@ -207,6 +207,11 @@ no version is bumped.
    and takes priority over the cheat-swap pick and the easter egg's choice, because closing the
    topmost layer is what `Esc` means.
 
+   The style row adds a layer above the drawer, and the amendment came with the tenant: while its
+   dropdown list is open, `Esc` closes only the list (focus back to the trigger) and the released
+   arrow keys belong to the list — `Esc` reaches the drawer only once the list is closed
+   (amended 2026-10-09, specified in `docs/specs/style-picker.md`).
+
    This amends **SPEC §3.4** in place. Its current wording says a control elsewhere on the page does
    not swallow movement keys; the drawer is a second exception beside the two already listed.
 
@@ -514,7 +519,8 @@ no version is bumped.
   needs its own decision about storage shape and about what the row looks like.
 - **Moving the style picker into the drawer.** It is a stated commitment of the same README group, but
   it is a move rather than new capability, and it touches the way a large share of the existing browser
-  suite selects a style. It gets its own ticket, after this one.
+  suite selects a style. It gets its own ticket, after this one. **It now has its own spec:**
+  **`docs/specs/style-picker.md`** (self-drawn listbox, three-layer `Esc` priority, focus model).
 - Any change to the rules, the phase machine, recovery, settlement timing, records, achievements or
   the storage format.
 - A fifth presentation slot, and any per-style rule branch.
