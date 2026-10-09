@@ -1,9 +1,8 @@
 # The Settings Drawer: A Layer Over the Page
 
-**Status:** Drafted 2026-10-09 and **revised the same day after the design stage** — **not
-implemented**. This spec is the parent of its own ticket group. The revision folds in what the design
-stage settled, so decision 10 and the motion acceptance criteria no longer say what the first draft
-said.
+**Status:** Drafted 2026-10-09, revised the same day after the design stage, and **implemented the
+same day** by tickets T37–T40 (GitHub #39–#42). The revision folded in what the design stage settled,
+so decision 10 and the motion acceptance criteria no longer say what the first draft said.
 **Date:** 2026-10-09
 **Decisions:** ADR-0010 (to be written by this group's root ticket — why the drawer is shell and not a
 fifth presentation slot, the third refusal of the same request after ADR-0008 and ADR-0009, **and why
@@ -364,92 +363,92 @@ no version is bumped.
 
 **The entry**
 
-- [ ] It is reachable on the start screen and during a run, at the same place in both.
-- [ ] It is visible while a result layer is up, on the page the second pass clears, and during a
+- [x] It is reachable on the start screen and during a run, at the same place in both.
+- [x] It is visible while a result layer is up, on the page the second pass clears, and during a
       cheat-swap pick, and it is hidden only while saved settings are still being read.
-- [ ] It is an icon-only button whose accessible name is settings.
-- [ ] It reports whether the drawer is open.
-- [ ] Its drawing is one shared inline SVG, coloured by the button's own text colour, adding no
+- [x] It is an icon-only button whose accessible name is settings.
+- [x] It reports whether the drawer is open.
+- [x] Its drawing is one shared inline SVG, coloured by the button's own text colour, adding no
       colour pair and no per-style file.
-- [ ] Its hit area is the same 3rem the direction keys and the two round buttons already use.
-- [ ] It has exactly three states — hover, focus ring, open — and no press animation.
+- [x] Its hit area is the same 3rem the direction keys and the two round buttons already use.
+- [x] It has exactly three states — hover, focus ring, open — and no press animation.
 
 **Opening and blocking**
 
-- [ ] Opening the drawer leaves nothing on the page clickable: every pointer path to the board, the
+- [x] Opening the drawer leaves nothing on the page clickable: every pointer path to the board, the
       direction pad, the swipe surface, the new-game button, the statistics entry and the result
       layer's controls lands on the scrim.
-- [ ] While the drawer is open the movement keys, `WASD` and the undo key neither move the board nor
+- [x] While the drawer is open the movement keys, `WASD` and the undo key neither move the board nor
       undo nor scroll the page.
-- [ ] `Tab` cannot reach the page behind the drawer.
-- [ ] A control inside the drawer that takes text keeps its own keys.
-- [ ] The result layer's own controls are provably out of play while the drawer is open — this is
+- [x] `Tab` cannot reach the page behind the drawer.
+- [x] A control inside the drawer that takes text keeps its own keys.
+- [x] The result layer's own controls are provably out of play while the drawer is open — this is
       asserted directly, not left as an implication of the scrim being present.
 
 **Closing**
 
-- [ ] Clicking outside closes it.
-- [ ] The close control inside closes it.
-- [ ] `Esc` closes it, and `Esc` while the drawer is open closes the drawer rather than the
+- [x] Clicking outside closes it.
+- [x] The close control inside closes it.
+- [x] `Esc` closes it, and `Esc` while the drawer is open closes the drawer rather than the
       cheat-swap pick or the easter egg's choice underneath.
-- [ ] Closing returns the page to exactly the state it was left in: a run in progress is still in
+- [x] Closing returns the page to exactly the state it was left in: a run in progress is still in
       progress, a result layer is still there, the cleared page is still cleared.
-- [ ] Pointer input is live on the page on the frame the drawer starts leaving, not one frame later.
+- [x] Pointer input is live on the page on the frame the drawer starts leaving, not one frame later.
 
 **The drawer's shape**
 
-- [ ] It is titled, and it carries its own close control.
-- [ ] Its width is `min(22rem, 100vw)`, and it is full-bleed on a narrow viewport.
-- [ ] The scrim covers the viewport, uses the settlement tier's value in each style, and adds no
+- [x] It is titled, and it carries its own close control.
+- [x] Its width is `min(22rem, 100vw)`, and it is full-bleed on a narrow viewport.
+- [x] The scrim covers the viewport, uses the settlement tier's value in each style, and adds no
       contrast pair.
-- [ ] The three styles' drawer surfaces differ from each other, and each is built from tokens that
+- [x] The three styles' drawer surfaces differ from each other, and each is built from tokens that
       already existed before this change.
 
 **Focus and assistive technology**
 
-- [ ] Opening moves focus into the drawer, to the drawer itself rather than to a control that a
+- [x] Opening moves focus into the drawer, to the drawer itself rather than to a control that a
       stray `Enter` would trigger.
-- [ ] Closing returns focus to the entry, and only when focus has actually been lost — it never takes
+- [x] Closing returns focus to the entry, and only when focus has actually been lost — it never takes
       focus from somewhere the player is using.
-- [ ] The drawer announces itself as a named dialog.
-- [ ] The sound row announces itself as a switch, named by its visible label, reporting on or off.
-- [ ] The sound row's accessible name does not change with the state.
+- [x] The drawer announces itself as a named dialog.
+- [x] The sound row announces itself as a switch, named by its visible label, reporting on or off.
+- [x] The sound row's accessible name does not change with the state.
 
 **Motion**
 
-- [ ] Arrival takes 250ms and departure 200ms on the drawer's own curve, and the departure's end is
+- [x] Arrival takes 250ms and departure 200ms on the drawer's own curve, and the departure's end is
       what unmounts the layer.
-- [ ] The drawer's motion values are declared in one place, and the result layer's and the easter egg
+- [x] The drawer's motion values are declared in one place, and the result layer's and the easter egg
       menu's 150ms values are untouched — a check that the scope did not leak.
-- [ ] A test that installs a fake clock does not strand the layer open.
-- [ ] Under reduced motion there is no slide at all, and the two durations are unchanged.
+- [x] A test that installs a fake clock does not strand the layer open.
+- [x] Under reduced motion there is no slide at all, and the two durations are unchanged.
 
 **The sound row**
 
-- [ ] It is a labelled row: a static label, and a switch that carries the state by position and by
+- [x] It is a labelled row: a static label, and a switch that carries the state by position and by
       track colour.
-- [ ] The whole row is clickable, not only the switch.
-- [ ] The switch's two states differ by the thumb's position **and** by the track's colour.
-- [ ] The thumb is light in the on state in the two styles whose arithmetic requires it, and that
+- [x] The whole row is clickable, not only the switch.
+- [x] The switch's two states differ by the thumb's position **and** by the track's colour.
+- [x] The thumb is light in the on state in the two styles whose arithmetic requires it, and that
       measure is asserted by the gate rather than assumed.
-- [ ] The track and thumb geometry is identical in all three styles.
-- [ ] It toggles sound, and the old assertion point for "muted" still reports the same value it did
+- [x] The track and thumb geometry is identical in all three styles.
+- [x] It toggles sound, and the old assertion point for "muted" still reports the same value it did
       before this change.
-- [ ] Toggling it and refreshing keeps the choice.
+- [x] Toggling it and refreshing keeps the choice.
 
 **Across the three styles**
 
-- [ ] One shared browser contract, run once per style, proves every behaviour above. The behaviours
+- [x] One shared browser contract, run once per style, proves every behaviour above. The behaviours
       are the same in all three; only tokens and CSS differ.
-- [ ] The contrast gate covers every new pair, and the count of declared pairs grows by exactly the
+- [x] The contrast gate covers every new pair, and the count of declared pairs grows by exactly the
       number the new pairs add — no style gains a pair it does not use.
 
 **Things that must not have moved**
 
-- [ ] No change to the phase machine, settlement timing, recovery paths, undo history, records,
+- [x] No change to the phase machine, settlement timing, recovery paths, undo history, records,
       achievements or the storage format.
-- [ ] The rules layer has no reference to anything in this feature.
-- [ ] Every existing suite passes except the specific assertions this spec names as changed.
+- [x] The rules layer has no reference to anything in this feature.
+- [x] Every existing suite passes except the specific assertions this spec names as changed.
 
 ## Test strategy
 
@@ -539,9 +538,42 @@ no version is bumped.
 
 ## Evidence
 
-Not applicable yet — this spec is drafted and not implemented. Evidence lands when the implementation
-tickets close, in the same shape the previous groups used: the before-and-after gate numbers, the
-tickets' own verification tables, and the human review of the three styles.
+**Implemented 2026-10-09 by T37–T40**, one shared contract run once per style. Close-of-group
+numbers, run on the final tree with four styles' worth of files untouched:
+
+- `npm run typecheck` — **0 errors**.
+- `npm test` — **910 passed / 49 files**.
+- `npm run build` — **✓ 89 modules**.
+- `npm run check:contrast` — **3 styles, 141 pairs** (was **125** before this group; the `settings`
+  scene is the eighth in `SCENES` and in `contrast-computed.spec.ts`'s `setupScene`).
+- Full Playwright (**background, headless**, `workers: 4`) — **842 passed / 14 skipped / 0 failed**.
+- `game.spec.ts --repeat-each=4` — **40 passed / 0 failed**.
+- `tests/e2e/settings-drawer.spec.ts` — **90 passed / 0 failed** (14 cases per style × 3 styles ×
+  2 viewports, plus 3 style-independent cases).
+
+**The shared contract grew by three cases per style, closing two gaps a T37 reviewer named** (both
+now assertions, not structural evidence): the easter egg's choice摊 gets the same `Esc`-priority case
+the cheat-swap pick already had, and the toast stack and the cannon are proven to sit *outside* the
+`inert` block while the drawer is open. The cannon's particle canvas is transient (it unmounts itself
+when the last particle dies), so its DOM parentage is proven through the reduced-motion `.cannon__still`
+line — the same `<Cannon>` renders both, and that line stays for the whole run.
+
+**Motion scope did not leak**: the result layer and the easter egg menu keep the shared
+`150ms ease-out`; the drawer's `250 / 200ms` + `cubic-bezier(0.32, 0.72, 0, 1)` is asserted as its
+own pair, and a separate case pins the shared 150ms as unmoved.
+
+**In-place amendments landed**: `SPEC.md` §3.4 (the drawer as the second exception to "a control
+elsewhere does not swallow movement keys"), the glossary's second-pass entry and the shell's own
+`pageCleared` comment (that page still shows the one settings entry), Claude's card §7 (its warm
+colour from three places to four), and the units in one `contrast.test.ts` title (four **role
+positions**, six **colour-value pairs** in the table). The README's settings group carries a status
+line and `AGENTS.md` a dated section.
+
+**Not verified — human review.** Computed-style checks prove declarations, not experience. As the
+Test strategy says, each of the three styles still needs the entry, the drawer and the switch looked
+at in a real run, on desktop and on a phone, and the interrupted-arrival case (closing within the
+250ms arrival) needs an eye. This machine's convention is background, headless Playwright and no
+tool that opens a real window, so this half cannot be done by an agent and is carried as owed.
 
 ## Existing SPEC alignment before implementation
 
