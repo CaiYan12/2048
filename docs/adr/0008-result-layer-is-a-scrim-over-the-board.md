@@ -57,7 +57,11 @@ recovery path, no settlement timing, no undo history and no record semantics mov
   manages focus restoration. A slot would also add one required file to every future style, with ten
   styles queued behind this release. **ADR-0009 applies this ruling to the next feature that asked**
   — the 「一念神魔」 easter egg, which fails the same test further, binding two clicks, two
-  countdowns, a keyboard path, focus restoration and a mode-specific pause to one state machine.
+  countdowns, a keyboard path, focus restoration and a mode-specific pause to one state machine — and
+  **ADR-0010 applies it again** to the 「设置抽屉」 settings drawer, which takes the page's pointer,
+  keyboard and tab order away all at once and is built to hold four settings it does not ship with.
+  ADR-0010 also records a motion ruling this ADR did not need: that drawer carries its own duration
+  and curve rather than the shared 150ms, because a whole-width travel is not a 4px rise.
 - The best-score readout describes the run that was played, so it follows the style the run settled
   into after settlement and the current style before it. Records are still written once, at
   settlement, to the style active at that moment.

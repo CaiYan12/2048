@@ -86,6 +86,11 @@ expiring grants nothing and says nothing.
 - SPEC §3.4's keyboard contract is unchanged, and the code is deliberately built so that it could
   not change it. No rule, no phase transition, no record write, no undo entry and no settlement
   timing differs from `docs/mode-contract.md` §3.
+- **The third feature to ask for a slot is refused by the same test, and defers to here the way this
+  ADR defers to ADR-0008.** The 「设置抽屉」 settings drawer fails ADR-0002's criterion at least as
+  widely — it binds several store actions, takes the whole page's pointer and keyboard, and manages
+  focus both ways. See ADR-0010. That ADR also carries a ruling this one did not need: the drawer has
+  its own motion pair, because its travel is a viewport width rather than this menu's 4px.
 
 **Considered Options**
 
