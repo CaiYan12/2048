@@ -81,15 +81,16 @@
       }
     },
     {
-      "usage": "已选项文字（.control[aria-pressed='true']，--control-bg-selected）",
+      "usage": "已选项文字（现址：风格列表的选中项 .settings-style__option[aria-selected='true']，--control-bg-selected。T42 迁移：主面板的 aria-pressed 风格按钮摘除后，局中「选中控件」的可见实例换成抽屉列表里的选中项，scene/probe 随角色现址迁移）",
       "basis": "regular",
       "foreground": "#f9f6f2",
       "background": "#4a443f",
       "minimum": 4.5,
       "ratio": 8.9,
-      "scene": "run",
+      "scene": "settings",
       "probe": {
-        "selector": ".control[aria-pressed='true']"
+        "selector": ".settings-style__option[aria-selected='true']",
+        "expandList": true
       }
     },
     {

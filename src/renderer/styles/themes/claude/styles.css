@@ -496,4 +496,7 @@
 [data-style='claude'] .settings-style__option[aria-selected='true'],
 [data-style='claude'] .settings-style__option[aria-selected='true']:focus {
   background: var(--control-bg-selected);
+  /* 深墨压选中底只有 2.68，选中项的文字取亮墨（tokens.css 的注释与 contrast.json
+     同一条裁决；审查修复：此前漏了这条 color，闸门浏览器层抓到声明与渲染脱钩） */
+  color: var(--ink-bright);
 }

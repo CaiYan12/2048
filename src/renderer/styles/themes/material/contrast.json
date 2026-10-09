@@ -81,15 +81,16 @@
       }
     },
     {
-      "usage": "已选项按钮文字（选中态翻成 filled primary）",
+      "usage": "已选项按钮文字（选中态翻成 filled primary。现址：风格列表的选中项 .settings-style__option[aria-selected='true']。T42 迁移：主面板的 aria-pressed 风格按钮摘除后，局中「选中控件」的可见实例换成抽屉列表里的选中项，scene/probe 随角色现址迁移）",
       "basis": "regular",
       "foreground": "#ffffff",
       "background": "#6750a4",
       "minimum": 4.5,
       "ratio": 6.44,
-      "scene": "run",
+      "scene": "settings",
       "probe": {
-        "selector": ".control[aria-pressed='true']"
+        "selector": ".settings-style__option[aria-selected='true']",
+        "expandList": true
       }
     },
     {

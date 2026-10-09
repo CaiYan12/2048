@@ -478,4 +478,7 @@
 [data-style='material'] .settings-style__option[aria-selected='true'],
 [data-style='material'] .settings-style__option[aria-selected='true']:focus {
   background: var(--control-bg-selected);
+  /* 深墨压选中底过不了线，选中项的文字取白（--ink-bright，与开关开态滑块同一条
+     理由；审查修复：此前漏了这条 color，闸门浏览器层抓到声明与渲染脱钩） */
+  color: var(--ink-bright);
 }

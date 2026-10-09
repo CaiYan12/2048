@@ -217,7 +217,9 @@ test('纯键盘完成一次交换：进拾取态、选第一枚、选第二枚�
   await expect(page.locator('.board__tile[data-selectable="true"]').first()).toBeVisible()
 
   // 导航到第一枚方块：T42 起风格选择器在抽屉里，交换入口的下一个停靠点就是棋盘根，
-  // 一步就到（与上面那条 Shift+Tab 同一次前提变化）
+  // 一步就到（与上面那条 Shift+Tab 同一次前提变化）——「一步」就是按一次 Tab，
+  // 焦点才会从「交换」落到棋盘根上（审查修复：先前把这一下删成了零次按键）
+  await page.keyboard.press('Tab')
   await expect(page.locator('[data-board]')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(page.locator('[data-tile-id="1"]')).toBeFocused()

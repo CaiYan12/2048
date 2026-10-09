@@ -3,7 +3,7 @@ import { createBoardLayout, fitCellSize } from '../../src/renderer/components/Bo
 // T42：选风格的助手收编到共享模块（父规格决策 13）——本文件原先自己抄的 pickStyle 删除，
 // 调用方改走抽屉路径（开抽屉 → 触发钮 → 选项 → 收抽屉）；开局界面按钮组自己的两条测试
 //（选择器按得动 / 窄屏折行）保持本地查询不动——它们测的就是那组按钮
-import { pickStyle } from './settings-helpers'
+import { closeSettings, openSettings, pickStyle } from './settings-helpers'
 
 /**
  * T15 的 Claude 纵向切片：三套风格之外的第三套，从开局界面到局中、从键盘到窄屏。
@@ -242,19 +242,26 @@ test('Claude 的外壳不填色：面板透明、控件只有一圈线、板面�
 })
 
 test('选中的那一套换成暖色填充，其余控件仍是纸面', async ({ page }) => {
-  // 全壳唯一一处暖色填充是 --control-bg-selected（DESIGN.md §2）
+  // 全壳唯一一处暖色填充是 --control-bg-selected（DESIGN.md §2）。T42 迁移：局中的
+  // aria-pressed 风格按钮摘除后，「选中的那一套」的可见实例换成抽屉风格列表里的
+  // 选中项（与 contrast.json 同一次现址迁移）——开抽屉展开列表去读它
   await page.goto(SEED_URL)
   await pickStyle(page, 'Claude')
   await page.getByRole('button', { name: '开始游戏' }).click()
   await expect(page.locator('[data-board]')).toBeVisible()
 
+  await openSettings(page)
+  await page.getByRole('button', { name: '风格' }).click()
+  await expect(page.locator('[data-style-list]')).toBeVisible()
   const selected = await page
-    .locator('.control[aria-pressed="true"]')
-    .first()
+    .locator('.settings-style__option[aria-selected="true"]')
     .evaluate((el) => {
       const style = getComputedStyle(el)
       return { background: style.backgroundColor, color: style.color }
     })
+  // 列表收上（三层 Esc 的第一层）、抽屉关上，再量「其余控件」——量的是正常局中态
+  await page.keyboard.press('Escape')
+  await closeSettings(page)
   expect(selected.background).toBe('rgb(168, 72, 43)') // #a8482b
   expect(selected.color).toBe('rgb(251, 249, 244)') // --ink-bright
 

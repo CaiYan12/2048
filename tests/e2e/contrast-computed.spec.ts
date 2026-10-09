@@ -479,9 +479,14 @@ async function nextFocusStopAfterBoard(page: Page): Promise<number> {
 
 /** 同一幕里探针有先后顺序：静态 → 悬停 → 翻转开关 → 静止态环 → 键盘焦点环 → 交换拾取 */
 async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<void> {
+  // expandList 的这几对也要排除（T42 审查修复）：列表没展开时 `.settings-style__option`
+  // 根本不在 DOM 里，提前量就是「页面上找不到这个元素」——它们归下面自己那一步
   const plain = pairs.filter(
     (pair) =>
-      pair.probe?.hover !== true && pair.probe?.read !== 'ring' && pair.probe?.toggle !== true
+      pair.probe?.hover !== true &&
+      pair.probe?.read !== 'ring' &&
+      pair.probe?.toggle !== true &&
+      pair.probe?.expandList !== true
   )
   for (const pair of plain) await expectPair(page, pair)
 

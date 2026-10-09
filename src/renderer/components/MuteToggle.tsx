@@ -41,7 +41,9 @@ export function MuteToggle({ muted, onToggle }: Props): JSX.Element {
   return (
     // 整行可点：指针落在标签或空白上，跟落在开关上一样翻一次。这不是 `<label>` 的转发，
     // 是这一行自己接的手——规格要的可测意图。
-    <div className="settings-row" onClick={() => onToggle(!muted)}>
+    // data-mute-row 是 e2e 的断言点（T42 审查修复）：风格行进场后 `.settings-row` 有两行，
+    // e2e 靠它把静音行从两行里挑出来
+    <div className="settings-row" data-mute-row onClick={() => onToggle(!muted)}>
       <span className="settings-row__label" id={LABEL_ID}>
         音效
       </span>

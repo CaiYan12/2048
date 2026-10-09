@@ -470,6 +470,10 @@ for (const style of STYLE_CATALOG) {
       expect(box?.height, `${style.label}：入口命中区不是 3rem`).toBe(48)
 
       // 状态一：静止。状态二：悬停——底色真的换了一档
+      // 先把指针挪开再读「静止态」：上面 pickStyle 的 closeSettings 点完「收起」，
+      // 指针正好停在入口命中区上（收起钮与入口同在右上角一带），不移开的话
+      // 静止态读到的是悬停底色（与 contrast-computed 悬停对读完挪开是同一条坑）
+      await page.mouse.move(0, 0)
       const rest = await background(page, '.settings-entry')
       await entry(page).hover()
       const hover = await background(page, '.settings-entry')
@@ -983,7 +987,8 @@ for (const style of STYLE_CATALOG) {
       await pickStyle(page, style.label)
       await openSettings(page)
 
-      const row = page.locator('.settings-row')
+      // T42 起抽屉里有两行（静音行 + 风格行），静音行靠 data-mute-row 挑出来
+      const row = page.locator('[data-mute-row]')
       const label = row.locator('.settings-row__label')
       const sw = row.locator('.settings-switch')
 

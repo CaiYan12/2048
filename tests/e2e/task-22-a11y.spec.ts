@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
+// T42 审查修复：局中没有风格按钮了（选择搬进了抽屉），换风格走共享的抽屉路径
+import { pickStyle } from './settings-helpers'
 
 /**
  * T22 的 UI 半边：键盘、触屏与屏幕阅读器验收（SPEC §3.4）
@@ -568,12 +570,12 @@ test('reduced-motion：整条键盘路径走得通，状态一个字节都没少
   expect(merged.outlineStyle).toBe('solid')
   expect(parseFloat(merged.outlineWidth)).toBeGreaterThan(0)
 
-  // 降级之后键盘还活着：撤销（z）与换风格都在
+  // 降级之后键盘还活着：撤销（z）与换风格都在。T42 迁移：局中没有名为 'Claude' 的
+  // 按钮了（选择搬进了抽屉），换风格改走抽屉路径——「换得到」的语义不变
   await page.keyboard.press('z')
   await expect(page.locator('[data-tile-id="1"]')).toHaveAttribute('data-value', '2')
   await expect(page.locator('[data-score]')).toHaveText('0')
-  await tabUntil(page, (stop) => stop.tag === 'button' && stop.name === 'Claude', true)
-  await page.keyboard.press('Enter')
+  await pickStyle(page, 'Claude')
   await expect(page.locator('main')).toHaveAttribute('data-style', 'claude')
   await expect(page.locator('[data-board]')).toBeVisible()
 
