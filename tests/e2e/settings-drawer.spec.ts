@@ -2,14 +2,14 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { STYLE_CATALOG, type StyleId } from '../../src/shared/styleCatalog'
 
 /**
- * T37 设置抽屉：打开、拦住、关掉，回到原处（父规格 docs/specs/settings-drawer.md ·
- * ADR-0010 · GitHub #39）。
+ * 设置抽屉：打开、拦住、关掉、回到原处（T37），以及进出动效（T38）。
+ * 父规格 docs/specs/settings-drawer.md · ADR-0010 · GitHub #39（T37）/ #40（T38）。
  *
  * 同一套断言对三套风格各跑一遍（接结果层与彩蛋那两条既有缝）：抽屉是**外壳**不是第五个
  * 插槽，三套只出 token 与 CSS，所以唯一能防漂移的就是同一组不变量跑三遍。文件里没有一句
  * 「Classic 会这样、Material 会那样」的分叉——差别只通过各自的计算样式体现。
  *
- * 契约逐条（与票据 T37 的验收标准一一对应）：
+ * 契约逐条（与票据 T37 / T38 的验收标准一一对应）：
  *   1. 入口在开局界面 / 局中 / 结果层在场 / 二念扣下时同址，只在读档中隐藏；
  *   2. 入口是纯图标按钮：可访问名「设置」、3rem 命中区、`aria-expanded`、只有三个状态；
  *   3. 图形是一份三套共用的内联 SVG，颜色走 `currentColor`；
@@ -19,9 +19,13 @@ import { STYLE_CATALOG, type StyleId } from '../../src/shared/styleCatalog'
  *   7. 三种关法都通；`Esc` 优先于底下的交换摊；
  *   8. 关掉之后回到离开时的状态；焦点打开时落在容器、关闭时回到入口；
  *   9. 抽屉是 `role="dialog"` + 名字、不加 `aria-modal`；贴右铺满、宽 `min(22rem,100vw)`。
+ *  10. **T38 动效**：进 250ms / 出 200ms + 曲线 `cubic-bezier(0.32, 0.72, 0, 1)`；退场的
+ *      终点是 `animationend`（假时钟冻不住它）；退场那一帧起交出指针；reduced-motion 撤
+ *      位移、两个时长不变；结果层与彩蛋菜单的 150ms 一个字节没动。
  *
- * **这一票是硬切**（T38 才做动效）：没有退场状态、没有动画时长，所以这里一条都不量
- * 进出动效——那些是 T38 的账。
+ * **T38 起关掉抽屉不再是硬切**：容器比「关闭」多活一段退场动画，所以 `openDrawer` 与
+ * `closeDrawer` 都要等动画收尾（下面两个 helper）。那些「关掉之后立刻 count 0」的旧断言
+ * 改成「等退场播完再 count 0」，是规格决策 10 要求的行为变化，不是为了让新用例变绿。
  *
  * 局面确定性来自 `?seed=` + `?board=`（开局夹具）。**显式局面优先于存档**
  * （`hasExplicitStart`），所以每个状态各 goto 一次就各自拿一页干净的，不会互相串。
@@ -125,16 +129,104 @@ async function startRun(page: Page, style: StyleId, url: string): Promise<void> 
 const entry = (page: Page): Locator => page.locator('.settings-entry')
 const drawer = (page: Page): Locator => page.locator('[data-settings-drawer]')
 
-/** 打开抽屉：点入口，等抽屉就位 */
+/**
+ * 等抽屉的进出动画播完（T38）。
+ *
+ * 为什么需要它：加了动效之后 `toBeVisible()` 在抽屉**还在滑进来的路上**就已经成立（元素
+ * 有盒子，只是部分在视口外），紧接着去量矩形会量到一帧中间态。所以开与关之后都先等动画
+ * 收尾。用 `getAnimations()` 而不是写死 250 / 200ms：时长只该活在 CSS 一处，测试里再写一个
+ * 数就是给「有人改了 CSS 忘了改测试」上税。`polling: 50` 明写出来，是为了不依赖页面的
+ * requestAnimationFrame（那也正是假时钟会冻住的东西）。
+ */
+async function settledAnimations(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const element = document.querySelector('[data-settings-drawer]')
+      if (element === null) return true
+      const animations = element.getAnimations()
+      return animations.length > 0 && animations.every((item) => item.playState !== 'running')
+    },
+    undefined,
+    { polling: 50 }
+  )
+}
+
+/** 打开抽屉：点入口，等抽屉就位、且进场动画播完（不然下一秒量的矩形是中间态） */
 async function openDrawer(page: Page): Promise<void> {
   await entry(page).click()
   await expect(drawer(page)).toBeVisible()
+  await settledAnimations(page)
 }
 
-/** 关掉抽屉：点「收起」，等它整个离开 DOM（硬切，没有退场帧） */
+/**
+ * 关掉抽屉：点「收起」，等**退场动画播完**再等它离开 DOM（T38）。
+ *
+ * T37 的硬切下这一句是「点完立刻 count 0」；加了退场之后容器会多活 200ms，所以
+ * `toHaveCount(0)` 现在等的是 animationend 驱动的卸载（Playwright 的重试会自动等够）。
+ * 先 `settledAnimations` 是为了让调用方返回时退场真的播完了，而不是停在中间态。
+ */
 async function closeDrawer(page: Page): Promise<void> {
   await drawer(page).getByRole('button', { name: '收起' }).click()
+  await settledAnimations(page)
   await expect(drawer(page)).toHaveCount(0)
+}
+
+/** 读抽屉与遮罩此刻的计算动效：动画名 + 时长 + 曲线（换风格不该换这三个数——它们是外壳的） */
+function motionTiming(page: Page): Promise<{
+  drawer: { name: string; duration: string; easing: string }
+  scrim: { name: string; duration: string; easing: string }
+}> {
+  return page.evaluate(() => {
+    const read = (selector: string): { name: string; duration: string; easing: string } => {
+      const style = getComputedStyle(document.querySelector(selector) as Element)
+      return {
+        name: style.animationName,
+        duration: style.animationDuration,
+        easing: style.animationTimingFunction,
+      }
+    }
+    return { drawer: read('[data-settings-drawer]'), scrim: read('[data-settings-scrim]') }
+  })
+}
+
+/** 从 computed transform 里取出平移的 x 分量（px）。没有位移就是 0 */
+function translateX(transform: string): number {
+  const parts = /matrix\(([^)]+)\)/.exec(transform)
+  if (parts === null) return 0
+  const values = parts[1].split(',').map((value) => Number(value.trim()))
+  return values[4] ?? 0
+}
+
+/**
+ * 点入口开抽屉，并在若干帧上采下计算样式——**在同一个 evaluate 里**，因为进场只有 250ms，
+ * 来回一次 CDP 就错过第一帧了（结果层那条 `watchMotion` 的注释同一条理由）。
+ *
+ * 采到的东西只为本票要证的两件事：第一帧是不可见的基础态（`both` 的起点填充，没有闪一帧），
+ * 以及它自右滑入（x 从正的一整块宽度起、落到 0）。
+ */
+function sampleArrival(
+  page: Page,
+  frames: number
+): Promise<{ opacity: number; transform: string; animation: string }[]> {
+  return page.evaluate((count) => {
+    return new Promise<{ opacity: number; transform: string; animation: string }[]>((resolve) => {
+      const entryButton = document.querySelector<HTMLElement>('.settings-entry')
+      entryButton?.click()
+      const sampled: { opacity: number; transform: string; animation: string }[] = []
+      const tick = (): void => {
+        const panel = document.querySelector<HTMLElement>('[data-settings-drawer]')
+        const style = panel === null ? null : getComputedStyle(panel)
+        sampled.push({
+          opacity: style === null ? -1 : Number(style.opacity),
+          transform: style === null ? 'missing' : style.transform,
+          animation: style === null ? 'missing' : style.animationName,
+        })
+        if (sampled.length >= count) resolve(sampled)
+        else requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+  }, frames)
 }
 
 /** 入口的矩形（取到 0.1px，避免浮点噪声把「同址」比出假的差） */
@@ -663,6 +755,207 @@ for (const style of STYLE_CATALOG) {
 
       expect(problems).toEqual([])
     })
+
+    test('进出都播：进 250ms / 出 200ms + 抽屉曲线；退场动画一结束层就卸载', async ({ page }) => {
+      const problems = watchProblems(page)
+      await startRun(page, style.id, startUrl(ACTIVE))
+
+      // 进场：点入口那一帧起采样。22 帧（约 360ms）盖过 250ms 的进场——比它短就看不到终态。
+      // 第一帧必须是**关键帧的起点**（`both` 的起点填充），不是一帧可见的基础态——T21 在
+      // 胜利标题上踩过那个坑（加 rAF 状态门控，可见的底色会先画一帧再闪隐）
+      const arrival = await sampleArrival(page, 22)
+      expect(arrival[0]?.animation, `${style.label}：抽屉没有播进场动画`).toBe('settings-drawer-in')
+      expect(arrival[0]?.opacity, `${style.label}：进场第一帧就可见了（先闪一帧基础态）`).toBeLessThan(1)
+      // 自右滑入：第一帧在整块宽度之外（x 为正），终态落回 0
+      expect(translateX(arrival[0]?.transform ?? ''), `${style.label}：进场不是自右滑入`).toBeGreaterThan(0)
+      expect(translateX(arrival.at(-1)?.transform ?? 'missing'), `${style.label}：进场没落到 x=0`).toBe(0)
+      expect(arrival.at(-1)?.opacity, `${style.label}：进场没淡到不透明`).toBe(1)
+
+      // 时长与曲线是抽屉自取的那一套，三套风格一个数（它们住在外壳，不该跟着风格变）
+      const timing = await motionTiming(page)
+      expect(timing.drawer, `${style.label}：抽屉的进场节奏不是 250ms + 抽屉曲线`).toEqual({
+        name: 'settings-drawer-in',
+        duration: '0.25s',
+        easing: 'cubic-bezier(0.32, 0.72, 0, 1)',
+      })
+      expect(timing.scrim, `${style.label}：遮罩的进场节奏不是 250ms + 抽屉曲线`).toEqual({
+        name: 'settings-fade-in',
+        duration: '0.25s',
+        easing: 'cubic-bezier(0.32, 0.72, 0, 1)',
+      })
+
+      // 退场：点「收起」与读 DOM 在同一个 evaluate 里（退场只有 200ms）。它比进场短一截、
+      // 换的是退场那一组关键帧
+      const exit = await page.evaluate(
+        () =>
+          new Promise<{ name: string; duration: string; easing: string }>((resolve) => {
+            const closeButton = [
+              ...document.querySelectorAll<HTMLElement>('[data-settings-drawer] .control'),
+            ].find((element) => element.textContent?.trim() === '收起')
+            closeButton?.click()
+            requestAnimationFrame(() => {
+              const style = getComputedStyle(
+                document.querySelector('[data-settings-drawer]') as Element
+              )
+              resolve({
+                name: style.animationName,
+                duration: style.animationDuration,
+                easing: style.animationTimingFunction,
+              })
+            })
+          })
+      )
+      expect(exit, `${style.label}：抽屉的退场节奏不是 200ms + 抽屉曲线`).toEqual({
+        name: 'settings-drawer-out',
+        duration: '0.2s',
+        easing: 'cubic-bezier(0.32, 0.72, 0, 1)',
+      })
+      // 退场播完层才卸载（动画结束事件驱动，不是 CSS 把 opacity 摁在 0 上藏着）
+      await expect(drawer(page)).toHaveCount(0)
+
+      expect(problems).toEqual([])
+    })
+
+    test('退场第一帧就交出指针：data-settings-leaving 与开合同一次提交', async ({ page }) => {
+      const problems = watchProblems(page)
+      await startRun(page, style.id, startUrl(ACTIVE))
+      await openDrawer(page)
+
+      // 点遮罩（=「外侧」）那一帧与读 DOM 在同一个 evaluate：开合状态变的同一次提交里，
+      // 遮罩与抽屉都必须已标着退场、且不再接指针（父规格决策 10）
+      const frame = await page.evaluate(
+        () =>
+          new Promise<{
+            mounted: boolean
+            leaving: string | null
+            scrimLeaving: string | null
+            pointerEvents: string
+            hitIsLayer: boolean
+          }>((resolve) => {
+            // 点遮罩上一点（棋盘那一带的坐标）：这一下就是「关掉」，与「点外侧」同一条路
+            const scrim = document.querySelector<HTMLElement>('[data-settings-scrim]')
+            scrim?.click()
+            requestAnimationFrame(() => {
+              const panel = document.querySelector<HTMLElement>('[data-settings-drawer]')
+              const scrimNow = document.querySelector<HTMLElement>('[data-settings-scrim]')
+              const hit =
+                scrimNow === null
+                  ? null
+                  : document.elementFromPoint(
+                      scrimNow.getBoundingClientRect().width / 2,
+                      window.innerHeight / 2
+                    )
+              resolve({
+                mounted: panel !== null,
+                leaving: panel?.getAttribute('data-settings-leaving') ?? null,
+                scrimLeaving: scrimNow?.getAttribute('data-settings-leaving') ?? null,
+                pointerEvents: panel === null ? '' : getComputedStyle(panel).pointerEvents,
+                hitIsLayer:
+                  hit instanceof Element &&
+                  hit.closest('[data-settings-scrim],[data-settings-drawer]') !== null,
+              })
+            })
+          })
+      )
+
+      // 容器还在 DOM 里（退场要播 200ms），并且**标着退场**——遮罩与抽屉各挂一个
+      expect(frame.mounted, `${style.label}：退场第一帧容器就不在了`).toBe(true)
+      expect(frame.leaving, `${style.label}：退场第一帧抽屉没标 leaving`).toBe('true')
+      expect(frame.scrimLeaving, `${style.label}：退场第一帧遮罩没标 leaving`).toBe('true')
+      // 而它已经不接指针了：这一条是「关掉之后马上点新游戏」不被吞掉的保证
+      expect(frame.pointerEvents, `${style.label}：退场中的抽屉还在接指针`).toBe('none')
+      // 同一件事的第二种说法：视口正中那一点最上面已经不是这一层了
+      expect(frame.hitIsLayer, `${style.label}：退场中的遮罩还挡在页面上`).toBe(false)
+
+      // 退场播完，层不在 DOM 里
+      await expect(drawer(page)).toHaveCount(0)
+
+      expect(problems).toEqual([])
+    })
+
+    test('假时钟下关掉抽屉照旧卸载：退场的终点是 animationend，不是定时器', async ({ page }) => {
+      const problems = watchProblems(page)
+      // `install` 只装假定时器（并允许 `resume()` 让时间按真实速度流），**不冻时间**；要冻住
+      // 必须紧跟着 `pauseAt`。所以这里两步都做：装上之后立刻停表，藏在 JS 里的 setTimeout
+      // 才真的冻住——若退场靠定时器，这里就永远摘不掉那一层。动画结束事件来自渲染管线，
+      // 假时钟够不着它（结果层与菜单各付过一遍学费）。先例见 time-attack.spec.ts 第 7–11 行
+      // 的说明与第 95–96 行的 `install` + `pauseAt`。
+      await page.clock.install()
+      await page.clock.pauseAt(Date.now())
+      await startRun(page, style.id, startUrl(ACTIVE))
+
+      // 不用 openDrawer / closeDrawer：那两个 helper 里有一段 waitForFunction 轮询，
+      // 而假时钟下不该拿它去赌。直接点、直接等卸载
+      await entry(page).click()
+      await expect(drawer(page)).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(drawer(page), `${style.label}：假时钟下抽屉没被卸载掉`).toHaveCount(0)
+      // 页面照旧回到原处（这一局还能推）
+      await page.locator('[data-board]').focus()
+      const before = await readBoard(page)
+      await page.keyboard.press('ArrowRight')
+      expect(await readBoard(page), `${style.label}：假时钟下关掉抽屉后棋盘推不动了`).not.toEqual(before)
+
+      expect(problems).toEqual([])
+    })
+
+    test('reduced-motion：撤掉位移、只留淡入淡出，两个时长不变', async ({ browser }) => {
+      // 用户故事 17：要求「少一点动」的玩家仍然看得见抽屉、仍然关得掉。所以同时断言
+      // 「位移没了」与「两个时长不变」两件事
+      const context = await browser.newContext({ reducedMotion: 'reduce' })
+      const page = await context.newPage()
+      const problems = watchProblems(page)
+      try {
+        await startRun(page, style.id, startUrl(ACTIVE))
+
+        // 进场：只淡入、不位移，且仍是 250ms
+        const arrival = await sampleArrival(page, 8)
+        expect(arrival[0]?.animation, `${style.label}：reduced-motion 下抽屉没换成淡入`).toBe(
+          'settings-fade-in'
+        )
+        for (const frame of arrival) {
+          expect(frame.transform, `${style.label}：reduced-motion 下抽屉仍在位移`).toBe('none')
+        }
+        const entryTiming = await motionTiming(page)
+        expect(entryTiming.drawer, `${style.label}：reduced-motion 下进场时长变了`).toEqual({
+          name: 'settings-fade-in',
+          duration: '0.25s',
+          easing: 'cubic-bezier(0.32, 0.72, 0, 1)',
+        })
+
+        // 退场：同样只淡出、不位移，且仍是 200ms
+        const exit = await page.evaluate(
+          () =>
+            new Promise<{ name: string; duration: string; transform: string }>((resolve) => {
+              const closeButton = [
+                ...document.querySelectorAll<HTMLElement>('[data-settings-drawer] .control'),
+              ].find((element) => element.textContent?.trim() === '收起')
+              closeButton?.click()
+              requestAnimationFrame(() => {
+                const style = getComputedStyle(
+                  document.querySelector('[data-settings-drawer]') as Element
+                )
+                resolve({
+                  name: style.animationName,
+                  duration: style.animationDuration,
+                  transform: style.transform,
+                })
+              })
+            })
+        )
+        expect(exit, `${style.label}：reduced-motion 下退场不是 200ms 的淡出`).toEqual({
+          name: 'settings-fade-out',
+          duration: '0.2s',
+          transform: 'none',
+        })
+        // 层照旧消失
+        await expect(drawer(page)).toHaveCount(0)
+
+        expect(problems).toEqual([])
+      } finally {
+        await context.close()
+      }
+    })
   })
 }
 
@@ -742,6 +1035,55 @@ test('三套风格共用同一份齿轮：path 逐字相同、颜色走 currentC
     distinct.size,
     `${gears.map((gear) => gear.label).join(' / ')} 的齿轮 path 不是同一份`
   ).toBe(1)
+
+  expect(problems).toEqual([])
+})
+
+/**
+ * T38：抽屉自取一套值，**共享的 150ms 一个字节都没被带走**。这一条是「作用域没有漏」的
+ * 检查，不是修辞（父规格决策 10 / 11）。
+ *
+ * 结果层的卡片与彩蛋菜单仍是 150ms + 内置 ease-out（它们的验收按那一套做的、已经关闭，
+ * 而「一整屏的行程」那条理由对 4px 的升降根本不成立）。把这两处与抽屉那一套**分开来看**，
+ * 才读得出「仓库里是两个值、不是一个被改过的值」。与风格无关，只跑一遍。
+ */
+test('抽屉自取一套值：结果层与彩蛋菜单的 150ms 一个字节没动', async ({ page }) => {
+  const problems = watchProblems(page)
+
+  // 结果层的卡片与遮罩：仍是共享的那一套
+  await startRun(page, STYLE_CATALOG[0].id, startUrl(FOUR_1024))
+  await page.locator('[data-board]').focus()
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.locator('[data-result-tier="won"]')).toBeVisible()
+  const overlay = await page.evaluate(() => {
+    const read = (selector: string): { duration: string; easing: string } => {
+      const style = getComputedStyle(document.querySelector(selector) as Element)
+      return { duration: style.animationDuration, easing: style.animationTimingFunction }
+    }
+    return { card: read('.overlay__card'), scrim: read('.overlay__scrim') }
+  })
+  expect(overlay.card, '结果层的 150ms 被抽屉那一套带走了').toEqual({
+    duration: '0.15s',
+    easing: 'ease-out',
+  })
+  expect(overlay.scrim, '结果层的 150ms 被抽屉那一套带走了').toEqual({
+    duration: '0.15s',
+    easing: 'ease-out',
+  })
+
+  // 彩蛋菜单：也是共享的那一套（不得跟着抽屉漂）
+  await startRun(page, STYLE_CATALOG[0].id, `/?seed=20260926&board=${LADDER_FULL_BOARD}`)
+  await page.locator('[data-board]').focus()
+  for (const key of CODE_KEYS) await page.keyboard.press(key)
+  await expect(page.locator('.shenmo')).toHaveAttribute('data-shenmo-stage', 'choice')
+  const menu = await page.locator('.shenmo').evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { duration: style.animationDuration, easing: style.animationTimingFunction }
+  })
+  expect(menu, '彩蛋菜单的 150ms 被抽屉那一套带走了').toEqual({
+    duration: '0.15s',
+    easing: 'ease-out',
+  })
 
   expect(problems).toEqual([])
 })
