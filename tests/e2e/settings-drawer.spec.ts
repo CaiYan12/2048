@@ -1103,9 +1103,9 @@ for (const style of STYLE_CATALOG) {
       }
 
       // ⑥.5 人眼复核（2026-10-09 BLOCK）补上的三项守卫：轨道是胶囊形（与圆形滑块切合）、
-      //      两态切换有 150ms 过渡（不瞬跳）、关态的轨道仍读得出是一根轨道（Classic 的
-      //      关态底色与抽屉面同一个值，靠一圈开态色的发丝线站住——否则开关一关，轨道
-      //      整块隐入底面，切换就成了「什么都没变」）。此刻开关正处于关态（④点过）。
+      //      两态切换有 150ms 过渡（不瞬跳）、关态的轨道仍读得出是一根轨道——**三套都带
+      //      一圈发丝线**（Classic 的关态底色与抽屉面同一个值，没有线它整块隐入；Material
+      //      与抽屉面近撞；Claude 的控件本就不填色）。此刻开关正处于关态（④点过）。
       const switchSkin = await row.evaluate((element) => {
         const track = element.querySelector('.settings-switch') as HTMLElement
         const thumb = element.querySelector('.settings-switch__thumb') as HTMLElement
@@ -1134,8 +1134,8 @@ for (const style of STYLE_CATALOG) {
         'background-color'
       )
       expect(
-        switchSkin.trackBg !== switchSkin.drawerBg || switchSkin.trackOutline !== 'none 0px',
-        `${style.label}：关态轨道与抽屉面同色又没有描边——轨道整块隐入底面`
+        switchSkin.trackOutline !== 'none 0px',
+        `${style.label}：关态轨道没有发丝线——三套的关态轨道都靠它读出来（Classic 的关态底色甚至与抽屉面同一个值）`
       ).toBe(true)
 
       // ⑦ 再点回来（这回点**开关自己**：点它冒泡到行处理器，也只翻一次，不是两遍）

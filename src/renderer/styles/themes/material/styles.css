@@ -430,6 +430,12 @@
 [data-style='material'] .settings-switch {
   background: var(--switch-track);
   border-radius: 999px;
+  /* 关态轨道与抽屉面近撞（--cell-bg #e6e0e9 vs 面上 --control-bg #e8def8，闸门量不出——
+     它量的是滑块对轨道），没有这条发丝线，轨道的身体在关态几乎读不出来（2026-10-09
+     人眼复核裁定）。线取开态轨道那个色：开态时线与底同色自然隐去，关态时它是轨道的
+     边界——与 Classic 的发丝线同一个逻辑。outline 不改盒子尺寸。 */
+  outline: 1px solid var(--switch-track-on);
+  outline-offset: -1px;
 }
 
 [data-style='material'] .settings-switch[aria-checked='true'] {
