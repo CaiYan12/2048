@@ -16,7 +16,7 @@ import { STYLE_CATALOG, type StyleId } from '../../src/shared/styleCatalog'
  *   4. 打开之后每一条指针路径都落在遮罩 / 抽屉上；
  *   5. 打开之后方向键 / WASD / Z 被吃掉、不滚页面；滚轮照旧；文本入口照旧拿得到自己的键；
  *   6. 打开之后 `Tab` 到不了遮罩后面（页面内容 `inert`）；
- *   7. 三种关法都通；`Esc` 优先于底下的交换摊；
+ *   7. 三种关法都通；`Esc` 优先于底下的交换摊，也优先于神魔摊（打码之后那两颗圆钮）；
  *   8. 关掉之后回到离开时的状态；焦点打开时落在容器、关闭时回到入口；
  *   9. 抽屉是 `role="dialog"` + 名字、不加 `aria-modal`；贴右铺满、宽 `min(22rem,100vw)`。
  *  10. **T38 动效**：进 250ms / 出 200ms + 曲线 `cubic-bezier(0.32, 0.72, 0, 1)`；退场的
@@ -26,6 +26,12 @@ import { STYLE_CATALOG, type StyleId } from '../../src/shared/styleCatalog'
  *      标签、不用 `<label>`、无可见状态文字；整行可点；两态靠滑块位置 + 轨道换色说；几何
  *      三套共用（轨道 2.25rem × 1.25rem、滑块 1rem、行程 1rem、行内间距 0.75rem）；
  *      `data-mute` 语义未变（控件搬了地方、长相变了，它说的意思一字未改）。
+ *  12. **T40 浮层不被 `inert` 收走**：抽屉开着时页面内容整块 `inert`，而 Toast 栈与礼炮
+ *      （以及悬顶）住在那个包裹元素**之外**——它们是盖在页面上的浮层，跟着一起被收走就等于
+ *      「设置开着时祝贺看不见、礼炮不响」。悬顶的断言在「入口在四种页面状态下同址」那条里
+ *      （它在那一路局里稳定在场）；Toast 由一次确定性的合并触发；礼炮的粒子 canvas 是瞬态
+ *      （粒子熄完就卸载），改用 reduced-motion 下那行**整局都在场**的 `.cannon__still` 证
+ *      同一条 DOM 归属（两种形态是同一个 `<Cannon>` 的兄弟节点，结构逐字相同）。
  *
  * **T38 起关掉抽屉不再是硬切**：容器比「关闭」多活一段退场动画，所以 `openDrawer` 与
  * `closeDrawer` 都要等动画收尾（下面两个 helper）。那些「关掉之后立刻 count 0」的旧断言
@@ -67,6 +73,18 @@ const FOUR_1024: (number | null)[][] = [
 /** 满盘十六档、两两不相等：神魔码那八下全是无效移动，棋盘一个格子都不动 */
 const LADDER_FULL_BOARD =
   '2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768,65536'
+
+/**
+ * 第 0 行只有一对 2，其余三行互不相邻相等：一次左移恰好完成**一次**合并，离目标块还远。
+ * 那一步会解锁「首次合并」（注册表第一位），于是**一条祝贺确定性地浮出来**——用它来证
+ * 「Toast 栈住在 inert 之外」时，不必去赌一条偶发的祝贺。
+ */
+const ONE_PAIR: (number | null)[][] = [
+  [2, 2, null, null],
+  [4, 8, 16, 32],
+  [64, 128, 256, 512],
+  [2, 4, 8, 16],
+]
 
 /** 神魔码的八下（↑↑↓↓←→←→） */
 const CODE_KEYS: readonly string[] = [
@@ -1071,6 +1089,98 @@ for (const style of STYLE_CATALOG) {
       await expect(sw).toHaveAttribute('data-mute', 'false')
 
       expect(problems).toEqual([])
+    })
+
+    test('Esc 优先于底下的神魔摊：抽屉开着时先关抽屉，两颗圆钮照旧开着', async ({ page }) => {
+      const problems = watchProblems(page)
+      // 与上面「Esc 优先于交换摊」同一条规矩的另一半：`Esc` 关的是**最上面那一层**。
+      // 神魔摊是打码之后冒出来的两颗圆钮（抉择 A / B），App 的 Esc 分支里两个条件是并列的
+      // 「或」——两摊同时开着的概率为零，但两处都要各有一条断言，免得将来谁只删了其中一条
+      // 分支还自认绿。用满盘开局：那八下全是无效移动，棋盘一个格子都不动、码才攒得住。
+      await startRun(page, style.id, `/?seed=20260926&board=${LADDER_FULL_BOARD}`)
+      await typeCode(page)
+      await expect(page.locator('.shenmo')).toHaveAttribute('data-shenmo-stage', 'choice')
+
+      await openDrawer(page)
+      await page.keyboard.press('Escape')
+      await expect(drawer(page)).toHaveCount(0)
+      await expect(
+        page.locator('.shenmo'),
+        `${style.label}：关抽屉那一下把底下的神魔摊也收了`
+      ).toHaveCount(1)
+      // 第二次 `Esc` 才收摊（它此刻就是剩下的那一层）
+      await page.keyboard.press('Escape')
+      await expect(page.locator('.shenmo')).toHaveCount(0)
+
+      expect(problems).toEqual([])
+    })
+
+    test('浮层不被 inert 收走：开着抽屉时 Toast 栈仍在页面内容之外', async ({ page }) => {
+      const problems = watchProblems(page)
+      // 挑一副「一步恰好一次合并」的开局：那一步解锁「首次合并」（注册表第一位），一条祝贺
+      // **确定性地**浮出来——成就只看本局，所以这不是抽奖。用它证父规格架构决策 6 的那半句话：
+      // 开着抽屉时被 `inert` 的是**页面内容**，不是盖在页面上的浮层。若哪天有人把 Toast 挪进
+      // 那个包裹元素，它会连指针、焦点、读屏一起被收走——而「悬停时暂停计时」正是靠它接得住指针。
+      await startRun(page, style.id, startUrl(ONE_PAIR))
+      await page.locator('[data-board]').focus()
+      await page.keyboard.press('ArrowLeft')
+      await expect(page.locator('[data-toast-stack]')).toHaveCount(1)
+
+      await openDrawer(page)
+      const where = await page.evaluate(() => {
+        const wrapper = document.querySelector('main > div.contents')
+        const stack = document.querySelector('[data-toast-stack]')
+        return {
+          inert: wrapper?.hasAttribute('inert') ?? false,
+          stackPresent: stack !== null,
+          containsStack: wrapper !== null && stack !== null && wrapper.contains(stack),
+        }
+      })
+      // 页面内容确实被 inert 收走（判据：抽屉开着）
+      expect(where.inert, `${style.label}：开着抽屉时页面那块没被 inert`).toBe(true)
+      // 而 Toast 栈是浮层，住在那个包裹元素之外，不被一起收走（架构决策 6）
+      expect(where.stackPresent, `${style.label}：开着抽屉时 Toast 栈不见了`).toBe(true)
+      expect(where.containsStack, `${style.label}：Toast 栈被 inert 一起收走了`).toBe(false)
+      await closeDrawer(page)
+
+      expect(problems).toEqual([])
+    })
+
+    test('浮层不被 inert 收走：开着抽屉时礼炮那一层仍在页面内容之外', async ({ browser }) => {
+      // **为什么借 reduced-motion**：礼炮正常形态是满屏 fixed 的粒子 canvas，粒子 1.1–2.1 秒
+      // 熄完就 `onSpent` 卸载自己——按墙钟去抢它是竞态（本地快就过、CI 慢就红）。reduced-motion
+      // 下它退化成一行动静全无的字 `.cannon__still`，而那一行在**整局里都在场**（reduced 分支
+      // 不画 canvas，也就没有 `onSpent` 来置 `spent`），于是这条结构判据有一个稳定的证物。
+      // 两种形态由同一个 `<Cannon>` 渲染、都是 `main` 的直接子节点（`.contents` 的兄弟），
+      // DOM 归属逐字相同——所以由静止那一行证得的结论，对粒子那一层同样成立。
+      const context = await browser.newContext({ reducedMotion: 'reduce' })
+      const page = await context.newPage()
+      const problems = watchProblems(page)
+      try {
+        await startRun(page, style.id, `/?seed=20260926&board=${LADDER_FULL_BOARD}`)
+        // 走完一遍 B → A：第一遍结出 first-pass，礼炮那一层到场（`wishGranted` 为真）
+        await completePass(page)
+        await expect(page.locator('.cannon__still')).toHaveCount(1)
+
+        await openDrawer(page)
+        const where = await page.evaluate(() => {
+          const wrapper = document.querySelector('main > div.contents')
+          const cannon = document.querySelector('.cannon__still')
+          return {
+            inert: wrapper?.hasAttribute('inert') ?? false,
+            cannonPresent: cannon !== null,
+            containsCannon: wrapper !== null && cannon !== null && wrapper.contains(cannon),
+          }
+        })
+        expect(where.inert, `${style.label}：开着抽屉时页面那块没被 inert`).toBe(true)
+        expect(where.cannonPresent, `${style.label}：开着抽屉时礼炮那一层不见了`).toBe(true)
+        expect(where.containsCannon, `${style.label}：礼炮那一层被 inert 一起收走了`).toBe(false)
+        await closeDrawer(page)
+
+        expect(problems).toEqual([])
+      } finally {
+        await context.close()
+      }
     })
   })
 }

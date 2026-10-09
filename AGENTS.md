@@ -410,6 +410,53 @@ T28–T34 之后应所有者要求做的一处**结构性修正**：染墨原先
 - **顺带修了一条与本票无关的既有红条**：`tests/unit/tile-motion.test.ts` 的 `.board__tile[data-merge-pulse='down'] {\n  scale: none;` 在 CRLF 工作区上必然红（这台机器 `core.autocrlf=true`，盘上读回的是 `\r\n`）——与本次改动无关，已用正则改写。教训：**写死 `\n` 的 CSS needle 只在一台 LF 的检出上成立**。
 - 收官数字（子代理跑的，控制人可复核）：typecheck 0 错、unit **902 / 48 files**、build 通过、check:contrast **3 风格 131 对**；Playwright 只跑了四个 spec（`shenmo` 116 passed、`shenmo-clock` 18 passed、`contrast-computed` 44 passed、`wish` + `toast-contract` 各 18 passed），**全量留给控制人**。
 
+### 设置抽屉第一刀状态 (2026-10-09)
+
+T37–T40 四张票已实现并验收（父规格 `docs/specs/settings-drawer.md`，裁决
+`docs/adr/0010-settings-drawer-is-shell-not-a-fifth-slot.md`，票据 `docs/tickets/37`–`40`）。
+README 那一组「设置界面引入」里**只交付了第一条**：入口 + 抽屉外壳 + 把已有的声音开关搬进去；
+预设、风格下拉框、背景音乐、各类音效下拉框、上帝模式、语言六条仍欠。
+
+- **外壳，不是第五个呈现插槽**（ADR-0010；这是同一条判据的第三次拒绝，前两次是 ADR-0008
+  的结果层与 ADR-0009 的彩蛋）。三套风格只出 token 与 CSS：抽屉贴右边缘、铺满高度、宽
+  `min(22rem, 100vw)`，窄屏铺满整屏；入口是一份**三套共用**的内联 SVG（走 `currentColor`），
+  命中区 3rem，只有 hover / 焦点环 / 开着三个状态、不加按下反馈。
+- **打开时整页的输入一起被拿走**：页面内容收进一个 `display: contents` 的包裹元素并挂
+  `inert`（指针 / 焦点 / Tab 顺序 / 读屏一起），遮罩与抽屉留在它**外面**。`display: contents`
+  是零布局变化的前置——真塞一个生成盒子的包裹层会把页脚那一行 grid 并上去。
+  **浮层不进 `inert`**：礼炮因此从棋盘下方搬到 `main` 下的浮层那一段；Toast 栈 / 悬顶 / 礼炮
+  都是 `.contents` 的兄弟（设置开着时祝贺照旧看得见、悬停照旧能暂停计时）。
+- **抽屉自带动效值，不退化成共享的 150ms**：进 **250ms** / 出 **200ms** + 曲线
+  `cubic-bezier(0.32, 0.72, 0, 1)`。**作用域只到抽屉与将来同类的整页层**——结果层与彩蛋菜单
+  仍是共享的 `150ms ease-out`（SPEC 决策 10 / 11，一条独立的 e2e 钉着「作用域没漏」）。
+  退场的终点是 `animationend` 不是定时器；`data-settings-leaving` 与开合状态在**同一次提交**
+  落 DOM，于是退场第一帧就把指针还回去。
+- **`Esc` 优先于底下的摊**：抽屉开着时先关抽屉，交换摊与神魔摊（打码那两颗圆钮）**各有一条**
+  断言；第二次 `Esc` 才收摊。假时钟用例照 `.codex/memories/e2e-debt.md` 第四节：`install()`
+  之后立刻 `pauseAt()`。
+- **静音行**：声音开关从页脚那颗裸按钮搬进抽屉，变成「左静态标签（`<span id>`，`aria-labelledby`
+  引用它，**不用 `<label>`**）+ 右 `role="switch"`」的一行。整行可点、无可见状态文字、可访问名
+  不随状态变；两态靠滑块位置 + 轨道换色说；几何三套共用，逐套新增角色行 Classic 2 / Material 4 /
+  Claude 4，**一个新材料色值都没有**。`data-mute` 语义与落盘一字未改。
+- **对比度闸门新开一幕 `settings`**（`SCENES` 与 `contrast-computed.spec.ts` 的 `setupScene`
+  两处各加），八幕 **141 对**。静音开关的关态那几对由浏览器那一层先点一下开关
+  （`probe.toggle`）再量。
+- **一处共享契约对三套风格各跑一遍**：`tests/e2e/settings-drawer.spec.ts`（进出动效、四条
+  开合路径、遮罩吃掉每一条指针路径、键盘被吞、`Tab` 留在抽屉里、焦点进出、被扣下那一页与
+  结果层在场时一致、退场第一帧还指针、假时钟下卸载、reduced-motion）。
+- **就地修订五处**（SPEC §3.4、`GLOSSARY.md`「二念」条、`src/renderer/App.tsx` 里那段
+  `pageCleared` 注释、Claude 设计卡 §7、`tests/unit/contrast.test.ts` 一条标题的单位）：
+  ① `docs/SPEC.md` §3.4 让抽屉成为「页面别处的控件不吞移动键」的**第二个例外**；
+  ②「二念」条与 ③ 外壳那段 `pageCleared` 注释对齐（那一页清到只剩重开按钮 + 悬顶 + 右上角那
+  **一个设置入口**）；④ Claude 卡 §7 的暖色从三处到四处（补上开关开态轨道 `--switch-track-on`，
+  与同卡表行、§2 正文一致）；⑤ `contrast.test.ts` 那条标题改成「暖色只落在**四处角色位置**上、
+  表里共**六对色值**」，让标题的单位与断言 `toHaveLength(6)` 对得上（**断言值未动**）。
+- 收官验证：typecheck 0 错、**910 unit tests / 49 files**、`npm run build` 通过（89 modules）、
+  `check:contrast` **3 风格 141 对**、全量 Playwright **0 failed**（`game.spec.ts` 另跑
+  `--repeat-each=4`）。**人眼复核没做**——三套风格 × 桌面 / 手机下的入口、抽屉、开关，以及
+  「被打断的那一次进场弹跳」（250ms 内又关掉）；headless 与「不许开真实窗口」的约定下这一半
+  不能由 agent 代做。
+
 ### Issue tracker
 
 GitHub Issues, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
