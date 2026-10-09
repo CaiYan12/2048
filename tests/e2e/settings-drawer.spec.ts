@@ -2,8 +2,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { STYLE_CATALOG, type StyleId } from '../../src/shared/styleCatalog'
 
 /**
- * 设置抽屉：打开、拦住、关掉、回到原处（T37），以及进出动效（T38）。
- * 父规格 docs/specs/settings-drawer.md · ADR-0010 · GitHub #39（T37）/ #40（T38）。
+ * 设置抽屉：打开、拦住、关掉、回到原处（T37），进出动效（T38），以及静音行（T39）。
+ * 父规格 docs/specs/settings-drawer.md · ADR-0010 · GitHub #39（T37）/ #40（T38）/ #41（T39）。
  *
  * 同一套断言对三套风格各跑一遍（接结果层与彩蛋那两条既有缝）：抽屉是**外壳**不是第五个
  * 插槽，三套只出 token 与 CSS，所以唯一能防漂移的就是同一组不变量跑三遍。文件里没有一句
@@ -22,6 +22,10 @@ import { STYLE_CATALOG, type StyleId } from '../../src/shared/styleCatalog'
  *  10. **T38 动效**：进 250ms / 出 200ms + 曲线 `cubic-bezier(0.32, 0.72, 0, 1)`；退场的
  *      终点是 `animationend`（假时钟冻不住它）；退场那一帧起交出指针；reduced-motion 撤
  *      位移、两个时长不变；结果层与彩蛋菜单的 150ms 一个字节没动。
+ *  11. **T39 静音行**：左静态标签（`<span id>`）+ 右开关，可访问名由 `aria-labelledby` 引用
+ *      标签、不用 `<label>`、无可见状态文字；整行可点；两态靠滑块位置 + 轨道换色说；几何
+ *      三套共用（轨道 2.25rem × 1.25rem、滑块 1rem、行程 1rem、行内间距 0.75rem）；
+ *      `data-mute` 语义未变（控件搬了地方、长相变了，它说的意思一字未改）。
  *
  * **T38 起关掉抽屉不再是硬切**：容器比「关闭」多活一段退场动画，所以 `openDrawer` 与
  * `closeDrawer` 都要等动画收尾（下面两个 helper）。那些「关掉之后立刻 count 0」的旧断言
@@ -241,6 +245,26 @@ async function entryBox(page: Page): Promise<{ x: number; y: number; w: number; 
 /** 元素的计算底色 */
 function background(page: Page, selector: string): Promise<string> {
   return page.locator(selector).evaluate((element) => getComputedStyle(element).backgroundColor)
+}
+
+/**
+ * 读静音开关此刻的三样东西：轨道底色、滑块底色、滑块相对轨道的水平位移（T39）。
+ *
+ * 两态的比较全由用例来做——helper 只把计算样式与几何原样端出来。位移用真实的
+ * `getBoundingClientRect`（而不是读 transform 字符串）算，因为它已经把
+ * `translate(1rem, …)` 算进去了，读到的就是「滑块此刻在哪儿」。
+ */
+function readSwitch(page: Page): Promise<{ trackBg: string; thumbBg: string; thumbOffset: number }> {
+  return page.locator('.settings-switch').evaluate((sw) => {
+    const thumb = sw.querySelector('.settings-switch__thumb') as HTMLElement
+    const trackRect = sw.getBoundingClientRect()
+    const thumbRect = thumb.getBoundingClientRect()
+    return {
+      trackBg: getComputedStyle(sw).backgroundColor,
+      thumbBg: getComputedStyle(thumb).backgroundColor,
+      thumbOffset: thumbRect.x - trackRect.x,
+    }
+  })
 }
 
 /**
@@ -955,6 +979,98 @@ for (const style of STYLE_CATALOG) {
       } finally {
         await context.close()
       }
+    })
+
+    test('静音行：左静态标签 + 右开关；整行可点；两态靠位置与换色说；data-mute 语义未变', async ({
+      page,
+    }) => {
+      const problems = watchProblems(page)
+      await page.goto('/?seed=20260926')
+      await pickStyle(page, style.label)
+      await openDrawer(page)
+
+      const row = page.locator('.settings-row')
+      const label = row.locator('.settings-row__label')
+      const sw = row.locator('.settings-switch')
+
+      // ① 行是「左标签 + 右开关」：标签是**静态可见文字**，可访问名由 aria-labelledby
+      //    引用它这一份——不是另写一份 aria-label，也不是 <label>
+      await expect(label).toHaveText('音效')
+      await expect(label).toHaveAttribute('id', 'settings-sound-label')
+      await expect(sw).toHaveAttribute('role', 'switch')
+      await expect(sw).toHaveAttribute('aria-labelledby', 'settings-sound-label')
+      await expect(sw).toHaveAccessibleName('音效')
+      expect(
+        await row.locator('label').count(),
+        `${style.label}：静音行里混进了 <label>（它会把点击悄悄转发进控件）`
+      ).toBe(0)
+
+      // ② 开关自己一个可见字都没有（**没有可见状态文字**），行里也没有「已开 / 已关」这类字
+      expect((await sw.innerText()).trim(), `${style.label}：开关里混进了可见文字`).toBe('')
+      await expect(row).not.toContainText('已开')
+      await expect(row).not.toContainText('已关')
+
+      // 默认未静音 → 开关是「开」（状态归 aria-checked，名字不随它变）
+      await expect(sw).toHaveAttribute('data-mute', 'false')
+      await expect(sw).toHaveAttribute('aria-checked', 'true')
+
+      // ③ 几何：轨道 2.25rem × 1.25rem、滑块 1rem、行内间距 0.75rem——三套共用一套骨架
+      const geometry = await row.evaluate((element) => {
+        const track = (
+          element.querySelector('.settings-switch') as HTMLElement
+        ).getBoundingClientRect()
+        const thumb = (
+          element.querySelector('.settings-switch__thumb') as HTMLElement
+        ).getBoundingClientRect()
+        return {
+          trackW: track.width,
+          trackH: track.height,
+          thumbW: thumb.width,
+          thumbH: thumb.height,
+          gap: getComputedStyle(element).columnGap,
+        }
+      })
+      expect(geometry.trackW, `${style.label}：轨道宽不是 2.25rem`).toBe(36)
+      expect(geometry.trackH, `${style.label}：轨道高不是 1.25rem`).toBe(20)
+      expect(geometry.thumbW, `${style.label}：滑块不是 1rem`).toBe(16)
+      expect(geometry.thumbH, `${style.label}：滑块不是 1rem`).toBe(16)
+      expect(geometry.gap, `${style.label}：行内间距不是 0.75rem`).toBe('12px')
+
+      // 「开」态这一刻的两个判据（滑块靠右、轨道是开态色）
+      const on = await readSwitch(page)
+
+      // ④ 整行可点：点**标签**（不是开关本身）也该翻一次——规格明写的、可测的意图
+      await label.click()
+      await expect(sw).toHaveAttribute('aria-checked', 'false')
+      await expect(sw).toHaveAttribute('data-mute', 'true')
+      await expect(sw, `${style.label}：可访问名随状态变了`).toHaveAccessibleName('音效')
+      const off = await readSwitch(page)
+
+      // ⑤ 两态靠**滑块位置 + 轨道换色**说：行程正好 1rem（16px），轨道底色两态不同
+      expect(
+        Math.round(on.thumbOffset - off.thumbOffset),
+        `${style.label}：滑块行程不是 1rem`
+      ).toBe(16)
+      expect(off.trackBg, `${style.label}：两态轨道没有换色`).not.toBe(on.trackBg)
+
+      // ⑥ 滑块换色规则：本套若给滑块单独声明了开态角色色（--switch-thumb-on），两态就换色；
+      //    没声明（Classic 复用 --ink-bright，一个色在两条轨道上都过线）就该恒定。判据取自
+      //    计算样式里的令牌本身，不是「Classic 会怎样」的硬编码分叉
+      const thumbOnToken = await row.evaluate((element) =>
+        getComputedStyle(element).getPropertyValue('--switch-thumb-on').trim()
+      )
+      if (thumbOnToken === '') {
+        expect(off.thumbBg, `${style.label}：没声明滑块开态色，滑块却换色了`).toBe(on.thumbBg)
+      } else {
+        expect(off.thumbBg, `${style.label}：声明了滑块开态色，滑块却没换色`).not.toBe(on.thumbBg)
+      }
+
+      // ⑦ 再点回来（这回点**开关自己**：点它冒泡到行处理器，也只翻一次，不是两遍）
+      await sw.click()
+      await expect(sw).toHaveAttribute('aria-checked', 'true')
+      await expect(sw).toHaveAttribute('data-mute', 'false')
+
+      expect(problems).toEqual([])
     })
   })
 }

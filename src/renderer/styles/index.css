@@ -932,6 +932,47 @@
   margin: 0;
 }
 
+/* —— 静音行：抽屉里的第一件设置（T39 · 父规格决策 14 · 设计卡 §12）——
+   左一个**静态**标签、右一个开关，整行可点。标签刻意**不是** `<label>`——那会让浏览器
+   悄悄把点击转发进控件，而这一行的点击是规格明写的、可测的意图，不是那个副作用的借光。
+   **几何三套共用**（轨道 2.25rem × 1.25rem、滑块 1rem、行程 1rem、行内间距 0.75rem），
+   差异只在颜色与圆角——那些在三套风格自己的 styles.css 里。 */
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+/* 开关：一根轨道 + 一颗滑块。轨道的颜色随 `aria-checked` 换（各风格给出），滑块的位置
+   也随它换——两态靠**位置 + 轨道换色**说，与 `.control` 用换底色说「选中」是同一条习惯。 */
+.settings-switch {
+  position: relative;
+  flex: none;
+  width: 2.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}
+
+.settings-switch__thumb {
+  position: absolute;
+  top: 50%;
+  left: 0.125rem;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  transform: translateY(-50%);
+}
+
+/* 开态：滑块右移 1rem——行程就是这 1rem（轨道 2.25 − 滑块 1 − 两侧各 0.125 的余量）。
+   位置是两态的第一判据，轨道换色是第二判据；两者都由 `aria-checked` 驱动。 */
+.settings-switch[aria-checked='true'] .settings-switch__thumb {
+  transform: translate(1rem, -50%);
+}
+
 /* —— 设置抽屉的进出动效（T38 · 父规格决策 10 / 11 · ADR-0010）——
    **抽屉自取一套值，不借用上面那套共享的 150ms**：进 250ms / 出 200ms，曲线
    `cubic-bezier(0.32, 0.72, 0, 1)`。**作用域只到抽屉与将来同类的整页层**——结果层与彩蛋

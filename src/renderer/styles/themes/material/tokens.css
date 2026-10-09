@@ -49,6 +49,16 @@
   --control-bg-selected: #6750a4;
   --focus: #625b71;
 
+  /* 设置抽屉里那个开关（T39 · 设计卡 §12）：两个轨道色 + 两个滑块色。**滑块换色**——
+     M3 的开关本来就是「关态 outline、开态 on-primary」，白滑块压在关态轨道上够不到非文字
+     门槛，所以关态取 outline 色、开态取 on-primary 的白。四个值都是本套已有的色值
+     （`#e6e0e9` 是 --cell-bg、`#6750a4` 是 --control-bg-selected、`#79747e` 是 outline、
+     `#ffffff` 是 --ink-bright），**新的只是角色名**。三套几何共用，差异只在颜色与圆角。 */
+  --switch-track: #e6e0e9;
+  --switch-track-on: #6750a4;
+  --switch-thumb: #79747e;
+  --switch-thumb-on: #ffffff;
+
   /* 一念神魔的两颗圆钮（T29）：**本套原生的一对被抬起的 tonal 卡**。Material 3 的层级
      语言就是投影，所以这两颗是「静态版面上唯一被抬起的两块」之外又多出来的一对
      （与成就祝贺同类：瞬时浮层，不属于页面的静态层级）。

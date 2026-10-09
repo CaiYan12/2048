@@ -542,6 +542,48 @@
         "read": "background",
         "background": ".board__tile[data-bucket='12']"
       }
+    },
+    {
+      "usage": "设置抽屉面上的标题与行标签（--control-ink on --control-bg，探针取抽屉标题；行标签同色、共用这一对）。T39 新场景 settings：抽屉是 T37 才长出来的**一整面**，一面此前没载过文字就不能继承任何一次测量；对 Classic 与 Material 这只是一处新探针（它们的控件面本来就载着文字）",
+      "basis": "regular",
+      "foreground": "#1d192b",
+      "background": "#e8def8",
+      "minimum": 4.5,
+      "ratio": 13.24,
+      "scene": "settings",
+      "probe": {
+        "selector": ".settings-drawer__title",
+        "background": ".settings-drawer"
+      }
+    },
+    {
+      "usage": "静音开关关态：滑块 vs 关态轨道（--switch-thumb #79747e on --switch-track #e6e0e9）。T39 新场景 settings：开关是抽屉里新长出来的可交互控件，两态各一对。**本套第一次量这一对**——同一个滑块色此前只与圆钮底面量过（3.52，那是它在彩蛋里的角色）。开关默认是开的，所以这一对由浏览器那一层先点一下开关（probe.toggle）再量",
+      "basis": "non-text",
+      "foreground": "#79747e",
+      "background": "#e6e0e9",
+      "minimum": 3,
+      "ratio": 3.51,
+      "scene": "settings",
+      "probe": {
+        "selector": ".settings-switch__thumb",
+        "read": "background",
+        "background": ".settings-switch",
+        "toggle": true
+      }
+    },
+    {
+      "usage": "静音开关开态：滑块 vs 开态轨道（--switch-thumb-on #ffffff on --switch-track-on #6750a4）。本表里已经有这一对——就是选中控件的文字那一对（--ink-bright on --control-bg-selected），这里换成非文字口径、换探针。默认就是开态，直接量",
+      "basis": "non-text",
+      "foreground": "#ffffff",
+      "background": "#6750a4",
+      "minimum": 3,
+      "ratio": 6.44,
+      "scene": "settings",
+      "probe": {
+        "selector": ".settings-switch__thumb",
+        "read": "background",
+        "background": ".settings-switch"
+      }
     }
   ]
 }

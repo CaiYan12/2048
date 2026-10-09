@@ -542,6 +542,48 @@
         "read": "background",
         "background": ".board__tile[data-bucket='12']"
       }
+    },
+    {
+      "usage": "设置抽屉面上的标题与行标签（--ink-bright on --control-bg，探针取抽屉标题；行标签同色、共用这一对）。T39 新场景 settings：抽屉是 T37 才长出来的**一整面**，一面此前没载过文字就不能继承任何一次测量——标题与行标签都是这一面上新出现的字",
+      "basis": "regular",
+      "foreground": "#f9f6f2",
+      "background": "#6f6055",
+      "minimum": 4.5,
+      "ratio": 5.6,
+      "scene": "settings",
+      "probe": {
+        "selector": ".settings-drawer__title",
+        "background": ".settings-drawer"
+      }
+    },
+    {
+      "usage": "静音开关关态：滑块 vs 关态轨道（--ink-bright on --switch-track）。T39 新场景 settings：开关是抽屉里新长出来的可交互控件，两态各一对，按非文字指示器的 3:1 口径量。开关默认是开的，所以这一对由浏览器那一层先点一下开关（probe.toggle）再量",
+      "basis": "non-text",
+      "foreground": "#f9f6f2",
+      "background": "#6f6055",
+      "minimum": 3,
+      "ratio": 5.6,
+      "scene": "settings",
+      "probe": {
+        "selector": ".settings-switch__thumb",
+        "read": "background",
+        "background": ".settings-switch",
+        "toggle": true
+      }
+    },
+    {
+      "usage": "静音开关开态：滑块 vs 开态轨道（--ink-bright on --switch-track-on）。本套是唯一一个滑块恒用一个色的：亮墨在关态（5.60）与开态（8.90）两个轨道上都过 3:1，所以两对的前景是同一个值、只换轨道。默认就是开态，直接量",
+      "basis": "non-text",
+      "foreground": "#f9f6f2",
+      "background": "#4a443f",
+      "minimum": 3,
+      "ratio": 8.9,
+      "scene": "settings",
+      "probe": {
+        "selector": ".settings-switch__thumb",
+        "read": "background",
+        "background": ".settings-switch"
+      }
     }
   ]
 }

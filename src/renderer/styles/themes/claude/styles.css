@@ -434,3 +434,39 @@
   font-size: 1.125rem;
   font-weight: 600;
 }
+
+/* —— 静音行（T39 · §12）——
+   行标签是次要墨色（--ink-variant）；开关几何在共享外壳，本套只出色、那圈细线与圆角。
+   关态轨道就是纸面（本套控件不填色），所以描一圈 --control-border 细线把边界说出来——
+   与 .control 的静止态同一条，用 outline 而不是 border（§5 / §7：border 会改盒子尺寸）。
+   开态轨道是那块暖色（与选中控件同一个判断）；**滑块换色**：深墨压在暖色上只有 2.68:1，
+   够不到门槛，所以开态滑块换成 --ink-bright。圆角取 --board-radius（与板面同尺）。 */
+[data-style='claude'] .settings-row__label {
+  color: var(--ink-variant);
+}
+
+[data-style='claude'] .settings-switch {
+  background: var(--switch-track);
+  border-radius: var(--board-radius);
+  outline: 1px solid var(--control-border);
+  outline-offset: -1px;
+}
+
+[data-style='claude'] .settings-switch[aria-checked='true'] {
+  background: var(--switch-track-on);
+}
+
+[data-style='claude'] .settings-switch__thumb {
+  background: var(--switch-thumb);
+}
+
+[data-style='claude'] .settings-switch[aria-checked='true'] .settings-switch__thumb {
+  background: var(--switch-thumb-on);
+}
+
+/* 焦点：换成暖色的、更粗的一圈，并挪到盒子外面——与静止态描边在粗细、颜色、位置上三样
+   都不同（与 .control、两颗圆钮同一条） */
+[data-style='claude'] .settings-switch:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
