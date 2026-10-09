@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
+// T42 审查修复：局中没有风格按钮了（选择搬进了抽屉），换风格走共享的抽屉路径
+import { pickStyle } from './settings-helpers'
 
 /**
  * T22 的 UI 半边：键盘、触屏与屏幕阅读器验收（SPEC §3.4）
@@ -568,12 +570,12 @@ test('reduced-motion：整条键盘路径走得通，状态一个字节都没少
   expect(merged.outlineStyle).toBe('solid')
   expect(parseFloat(merged.outlineWidth)).toBeGreaterThan(0)
 
-  // 降级之后键盘还活着：撤销（z）与换风格都在
+  // 降级之后键盘还活着：撤销（z）与换风格都在。T42 迁移：局中没有名为 'Claude' 的
+  // 按钮了（选择搬进了抽屉），换风格改走抽屉路径——「换得到」的语义不变
   await page.keyboard.press('z')
   await expect(page.locator('[data-tile-id="1"]')).toHaveAttribute('data-value', '2')
   await expect(page.locator('[data-score]')).toHaveText('0')
-  await tabUntil(page, (stop) => stop.tag === 'button' && stop.name === 'Claude', true)
-  await page.keyboard.press('Enter')
+  await pickStyle(page, 'Claude')
   await expect(page.locator('main')).toHaveAttribute('data-style', 'claude')
   await expect(page.locator('[data-board]')).toBeVisible()
 
@@ -621,8 +623,9 @@ for (const style of STYLES) {
     await expect(page.locator('[data-board]')).toBeVisible()
 
     // 局中：把焦点用键盘送到棋盘（点过按钮之后 :focus-visible 不成立，Tab 才成立），
-    // 再走到下一个外壳控件
-    await page.getByRole('group', { name: '风格' }).getByRole('button').last().focus()
+    // 再走到下一个外壳控件。T42 起风格选择器搬进了抽屉，棋盘的上一个停靠点回到
+    // 状态条上的「交换」——出发点随之换掉（行为变化要求的更新，不是放松断言）
+    await page.getByRole('button', { name: '交换' }).focus()
     await page.keyboard.press('Tab')
     await expect(page.locator('[data-board]')).toBeFocused()
     await expectRingVisible(page, SHELL_BACKGROUND)

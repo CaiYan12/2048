@@ -202,17 +202,10 @@ test('纯键盘完成一次交换：进拾取态、选第一枚、选第二枚�
   // run-endings.spec.ts）也会先 focus，说明这一步不依赖时序巧合
   await page.locator('[data-board]').focus()
 
-  // 拾取态是整条键盘路径的入口。Shift+Tab 从棋盘回到它，但**中间要穿过 T13 加进外壳的
-  // 风格选择器**：选择器摆在 StatusBar 与棋盘之间（material 设计卡 §4 定的顺序
-  // 「信息条 → 风格选择 → 棋盘」），那两枚按钮都是真实的 Tab 停靠点——风格没有键盘
-  // 入口的话，键盘玩家就永远换不了风格，那不是可选项。所以步数按选择器里真实的按钮
-  // 数算、不写死 3：加第三套风格（T15）时这条链自动变长，而「走得到交换入口」
-  // 这条语义一个字节都不用改
-  const crossPickerSteps =
-    (await page.getByRole('group', { name: '风格' }).getByRole('button').count()) + 1
-  for (let step = 0; step < crossPickerSteps; step += 1) {
-    await page.keyboard.press('Shift+Tab')
-  }
+  // 拾取态是整条键盘路径的入口。Shift+Tab 从棋盘回到它。T42 起风格选择器搬进了设置
+  // 抽屉（行为变化要求的更新）：局中页面上棋盘的上一个停靠点就是状态条上的「交换」，
+  // 一步就到——「走得到交换入口」这条语义不变，中间穿过选择器的那一段没有了
+  await page.keyboard.press('Shift+Tab')
   await expect(page.getByRole('button', { name: '交换' })).toBeFocused()
   await page.keyboard.press('Enter')
   // 按钮文案变「取消交换」、aria-pressed 变 true——拾取态开着这件事要说出来
@@ -223,11 +216,10 @@ test('纯键盘完成一次交换：进拾取态、选第一枚、选第二枚�
   // 拾取中的方块带 data-selectable，且进了 Tab 序列
   await expect(page.locator('.board__tile[data-selectable="true"]').first()).toBeVisible()
 
-  // 导航到第一枚方块：棋盘根排在那几枚风格按钮后面，从交换入口往前走要先穿过它们
-  // （同一条理由：选择器在信息条与棋盘之间，见上面 crossPickerSteps 的说明）
-  for (let step = 0; step < crossPickerSteps; step += 1) {
-    await page.keyboard.press('Tab')
-  }
+  // 导航到第一枚方块：T42 起风格选择器在抽屉里，交换入口的下一个停靠点就是棋盘根，
+  // 一步就到（与上面那条 Shift+Tab 同一次前提变化）——「一步」就是按一次 Tab，
+  // 焦点才会从「交换」落到棋盘根上（审查修复：先前把这一下删成了零次按键）
+  await page.keyboard.press('Tab')
   await expect(page.locator('[data-board]')).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(page.locator('[data-tile-id="1"]')).toBeFocused()

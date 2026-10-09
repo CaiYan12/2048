@@ -1,5 +1,7 @@
-import type { AnimationEvent, JSX, RefObject } from 'react'
+import type { AnimationEvent, JSX, MouseEvent, RefObject } from 'react'
 import { MuteToggle } from './MuteToggle'
+import { StyleRow } from './StyleRow'
+import type { StyleId } from '../../shared/types'
 
 /**
  * 设置抽屉（T37 搭壳 / T38 补进出动效 · 父规格 docs/specs/settings-drawer.md · ADR-0010）
@@ -108,6 +110,13 @@ interface DrawerProps {
   muted: boolean
   /** 静音开关翻一下。参数是翻转之后的值，与 MuteToggle 的契约同一个 */
   onToggle(muted: boolean): void
+  /** 此刻选中的风格（T42 风格行 · 父规格 docs/specs/style-picker.md 决策 4） */
+  styleId: StyleId
+  /** 选一个风格（store 的 setStyle） */
+  onStyleChange(id: StyleId): void
+  /** 风格列表开不开。**状态住在 App 的 keydown 分发点上**（决策 6），这里只递下去 */
+  styleListOpen: boolean
+  onStyleListOpenChange(open: boolean): void
 }
 
 /**
@@ -122,7 +131,9 @@ interface DrawerProps {
  *
  * 内容：标题「设置」、一颗写「收起」的 `.control`——后者与战绩面板用的是同一个说法，
  * 一个仓库里「关掉一层」不该有两种叫法——以及 **T39 搬进来的静音行**（左静态标签 +
- * 右开关，`MuteToggle`）。静音行是抽屉的第一件租客，往后 README 里那一串设置都往这里长。
+ * 右开关，`MuteToggle`）与 **T42 搬进来的风格行**（左静态标签 + 右触发钮 + 弹出的
+ * 选项列表，`StyleRow`）。静音行是抽屉的第一件租客，风格行是第二件——往后 README 里
+ * 那一串设置都往这里长。
  *
  * **进出动效（T38）**：两条动画都写在共享外壳 `styles/index.css`，两个时长与曲线都住在
  * 那里（作用域只到抽屉与将来同类的整页层）。`data-settings-leaving` 是这一切的开关：
@@ -141,11 +152,24 @@ export function SettingsDrawer({
   onExited,
   muted,
   onToggle,
+  styleId,
+  onStyleChange,
+  styleListOpen,
+  onStyleListOpenChange,
 }: DrawerProps): JSX.Element {
   const handleAnimationEnd = (event: AnimationEvent<HTMLDivElement>): void => {
     // 进场那一组放完时 `leaving` 还是 false——这一句就是判据，于是「动画是哪一条关键帧」
     // 一个字都不必写进 JS（reduced-motion 下抽屉换的是淡出那一条，名字不同而判据不变）
     if (leaving && event.target === event.currentTarget) onExited()
+  }
+  // 列表展开时，抽屉内**其他**指针按下先收列表、不关抽屉（父规格决策 8）。判据是
+  // 「这一下落在了风格行之外」：风格行自己（触发钮 / 标签 / 选项）的指针归那一行的
+  // 处理器管，在这里再收一次会跟「点开着的触发钮 = 收起」打架。不挂 capture：
+  // 指针先到的元素先处理，列表内外的分工靠 closest 区分就够。
+  const handlePanelPointerDown = (event: MouseEvent<HTMLDivElement>): void => {
+    if (!styleListOpen) return
+    if ((event.target as Element).closest('[data-style-row]') !== null) return
+    onStyleListOpenChange(false)
   }
   return (
     <>
@@ -164,6 +188,7 @@ export function SettingsDrawer({
         data-settings-drawer
         data-settings-leaving={leaving ? 'true' : undefined}
         onAnimationEnd={handleAnimationEnd}
+        onPointerDown={handlePanelPointerDown}
       >
         <div className="settings-drawer__head">
           <h2 className="settings-drawer__title">设置</h2>
@@ -174,6 +199,14 @@ export function SettingsDrawer({
         {/* T39 的第一件租客：静音行（左静态标签 + 右开关）。它就长在这块面板里，
             是抽屉内容的第一行，也是这一票动到的唯一一处内容 */}
         <MuteToggle muted={muted} onToggle={onToggle} />
+        {/* T42 的第二件租客：风格行（左静态标签 + 右触发钮 + 弹出的选项列表）。
+            列表的开合状态住在 App 的 keydown 分发点上（决策 6），这里只递 props */}
+        <StyleRow
+          styleId={styleId}
+          onChange={onStyleChange}
+          open={styleListOpen}
+          onOpenChange={onStyleListOpenChange}
+        />
       </div>
     </>
   )

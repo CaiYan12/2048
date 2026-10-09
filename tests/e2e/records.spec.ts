@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
+// T42：局中换风格改走抽屉路径（共享助手）——主面板那组风格按钮已搬进设置抽屉
+import { pickStyle } from './settings-helpers'
 
 /**
  * T17 的记录 / 统计纵向切片：结算 → 按结算风格写记录 → 面板看得见 → 刷新还在。
@@ -140,10 +142,7 @@ test('局中切到 Material 再结算：只有 Material 的记录变化', async 
   await page.goto(startUrl(ONE_STEP_FROM_DEADLOCK, 4321))
   await page.getByRole('button', { name: '开始游戏' }).click()
   await expect(page.locator('[data-board]')).toBeVisible()
-  await page
-    .getByRole('group', { name: '风格' })
-    .getByRole('button', { name: 'Material' })
-    .click()
+  await pickStyle(page, 'Material')
   await expect(page.locator('main')).toHaveAttribute('data-style', 'material')
 
   // **先把焦点交回棋盘再按键**：开局那一刻焦点是应用替我们放在棋盘上的，而上面点过风格

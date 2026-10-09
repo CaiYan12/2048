@@ -936,13 +936,43 @@
    左一个**静态**标签、右一个开关，整行可点。标签刻意**不是** `<label>`——那会让浏览器
    悄悄把点击转发进控件，而这一行的点击是规格明写的、可测的意图，不是那个副作用的借光。
    **几何三套共用**（轨道 2.25rem × 1.25rem、滑块 1rem、行程 1rem、行内间距 0.75rem），
-   差异只在颜色与圆角——那些在三套风格自己的 styles.css 里。 */
+   差异只在颜色与圆角——那些在三套风格自己的 styles.css 里。
+   `position: relative` 是给弹出留的定位基准（T42 的风格行把列表弹在行下缘）；
+   静音行没有弹出，带上无碍。 */
 .settings-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
   cursor: pointer;
+}
+
+/* —— 风格行：抽屉里的第二件设置（T42 · 父规格 docs/specs/style-picker.md · 设计卡 §12）——
+   左静态标签 + 右触发钮（`.control`，显示当前风格名）+ 弹出的选项列表。触发钮吃
+   `.control` 的全部样式（颜色归三套风格），这里只摆列表的几何：绝对定位在行下缘、
+   贴触发钮那一侧，至少与行同宽。列表**没有进场动画**（父规格决策 10：它是开着的层里
+   的状态变化，不是一层——抽屉的 250/200 作用域不受它牵连），也没有滚动（选项就是
+   注册表，当前是三条）。聚焦的选项不画 outline：焦点指示就是底色（非选中项 = hover 底、
+   选中项 = 选中底，决策 14），outline 会盖在底色上让「焦点在哪」有两种说法。 */
+.settings-style__list {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1;
+  min-width: 100%;
+  margin: 0.25rem 0 0;
+  padding: 0.25rem 0;
+  list-style: none;
+}
+
+.settings-style__option {
+  padding: 0.375rem 0.75rem;
+  cursor: pointer;
+}
+
+.settings-style__option:focus {
+  outline: none;
 }
 
 /* 开关：一根轨道 + 一颗滑块。轨道的颜色随 `aria-checked` 换（各风格给出），滑块的位置

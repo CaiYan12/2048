@@ -462,6 +462,17 @@ README 那一组「设置界面引入」里**只交付了第一条**：入口 + 
   「被打断的那一次进场弹跳」（250ms 内又关掉）；headless 与「不许开真实窗口」的约定下这一半
   不能由 agent 代做。
 
+### 风格选择搬进抽屉状态 (2026-10-09)
+
+T42（`docs/specs/style-picker.md`，GitHub #45）把主面板那组风格按钮摘除，风格选择搬进设置抽屉：
+风格行是「左静态标签 + 右自绘 listbox 触发钮」（`aria-expanded` + `aria-haspopup="listbox"`、
+**不给 `aria-pressed`**）；展开焦点落在选中项、Arrow / Home / End 移真实焦点、Enter 选中、
+Tab 收列表还焦点触发钮；`Esc` 三层优先序（列表 > 抽屉 > 交换摊 / 神魔摊）在 App 的分发点裁决。
+`contrast.json` 的「选中控件」对随角色现址迁到列表选中项（`settings` 幕 + `expandList` 探针，
+闸门 150 对）；开 / 关抽屉与选风格的 e2e 助手收编在 `tests/e2e/settings-helpers.ts`
+（`openSettings` / `closeSettings` / `pickStyle`），此后需要换风格的用例一律走它。
+README「设置界面引入」组的「风格设置下拉框」条已勾。
+
 ### Issue tracker
 
 GitHub Issues, via the `gh` CLI. See `docs/agents/issue-tracker.md`.

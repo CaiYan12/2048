@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
+// T42：开/关抽屉的助手收编到共享模块（父规格决策 13）——本文件原先自己抄的那一套删除
+import { closeSettings, openSettings } from './settings-helpers'
 
 /**
  * T20 的浏览器半边：静音控件可操作、跨刷新保持，以及「仓库里没有音频文件」。
@@ -77,25 +79,6 @@ function muteButton(page: Page) {
   return page.locator('button[data-mute]')
 }
 
-/** 设置抽屉的入口（右上角那颗齿轮）与面板本身 */
-const settingsEntry = (page: Page) => page.locator('.settings-entry')
-const settingsDrawer = (page: Page) => page.locator('[data-settings-drawer]')
-
-/** 打开设置抽屉：静音行住在里面，所以碰开关之前先开抽屉 */
-async function openDrawer(page: Page): Promise<void> {
-  await settingsEntry(page).click()
-  await expect(settingsDrawer(page)).toBeVisible()
-}
-
-/**
- * 关掉设置抽屉（点「收起」）。T38 起容器要多活一段 200ms 的退场动画才离开 DOM，所以这里
- * 等的是动画结束驱动的卸载——`toHaveCount(0)` 的重试会自动等够。
- */
-async function closeDrawer(page: Page): Promise<void> {
-  await settingsDrawer(page).getByRole('button', { name: '收起' }).click()
-  await expect(settingsDrawer(page)).toHaveCount(0)
-}
-
 /**
  * 等 settings 桶里的 mute 真的写落地
  *
@@ -151,38 +134,38 @@ test('静音控件：点了算数，刷新之后还算数', async ({ page }) => 
 
   // T39：静音是设置，住在设置抽屉里——先开抽屉。旧控件那句「随状态变」的文案现在拆成
   // 两半：行里一个静态标签「音效」，状态由开关的 aria-checked 说（可访问名不随状态变）
-  await openDrawer(page)
+  await openSettings(page)
   const mute = muteButton(page)
   await expect(mute).toHaveAccessibleName('音效')
   await expect(mute).toHaveAttribute('aria-checked', 'true')
   await expect(mute).toHaveAttribute('data-mute', 'false')
-  await closeDrawer(page)
+  await closeSettings(page)
 
   await page.getByRole('button', { name: '开始游戏' }).click()
   // 局中同一个开关还在：不按 phase 分叉，入口只有一个
-  await openDrawer(page)
+  await openSettings(page)
   await expect(mute).toHaveAccessibleName('音效')
   await expect(mute).toHaveAttribute('aria-checked', 'true')
 
   await mute.click()
   await expect(mute).toHaveAttribute('aria-checked', 'false')
   await expect(mute).toHaveAttribute('data-mute', 'true')
-  await closeDrawer(page)
+  await closeSettings(page)
   await expectPersistedMute(page, true)
 
   // 刷新（reload 保留 URL，此时已经没有参数了）
   await page.reload()
-  await openDrawer(page)
+  await openSettings(page)
   await expect(mute).toHaveAttribute('data-mute', 'true')
   await expect(mute).toHaveAttribute('aria-checked', 'false')
 
   // 再点一次就回来了，并且这个「回来」也跟着刷新活下来
   await mute.click()
   await expect(mute).toHaveAttribute('data-mute', 'false')
-  await closeDrawer(page)
+  await closeSettings(page)
   await expectPersistedMute(page, false)
   await page.goto('/')
-  await openDrawer(page)
+  await openSettings(page)
   await expect(mute).toHaveAttribute('data-mute', 'false')
 })
 
@@ -194,10 +177,10 @@ test('静音的第一次按键连 AudioContext 都不造', async ({ page }) => {
   expect(await countAudioContexts(page)).toBe(0)
 
   // T39：开关在抽屉里，先开抽屉再点；点完关掉，好接着开始这一局
-  await openDrawer(page)
+  await openSettings(page)
   await muteButton(page).click()
   await expect(muteButton(page)).toHaveAttribute('data-mute', 'true')
-  await closeDrawer(page)
+  await closeSettings(page)
   await expectPersistedMute(page, true)
   await page.getByRole('button', { name: '开始游戏' }).click()
 
@@ -234,9 +217,9 @@ test('静音着一局照样打得完：合并、死局、结算、新游戏', as
   const urls = watchRequests(page)
   await page.goto(startUrl(MERGE_BOARD))
   // T39：开关在抽屉里，先开抽屉点一下静音，关掉抽屉再开始这一局
-  await openDrawer(page)
+  await openSettings(page)
   await muteButton(page).click()
-  await closeDrawer(page)
+  await closeSettings(page)
   await page.getByRole('button', { name: '开始游戏' }).click()
 
   // 一次合并：2+2 → 4，计分跟着走。声音这条路静音着，规则一个字都没少
@@ -248,9 +231,9 @@ test('静音着一局照样打得完：合并、死局、结算、新游戏', as
   // 换一副一步即死局的盘，照样走过去：死局面板、撤销、结算、新游戏
   await page.goto(startUrl(ONE_STEP_FROM_DEADLOCK))
   // 刷新之后静音还在：这一路都是在静音状态下打完的（落盘值那条断言一字未改）
-  await openDrawer(page)
+  await openSettings(page)
   await expect(muteButton(page)).toHaveAttribute('data-mute', 'true')
-  await closeDrawer(page)
+  await closeSettings(page)
   await page.getByRole('button', { name: '开始游戏' }).click()
   await page.keyboard.press('ArrowRight')
 

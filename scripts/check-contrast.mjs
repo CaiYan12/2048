@@ -254,6 +254,9 @@ export function auditPair(tokensCss, pair) {
   if (probe.toggle !== undefined && typeof probe.toggle !== 'boolean') {
     problems.push('probe.toggle 必须是布尔');
   }
+  if (probe.expandList !== undefined && typeof probe.expandList !== 'boolean') {
+    problems.push('probe.expandList 必须是布尔');
+  }
 
   if (problems.length === 0) return problems;
   return problems.map((problem) => `${where}：${problem}`);

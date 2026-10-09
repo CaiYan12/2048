@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { STYLE_CATALOG } from '../../src/shared/styleCatalog'
+// T42：局中换风格改走抽屉路径（共享助手）——主面板那组风格按钮已搬进设置抽屉
+import { pickStyle } from './settings-helpers'
 
 /**
  * 风格旅行者：单局内切过 5 次以上风格 → **当场**一条祝贺，刷新之后计数与解锁都还在。
@@ -69,7 +71,8 @@ async function switchOnce(page: Page): Promise<void> {
   const current = await shell.getAttribute('data-style')
   const target = STYLE_CATALOG.find((entry) => entry.id !== current)
   if (target === undefined) throw new Error(`从 data-style=${current} 找不到另一套风格可切`)
-  await page.getByRole('group', { name: '风格' }).getByRole('button', { name: target.label }).click()
+  // T42 起点击走抽屉路径（开抽屉 → 触发钮 → 选项 → 收抽屉）；等待 data-style 的判据不变
+  await pickStyle(page, target.label)
   await expect(shell).toHaveAttribute('data-style', target.id)
 }
 

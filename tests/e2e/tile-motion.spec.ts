@@ -1,4 +1,6 @@
 import { expect, test, type Browser, type Page } from '@playwright/test'
+// T42 审查修复：主面板的风格按钮摘除了（选择搬进抽屉），选风格改走共享的抽屉路径
+import { pickStyle } from './settings-helpers'
 
 /**
  * T21 的 UI 半边：方块动效与 reduced-motion 静态替代。
@@ -378,7 +380,7 @@ test('三套风格的长距离移动逐帧连续，起步不突跳、落点不�
   for (const theme of ['Classic', 'Material', 'Claude']) {
     for (const fixture of fixtures) {
       await start(page, startUrl(fixture.rows))
-      await page.getByRole('button', { name: theme }).click()
+      await pickStyle(page, theme)
       await page.locator('[data-board]').focus()
       const trace = await recordMotionPath(page, fixture.key)
 
@@ -484,7 +486,7 @@ test('生成入场：新入盘的那一枚带 data-spawn，且全盘只有它带
 test('合并只保留一个规则方块身份，来源载体飞到产物格后离场', async ({ page }) => {
   const problems = watchProblems(page)
   await start(page, startUrl(MERGE))
-  await page.getByRole('button', { name: 'Material' }).click()
+  await pickStyle(page, 'Material')
 
   await expect(page.locator('[data-tile-id]')).toHaveCount(2)
   const mergeSource = page.locator('.board__tile[data-merge-source-id="2"]')
@@ -544,7 +546,7 @@ test('合并只保留一个规则方块身份，来源载体飞到产物格后�
 test('快速转向不清掉待播合并反馈，脉冲时位移仍可继续', async ({ page }) => {
   const problems = watchProblems(page)
   await start(page, startUrl(MERGE))
-  await page.getByRole('button', { name: 'Material' }).click()
+  await pickStyle(page, 'Material')
 
   const board = page.locator('[data-board]')
   const product = page.locator('[data-tile-id="1"]')
@@ -815,7 +817,7 @@ test('触屏方向按钮也播放合并来源动画', async ({ page }) => {
 test('下一步合并中断并替换上一步的离场载体', async ({ page }) => {
   const problems = watchProblems(page)
   await start(page, startUrl(DENSE_MERGES))
-  await page.getByRole('button', { name: 'Material' }).click()
+  await pickStyle(page, 'Material')
   await page.locator('[data-board]').focus()
 
   await page.keyboard.press('ArrowLeft')
@@ -841,7 +843,7 @@ test('下一步合并中断并替换上一步的离场载体', async ({ page }) 
 test('同一方块连续两次合并，第二次脉冲从当前位置重新触发', async ({ page }) => {
   const problems = watchProblems(page)
   await start(page, startUrl(REPEATED_MERGE))
-  await page.getByRole('button', { name: 'Material' }).click()
+  await pickStyle(page, 'Material')
   const product = page.locator('[data-tile-id="1"]')
   await product.evaluate((el) => {
     el.addEventListener('transitionrun', (event) => {
@@ -872,7 +874,7 @@ test('同一方块连续两次合并，第二次脉冲从当前位置重新触�
 test('Claude 在 150ms 连按后所有合并脉冲都能回到 1', async ({ page }) => {
   const problems = watchProblems(page)
   await start(page, startUrl(DENSE_MERGES))
-  await page.getByRole('button', { name: 'Claude' }).click()
+  await pickStyle(page, 'Claude')
   const board = page.locator('[data-board]')
   await board.focus()
 
@@ -900,7 +902,7 @@ test('Claude 在 150ms 连按后所有合并脉冲都能回到 1', async ({ page
 test('撤销会作废尚未播放的合并脉冲', async ({ page }) => {
   const problems = watchProblems(page)
   await start(page, startUrl(MERGE))
-  await page.getByRole('button', { name: 'Material' }).click()
+  await pickStyle(page, 'Material')
   const board = page.locator('[data-board]')
   await board.focus()
 
@@ -1019,7 +1021,7 @@ test('胜利面板在三套风格都覆盖整块棋盘', async ({ page }) => {
 
   for (const theme of ['Classic', 'Material', 'Claude']) {
     await start(page, startUrl(WIN))
-    await page.getByRole('button', { name: theme }).click()
+    await pickStyle(page, theme)
     await page.locator('[data-board]').focus()
     await page.keyboard.press('ArrowLeft')
 

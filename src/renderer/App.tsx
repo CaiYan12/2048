@@ -20,7 +20,6 @@ import { StatsPanel } from './components/StatsPanel'
 import { StatusBar } from './components/StatusBar'
 import { StorageNotice } from './components/StorageNotice'
 import { StartScreen } from './components/StartScreen'
-import { StylePicker } from './components/StylePicker'
 import { WinPanel } from './components/WinPanel'
 import { recheckEffectiveFont } from './styles/fontState'
 import { getTheme } from './styles/themes'
@@ -216,6 +215,11 @@ export default function App(): JSX.Element {
   // （刷新进到一个开着的设置层，那是一个会记住错误的页面，父规格架构决策 16），
   // 而 store 的每个字段都被 hydrate / setState 的字段表牵着走。
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // 风格列表的开合（T42）。**与 settingsOpen 同一个分发点持有**（父规格决策 6）：三层
+  // Esc 优先序（列表 > 抽屉 > 底下的摊）要在下面那一条 keydown 分发链里裁决，若让
+  // StyleRow 自己另持一份状态，Esc 就成了两个监听者赛跑。它同样不落盘——列表开着时
+  // 抽屉关掉（点遮罩 / 收起 / Esc），下次打开从收着开始。
+  const [styleListOpen, setStyleListOpen] = useState(false)
   // 入口那颗齿轮。关掉抽屉时焦点回落到它身上（下面那个 effect）
   const settingsEntryRef = useRef<HTMLButtonElement>(null)
   // 抽屉容器。打开时焦点落在**容器**上而不是关闭按钮——一次误敲回车会当场关掉
@@ -537,14 +541,18 @@ export default function App(): JSX.Element {
       // 设置抽屉开着（T37）：方向键 / WASD / Z 先 `preventDefault` 再**吞掉**——不推棋、
       // 不撤销、也不滚页面（SPEC §3.4「页面只由滚轮滚动」的常驻约定）。文本入口在上面那道
       // `allowsNativeKeys` 就整键放行了，所以抽屉里将来的下拉框照旧拿得到自己的键。
-      // `Esc` 关抽屉，且优先于底下的交换摊与神魔摊——关掉最上面那一层才是 Esc 的意思。
+      // `Esc` 关**最上面那一层**（T42 起是三层：列表 > 抽屉 > 底下的交换摊 / 神魔摊）——
+      // 列表开着时只收列表（焦点回触发钮由 StyleRow 的开合 effect 接），收着才轮到抽屉。
       // 这一段排在 `game === null` **之前**：开局界面上桌也能开抽屉，那时没有棋盘，
-      // 但「吞键」这件事一模一样。
+      // 但「吞键」这件事一模一样。列表展开时 `ArrowUp/Down/Home/End` 归列表——组件自己在
+      // listbox 上 preventDefault 并移 DOM 焦点（父规格决策 7 的第二个放行例外），这里的
+      // 吞键对方向键是第二道（同一事件再 preventDefault 一次是无害的幂等）。
       if (settingsOpen) {
         const key = event.key.toLowerCase()
         if (key === 'escape') {
           event.preventDefault()
-          setSettingsOpen(false)
+          if (styleListOpen) setStyleListOpen(false)
+          else setSettingsOpen(false)
           return
         }
         if (MOVE_KEYS[key] || UNDO_KEYS[key]) event.preventDefault()
@@ -605,6 +613,7 @@ export default function App(): JSX.Element {
     shenmo,
     shenmoStage,
     settingsOpen,
+    styleListOpen,
   ])
 
   // 当前风格的呈现插槽。身份只有一份（目录），实现由那一套风格自己交（themes/<id>/toast.tsx）
@@ -612,9 +621,13 @@ export default function App(): JSX.Element {
 
   // 设置抽屉的开合（T37）。入口那一下只开（开着时它被遮罩压着，点不到第二次）；
   // 关掉有「收起」、点外侧两条在 SettingsDrawer 里，`Esc` 在键盘 effect 里——四条路径
-  // 都落到同一个 setter 上，所以状态只有一个来源。
+  // 都落到同一个 setter 上，所以状态只有一个来源。关抽屉顺手把风格列表也收上（T42）：
+  // 列表住在抽屉这一层里，抽屉走了它没有单独活着的理由，下次打开从收着开始。
   const openSettings = (): void => setSettingsOpen(true)
-  const closeSettings = (): void => setSettingsOpen(false)
+  const closeSettings = (): void => {
+    setSettingsOpen(false)
+    setStyleListOpen(false)
+  }
 
   return (
     <main
@@ -737,11 +750,11 @@ export default function App(): JSX.Element {
             {/* Daily 的日期说明（T08）：写的是这一局抽题那天的 UTC 日期，跨零点也不翻篇。
                 摆在外壳里，与 Board 平级——ADR-0002 的棋盘固定结构不许塞进来说明文字。 */}
             {game.modeId === 'daily' && dailyDate !== null && <DailyDateLabel date={dailyDate} />}
-            {/* 局中也能换风格（T13 验收标准 2）：只写 store 的 styleId 一个字段，
-                棋盘 / 分数 / 随机进度 / 计时一个都不碰。摆在这里而不是塞进 StatusBar：
-                它是「这一局的观感」，不是「这一局的状态」。与开局界面共用同一个
-                StylePicker，列表来自 THEMES 注册表。 */}
-            <StylePicker value={styleId} onChange={setStyle} />
+            {/* T42 起局中的风格选择搬进了设置抽屉（README TODO「设置界面引入」第二条）：
+                页面常驻的那一组按钮摘除，「这一局的观感」现在是抽屉的第二件租客。
+                开局界面的按钮组原样保留（选模式 → 选风格 → 开始 的流程仍在同一屏上，
+                StartScreen 自己的那份挂载没动），换肤机制本身（data-style + setStyle）
+                一字未改。 */}
             {/* 棋盘与结果层共用一个相对定位的壳。它是外壳元素（Tailwind 也只在外壳这侧），
                 不能塞进 .board：那层是 ADR-0002 的固定 DOM 结构。w-fit 让这个壳正好
                 裹住棋盘，结果层 inset:0 才只盖住棋盘，不会横铺整个页面。 */}
@@ -970,6 +983,10 @@ export default function App(): JSX.Element {
           onExited={drawer.drop}
           muted={mute}
           onToggle={setMute}
+          styleId={styleId}
+          onStyleChange={setStyle}
+          styleListOpen={styleListOpen}
+          onStyleListOpenChange={setStyleListOpen}
         />
       )}
     </main>
