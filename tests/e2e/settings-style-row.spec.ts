@@ -28,6 +28,19 @@ import { closeSettings, openSettings, pickStyle } from './settings-helpers'
  *   8. 主面板那组风格按钮没有了（行为变化）：局中不再有 `role="group"` 名「风格」，
  *      开局界面的按钮组是唯一的一个（它自己的测试用本地查询，不归这份契约管）。
  *
+ * **T43 视觉修订**（人眼复核驳回「不符合下拉框准则」后的定案，决策 3 / 14 修订段 +
+ * 三张设计卡 §12）在上表行为契约之上补三条，逐套分量：
+ *   9. 触发钮是选择框的形状：`flex: 1` 占满剩余行宽、风格名靠左、chevron 靠右
+ *      （内联 SVG 走 `currentColor`，列表开着时旋转 180°——transform，不碰布局）；
+ *  10. 菜单是一块有边界的浮层：底色逐套换一档（Classic / Material `--control-bg-hover`、
+ *      Claude `--page`，**不等于抽屉面**）、圆角逐套取 toast 那一档、边界逐套各自语言
+ *      （Classic 亮墨发丝线 / Material 比抽屉高一档的投影 / Claude `--control-border` 细线）；
+ *  11. 聚焦 = 环、选中 = 底（修订决策 14）：聚焦的选项戴各套焦点语言的一圈环（Classic
+ *      内缩亮墨 `box-shadow`，Material / Claude `--focus` outline），选中项照旧
+ *      `--control-bg-selected` + 亮墨；打开列表那一刻焦点就在选中项上——环与选中底
+ *      **同时成立且可辨**（本票的核心场景）。逐套期望值走下面三张表，与 toast 契约
+ *      逐套比投影是同一条路子；对比度比值归 contrast-computed 那一票量，这里不重复。
+ *
  * 键盘导航在局中验：棋盘动没动只有在有棋子的局里才可观测。局面确定性来自
  * `?seed=` + `?board=`（与 settings-drawer.spec.ts 同一款夹具）。
  */
@@ -92,6 +105,58 @@ const styleRow = (page: Page) => page.locator('[data-style-row]')
 const trigger = (page: Page) => page.locator('[data-settings-drawer]').getByRole('button', { name: '风格' })
 const listBox = (page: Page) => page.locator('[data-style-list]')
 const optionAt = (page: Page, id: string) => page.locator(`[data-style-option="${id}"]`)
+
+/**
+ * T43 逐套期望值（设计卡 §12「风格选择（T42 · T43 修订）」）：菜单面与圆角三套通用。
+ * 底色全部「比抽屉面换一档」——T42 被驳回的正是菜单面与抽屉面逐字节同值。颜色写成
+ * `rgb()` 因为 getComputedStyle 读回来的是这个形式（与 claude.spec.ts 断选中项同一路子）。
+ */
+const MENU_SURFACE = {
+  classic: {
+    /** --control-bg-hover #5f564e */
+    background: 'rgb(95, 86, 78)',
+    /** --cell-radius（toast 那一档） */
+    radius: '6px',
+  },
+  material: {
+    /** --control-bg-hover #d8cee8 */
+    background: 'rgb(216, 206, 232)',
+    /** --cell-radius（toast 那一档） */
+    radius: '12px',
+  },
+  claude: {
+    /** --page #f0eee6 */
+    background: 'rgb(240, 238, 230)',
+    /** --board-radius */
+    radius: '4px',
+  },
+} as const
+
+/** 发丝线语言的两套色（Material 的边界语言是投影，不在此表）：Classic --ink-bright / Claude --control-border */
+const MENU_HAIRLINE = {
+  classic: 'rgb(249, 246, 242)',
+  claude: 'rgb(133, 124, 109)',
+} as const
+
+/** Material 菜单投影那一档的最大模糊（M3 elevation level 4；抽屉那一档是 8px，本表用于「高一档」的精确断言） */
+const MENU_SHADOW_BLUR = 10
+
+/** T43 逐套聚焦环（修订决策 14「聚焦 = 环」）：Classic 内缩亮墨 box-shadow，另两套 --focus outline */
+const FOCUS_RING = {
+  /** 内缩 box-shadow，--ink-bright #f9f6f2 */
+  classic: { kind: 'shadow', colour: 'rgb(249, 246, 242)' },
+  /** --focus #625b71 的 3px outline（与 .control:focus-visible 同一对） */
+  material: { kind: 'outline', colour: 'rgb(98, 91, 113)' },
+  /** --focus #a8482b 的 3px outline */
+  claude: { kind: 'outline', colour: 'rgb(168, 72, 43)' },
+} as const
+
+/** T43 选中项的底（照旧 --control-bg-selected，逐套一个值） */
+const SELECTED_FILL = {
+  classic: 'rgb(74, 68, 63)',
+  material: 'rgb(103, 80, 164)',
+  claude: 'rgb(168, 72, 43)',
+} as const
 
 for (const style of STYLE_CATALOG) {
   const index = STYLE_CATALOG.findIndex((entry) => entry.id === style.id)
@@ -387,6 +452,211 @@ for (const style of STYLE_CATALOG) {
       // 从触发钮按 Tab 是同一条路，这是「Tab 序不断」的可测版本
       await page.keyboard.press('Shift+Tab')
       await expect(trigger(page), `${style.label}：Shift+Tab 没有回到触发钮`).toBeFocused()
+
+      await closeSettings(page)
+      expect(problems, `${style.label}：console / page 出错了`).toEqual([])
+    })
+
+    test('触发钮是选择框的形状（T43）：flex:1 占满剩余行宽、名左 chevron 右；开着时旋转 180°、不碰布局', async ({
+      page,
+    }) => {
+      const problems = watchProblems(page)
+      await startRun(page, style.id, startUrl(ACTIVE))
+      await openSettings(page)
+
+      // ① 占满剩余行宽：flex-grow 是 1，且触发钮顶到行右缘（标签只在左边占自动宽）
+      const grow = await trigger(page).evaluate((element) => getComputedStyle(element).flexGrow)
+      expect(grow, `${style.label}：触发钮没有 flex: 1 占满剩余行宽`).toBe('1')
+      const rowBox = await styleRow(page).boundingBox()
+      const triggerBox = await trigger(page).boundingBox()
+      expect(
+        Math.abs((triggerBox?.x ?? 0) + (triggerBox?.width ?? 0) - ((rowBox?.x ?? 0) + (rowBox?.width ?? 0))),
+        `${style.label}：触发钮没有顶到行右缘`
+      ).toBeLessThanOrEqual(1)
+
+      // ② 名左 chevron 右：名字贴内容区左缘、chevron 贴内容区右缘，两者以触发钮中线分界
+      const name = trigger(page).locator('.settings-style__name')
+      const chevron = trigger(page).locator('.settings-style__chevron')
+      const nameBox = await name.boundingBox()
+      const chevronBox = await chevron.boundingBox()
+      const insets = await trigger(page).evaluate((element) => {
+        const style = getComputedStyle(element)
+        const rect = element.getBoundingClientRect()
+        return {
+          left: rect.left + parseFloat(style.paddingLeft),
+          right: rect.right - parseFloat(style.paddingRight),
+          middle: rect.left + rect.width / 2,
+        }
+      })
+      expect(
+        Math.abs((nameBox?.x ?? 0) - insets.left),
+        `${style.label}：风格名没有靠左`
+      ).toBeLessThanOrEqual(1.5)
+      expect(
+        Math.abs((chevronBox?.x ?? 0) + (chevronBox?.width ?? 0) - insets.right),
+        `${style.label}：chevron 没有靠右`
+      ).toBeLessThanOrEqual(1.5)
+      expect(nameBox?.x ?? -1, `${style.label}：风格名跑到了右半`).toBeLessThan(insets.middle)
+      expect(chevronBox?.x ?? -1, `${style.label}：chevron 跑到了左半`).toBeGreaterThan(insets.middle)
+      // chevron 钉在右侧：flex: none（不参与剩余空间分配）
+      const chevronFlex = await chevron.evaluate((element) => getComputedStyle(element).flexGrow)
+      expect(chevronFlex, `${style.label}：chevron 没有 flex: none 钉在右侧`).toBe('0')
+
+      // ③ chevron 是内联 SVG、颜色跟随按钮文字色（currentColor），且对读屏软件隐藏
+      // stroke 写在 svg 上、path 继承（与齿轮同一条路），所以属性从 svg 读、计算值从 path 读
+      const chevronRead = await chevron.evaluate((svg) => {
+        const path = svg.querySelector('path')
+        return {
+          strokeAttr: svg.getAttribute('stroke') ?? '',
+          strokeComputed: path === null ? '' : getComputedStyle(path).stroke,
+          viewBox: svg.getAttribute('viewBox') ?? '',
+          hidden: svg.getAttribute('aria-hidden'),
+        }
+      })
+      const buttonColour = await trigger(page).evaluate((element) => getComputedStyle(element).color)
+      expect(chevronRead.strokeAttr, `${style.label}：chevron 没有走 currentColor`).toBe('currentColor')
+      expect(
+        chevronRead.strokeComputed,
+        `${style.label}：currentColor 没有解析成按钮文字色`
+      ).toBe(buttonColour)
+      expect(chevronRead.viewBox, `${style.label}：chevron 不是 24×24 量级的 viewBox`).toBe('0 0 24 24')
+      expect(chevronRead.hidden, `${style.label}：chevron 没有对读屏软件隐藏`).toBe('true')
+
+      // ④ 旋转：关着时归位、开着时 180°；aria-expanded 语义不变
+      const closed = await chevron.evaluate((element) => ({
+        transform: getComputedStyle(element).transform,
+        box: element.getBoundingClientRect().toJSON(),
+      }))
+      expect(closed.transform, `${style.label}：收着时 chevron 没有归位`).toBe('none')
+      await trigger(page).click()
+      await expect(listBox(page)).toBeVisible()
+      await expect(trigger(page)).toHaveAttribute('aria-expanded', 'true')
+      const opened = await chevron.evaluate((element) => ({
+        transform: getComputedStyle(element).transform,
+        box: element.getBoundingClientRect().toJSON(),
+      }))
+      expect(opened.transform, `${style.label}：开着时 chevron 没有旋转 180°`).toBe('matrix(-1, 0, 0, -1, 0, 0)')
+      // transform 不碰布局：旋转前后占位与尺寸一模一样（180° 的方块本来就该如此）
+      expect(opened.box.width, `${style.label}：旋转把 chevron 的宽度碰了`).toBeCloseTo(closed.box.width, 1)
+      expect(opened.box.height, `${style.label}：旋转把 chevron 的高度碰了`).toBeCloseTo(closed.box.height, 1)
+      expect(opened.box.x, `${style.label}：旋转把 chevron 的横向位置碰了`).toBeCloseTo(closed.box.x, 1)
+      // 再收上：归位
+      await trigger(page).click()
+      await expect(listBox(page)).toHaveCount(0)
+      expect(
+        await chevron.evaluate((element) => getComputedStyle(element).transform),
+        `${style.label}：再收上时 chevron 没有归位`
+      ).toBe('none')
+
+      await closeSettings(page)
+      expect(problems, `${style.label}：console / page 出错了`).toEqual([])
+    })
+
+    test('菜单面与聚焦环（T43）：逐套换档的面 ≠ 抽屉面、边界逐套各自语言；聚焦 = 环、选中 = 底同时成立且可辨', async ({
+      page,
+    }) => {
+      const problems = watchProblems(page)
+      await startRun(page, style.id, startUrl(ACTIVE))
+      await openSettings(page)
+      await trigger(page).click()
+      await expect(listBox(page)).toBeVisible()
+
+      // ① 菜单面逐套换一档，且不等于抽屉面（T42 被驳回的正是逐字节同值）
+      const surface = await listBox(page).evaluate((element) => {
+        const style = getComputedStyle(element)
+        return {
+          background: style.backgroundColor,
+          radius: style.borderTopLeftRadius,
+          outlineWidth: style.outlineWidth,
+          outlineStyle: style.outlineStyle,
+          outlineColour: style.outlineColor,
+          shadow: style.boxShadow,
+        }
+      })
+      const drawer = await page
+        .locator('[data-settings-drawer]')
+        .evaluate((element) => {
+          const style = getComputedStyle(element)
+          return { background: style.backgroundColor, shadow: style.boxShadow, outlineColour: style.outlineColor }
+        })
+      const expected = MENU_SURFACE[style.id]
+      expect(surface.background, `${style.label}：菜单面与抽屉面同值（没有换档）`).not.toBe(drawer.background)
+      expect(surface.background, `${style.label}：菜单面不是设计卡那一档`).toBe(expected.background)
+      expect(surface.radius, `${style.label}：菜单圆角不是 toast 那一档`).toBe(expected.radius)
+
+      // ② 边界逐套各自语言：Classic 亮墨发丝线 / Material 比抽屉高一档的投影 / Claude 重一档的细线
+      if (style.id === 'material') {
+        const blur = (shadow: string): number =>
+          Math.max(0, ...([...shadow.matchAll(/[\d.]+px/g)].map((match) => parseFloat(match[0]))))
+        expect(surface.shadow, `${style.label}：菜单没有投影（本套说「在上」的语言就是 elevation）`).not.toBe('none')
+        expect(
+          blur(surface.shadow),
+          `${style.label}：菜单的投影没有比抽屉高一档`
+        ).toBeGreaterThan(blur(drawer.shadow))
+        expect(
+          blur(surface.shadow),
+          `${style.label}：菜单的投影不是设计卡那一档（M3 level 4）`
+        ).toBe(MENU_SHADOW_BLUR)
+        expect(surface.shadow, `${style.label}：菜单的投影与抽屉同一档`).not.toBe(drawer.shadow)
+      } else {
+        expect(surface.outlineStyle, `${style.label}：菜单没有那一圈线`).toBe('solid')
+        expect(surface.outlineWidth, `${style.label}：菜单那一圈不是 1px 细线`).toBe('1px')
+        expect(surface.outlineColour, `${style.label}：菜单那一圈不是设计卡那个色`).toBe(
+          MENU_HAIRLINE[style.id]
+        )
+        // Claude 那一档要比抽屉的 --rule 重：两条线不同色（细线更重，菜单压过抽屉）
+        if (style.id === 'claude') {
+          expect(surface.outlineColour, `${style.label}：菜单细线与抽屉同值（没有重一档）`).not.toBe(
+            drawer.outlineColour
+          )
+        }
+      }
+
+      // ③ 聚焦 = 环、选中 = 底，且**同时成立**：展开那一刻焦点就在选中项上（决策 5 的核心场景）
+      const selected = listBox(page).locator('[aria-selected="true"]')
+      await expect(selected, `${style.label}：展开后焦点没有落在选中项上`).toBeFocused()
+      const selectedRead = await selected.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return {
+          background: style.backgroundColor,
+          outlineWidth: style.outlineWidth,
+          outlineStyle: style.outlineStyle,
+          outlineColour: style.outlineColor,
+          shadow: style.boxShadow,
+        }
+      })
+      expect(selectedRead.background, `${style.label}：选中项丢了选中底`).toBe(SELECTED_FILL[style.id])
+      const ring = FOCUS_RING[style.id]
+      if (ring.kind === 'shadow') {
+        expect(selectedRead.shadow, `${style.label}：聚焦项没有内缩环`).toContain(ring.colour)
+        expect(selectedRead.shadow, `${style.label}：聚焦项的环不是内缩的`).toContain('inset')
+      } else {
+        expect(selectedRead.outlineStyle, `${style.label}：聚焦项没有环`).toBe('solid')
+        expect(selectedRead.outlineColour, `${style.label}：聚焦环不是 --focus`).toBe(ring.colour)
+        expect(parseFloat(selectedRead.outlineWidth), `${style.label}：聚焦环比静止态描边还细`).toBeGreaterThan(1)
+      }
+
+      // ④ 环 ≠ 选中底（两态机制不同）：按 ArrowDown 移到目录里的下一套——它有环、没有选中底
+      //    （不能用「第一个非选中项」：激活 Material 时下一项是 Claude，而第一个非选中项是 Classic）
+      await page.keyboard.press('ArrowDown')
+      const other = optionAt(page, next.id)
+      await expect(other, `${style.label}：ArrowDown 没有移开焦点`).toBeFocused()
+      const otherRead = await other.evaluate((element) => {
+        const style = getComputedStyle(element)
+        return {
+          background: style.backgroundColor,
+          outlineWidth: style.outlineWidth,
+          outlineStyle: style.outlineStyle,
+          outlineColour: style.outlineColor,
+          shadow: style.boxShadow,
+        }
+      })
+      expect(otherRead.background, `${style.label}：非选中项被涂了选中底`).not.toBe(SELECTED_FILL[style.id])
+      if (ring.kind === 'shadow') {
+        expect(otherRead.shadow, `${style.label}：非选中项聚焦时没有环`).toContain(ring.colour)
+      } else {
+        expect(otherRead.outlineColour, `${style.label}：非选中项聚焦时没有环`).toBe(ring.colour)
+      }
 
       await closeSettings(page)
       expect(problems, `${style.label}：console / page 出错了`).toEqual([])

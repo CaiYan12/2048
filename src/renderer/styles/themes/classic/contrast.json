@@ -587,12 +587,12 @@
       }
     },
     {
-      "usage": "风格列表的选项文字 vs 列表底面（--ink-bright on --control-bg，与抽屉标题同一对色值、换一个 usage 入表）。T42 新场景增补：列表是抽屉里新长出来的一块载字面，选项文字此前没有被任何一幕量过。列表展开后焦点落在选中项上，但选项文字三套同色，探针取第一枚选项即可",
+      "usage": "风格列表的选项文字 vs 列表底面（--ink-bright on --control-bg-hover）。T42 新场景增补（列表是抽屉里新长出来的一块载字面）；**T43 修订：菜单面从抽屉面同值换成 --control-bg-hover（比抽屉面深一档，菜单读作浮起来的一层），background 与 ratio 跟着换**（5.60 → 6.66）。列表展开后焦点落在选中项上，但选项文字三套同色，探针取第一枚选项即可",
       "basis": "regular",
       "foreground": "#f9f6f2",
-      "background": "#6f6055",
+      "background": "#5f564e",
       "minimum": 4.5,
-      "ratio": 5.6,
+      "ratio": 6.66,
       "scene": "settings",
       "probe": {
         "selector": ".settings-style__option",
@@ -601,15 +601,17 @@
       }
     },
     {
-      "usage": "风格列表聚焦的选项：选项文字 vs 聚焦底（--ink-bright on --control-bg-hover）。T42 新场景增补：聚焦高亮就是底色本身（非选中项 = hover 底，父规格决策 14），所以这一对量的是「非选中项拿到 DOM 焦点时」的读法——浏览器那一层展开列表（焦点先落在选中项）后按一次 ArrowDown 把焦点挪开再量",
-      "basis": "regular",
+      "usage": "风格列表聚焦的选项那一圈环 vs 菜单面（--ink-bright 的内缩 box-shadow，非文字口径）。**T43 修订（父规格决策 14）：聚焦高亮从「换 hover 底」改成「内缩亮墨环」**——菜单面本身换了 --control-bg-hover，两态再挤在底色里会相撞（本套只有两档暗色，第三档不存在）。环是内缩的：非选中项拿到焦点时它落在菜单面上（6.66），选中项拿到焦点时落在选中底上（8.90，即「选中的选项」那一对）——浏览器那一层展开列表（焦点先落在选中项）后按一次 ArrowDown 把焦点挪到非选中项再量",
+      "basis": "non-text",
       "foreground": "#f9f6f2",
       "background": "#5f564e",
-      "minimum": 4.5,
+      "minimum": 3,
       "ratio": 6.66,
       "scene": "settings",
       "probe": {
         "selector": ".settings-style__option:focus",
+        "read": "ring",
+        "background": ".settings-style__list",
         "expandList": true
       }
     },

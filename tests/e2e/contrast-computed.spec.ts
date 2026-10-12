@@ -541,11 +541,16 @@ async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<v
   // **方块上的环不归这一档**：它要先开交换拾取、再点一枚方块才存在，那套动作在最后。
   // 原来这里只按「read === 'ring'、选择器不带 :focus-visible」筛，于是方块环也被夹进来，
   // 在没有选中方块的那一刻去读——必然是「页面上找不到这个元素」（Classic / Material 各两个视口）。
+  //
+  // **风格列表的聚焦环也不归这一档**（T43）：它的选择器是 `.settings-style__option:focus`
+  // ——`:focus` 不是 `:focus-visible`，逃过上面的排除；而它带 `expandList`，归上面列表那一批
+  // （展开 → ArrowDown → 读 → Esc 收起）。列表收上之后这里再读就是「页面上找不到这个元素」。
   const tileRing = (pair: ContrastPair): boolean =>
     pair.probe?.read === 'ring' && (pair.probe?.selector ?? '').startsWith('.board__tile')
   const restingRings = pairs.filter(
     (pair) =>
       pair.probe?.read === 'ring' &&
+      pair.probe?.expandList !== true &&
       !(pair.probe?.selector ?? '').includes(':focus-visible') &&
       !tileRing(pair)
   )

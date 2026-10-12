@@ -473,6 +473,24 @@ Tab 收列表还焦点触发钮；`Esc` 三层优先序（列表 > 抽屉 > 交�
 （`openSettings` / `closeSettings` / `pickStyle`），此后需要换风格的用例一律走它。
 README「设置界面引入」组的「风格设置下拉框」条已勾。
 
+### 风格下拉框视觉修订 (2026-10-12)
+
+T43（`docs/specs/style-picker.md` 决策 3 / 14 修订 + 三套设计卡 §12，GitHub #46）给 T42 的自绘
+listbox 补上被驳回的下拉框准则。触发钮 `flex: 1` 占满剩余行宽、名左 chevron 右（内联 SVG
+`currentColor`，与齿轮同一条路；开着旋转 180°、`transform` 不碰布局，仍无开合动画）。菜单面逐套
+比抽屉面换一档（Classic / Material 取 `--control-bg-hover`、Claude 取 `--page`），边界逐套各自
+语言（Classic 1px `--ink-bright` 发丝线、Material 投影比抽屉高一档、Claude 1px `--control-border`
+重一档），圆角取 toast 那一档。聚焦改成「环」、选中仍是「底」（修订决策 14：旧「聚焦项
+`outline: none` + hover 底」退役）——Classic 是内缩亮墨 `box-shadow`，Material / Claude 用
+`--focus` 的 3px outline 画在选项盒**外侧**（`--focus` 压在各自选中底上只有 1.00:1，内缩即两态
+相撞；外侧落在菜单面上是 4.28 / 4.98:1）。`contrast.json` 两处跟着换：选项文字对改菜单面口径、
+聚焦对从文字口径改成环口径（探针 `read: 'ring'` + `expandList`），闸门仍是 **150 对**。
+收官验证：typecheck 0 错、**920 unit tests / 50 files**、`npm run build` 通过、
+`check:contrast` **3 风格 150 对**、目标 e2e（style-row + drawer + contrast-computed）
+**184 passed**、全量 Playwright **886 passed / 14 skipped / 0 failed**。**人眼复核没做**——
+三套风格下触发钮、菜单面、聚焦环与选中底的并排观感只能由人看；headless 与「不许开真实窗口」
+的约定下这一半不能由 agent 代做。
+
 ### Issue tracker
 
 GitHub Issues, via the `gh` CLI. See `docs/agents/issue-tracker.md`.

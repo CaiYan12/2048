@@ -23,13 +23,24 @@ interface Props {
 const LABEL_ID = 'settings-style-label'
 
 /**
+ * chevron 的图形（T43）。**与 `SettingsDrawer.tsx` 的 `GEAR_PATH` 同一条路子**：一份
+ * 模块级常量 + 内联 SVG + `currentColor`——它自己不引入任何色值、不新增任何色对，
+ * 三套风格各读各的按钮文字色。形状是一只朝下的小尖角（chevron-down，`viewBox` 24×24），
+ * **画成线（stroke）不画面**：齿轮是面因为三套的笔画语言不同，而这一只三角小尖角
+ * 用 2px 粗的线在三套上都读得通（与 lucide 的 chevron-down 同一形状）。
+ */
+const CHEVRON_PATH = 'M6 9l6 6 6-6'
+
+/**
  * 风格行（T42 · 抽屉的第二件租客 · 父规格 docs/specs/style-picker.md）
  *
  * **行语法照静音行**（父规格决策 3）：左边一个从不改字的 `<span id>`，右边的触发钮用
  * `aria-labelledby` 引用它当可访问名；整行可点是规格明写的、可测的意图，不是 `<label>`
  * 的转发。触发钮是 `.control`、显示**当前风格名**、报 `aria-expanded` +
  * `aria-haspopup="listbox"`、**不给 `aria-pressed`**——「展开」这件事由 `aria-expanded`
- * 说，与入口同一个判断。
+ * 说，与入口同一个判断。**T43 修订**：触发钮是选择框的形状——`flex: 1` 占满行里剩余的
+ * 一段宽度，风格名靠左、chevron 靠右（内联 SVG 走 `currentColor`，与齿轮同一条路子；
+ * 列表开着时旋转 180°）。
  *
  * **自绘 listbox**（决策 2，原生 select 换不了肤被否）：选项从注册表 THEMES 长出来
  * （与 StylePicker 同一条理由——列表就是能力本身），名字 = `theme.label`，当前项标
@@ -43,9 +54,14 @@ const LABEL_ID = 'settings-style-label'
  * 接着走查（不 preventDefault，所以 Tab 序不断）；`Esc` 归 App 的分发点（决策 6），
  * 收列表后焦点同样由下面的开合 effect 还给触发钮。
  *
- * **聚焦的选项底色即高亮**（决策 14）：非选中项 = `--control-bg-hover`，选中项 =
- * `--control-bg-selected`——焦点恒可见为两者之一，颜色归三套风格自己的 styles.css
- * （设计卡 §12）。列表**没有进场动画**（决策 10：它是开着的层里的状态变化，不是一层）。
+ * **聚焦的选项用环、选中的选项用底**（T43 修订父规格决策 14）：聚焦 = 各套焦点语言的一圈
+ * 内缩环（Classic = 内缩亮墨 `box-shadow`；Material / Claude = `--focus` 的 outline——
+ * 环画在选项盒外侧、落在菜单面上：那两套的 `--focus` 与 `--control-bg-selected` 分别是
+ * 1.00:1 的同色/近同色，内缩会掉进选中底里「两态相撞」，外侧才环 ≠ 选中底），选中 = 照旧
+ * `--control-bg-selected` + 亮墨。打开列表那一刻焦点就在选中项上，环与选中底同时成立且
+ * 可辨。颜色归三套风格自己的 styles.css（设计卡 §12）。列表**没有进场动画**（决策 10：
+ * 它是开着的层里的状态变化，不是一层），chevron 的 180° 旋转也因此**不加过渡**——开合
+ * 无动画，状态一跳到位（transform，不碰布局）。
  */
 export function StyleRow({ styleId, onChange, open, onOpenChange }: Props): JSX.Element {
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -121,7 +137,11 @@ export function StyleRow({ styleId, onChange, open, onOpenChange }: Props): JSX.
         风格
       </span>
       {/* 触发钮自己不再接 onClick：点它（或键盘回车 / 空格激活它）冒泡到行处理器，
-          与静音行的开关同一条路子——两处各接一个会翻两遍 */}
+          与静音行的开关同一条路子——两处各接一个会翻两遍。
+          T43 起它是**选择框的形状**（父规格决策 3 修订）：flex: 1 占满行里剩余的一段
+          宽度，风格名靠左、chevron 靠右。chevron 是内联 SVG 走 currentColor（与齿轮
+          同一条路子），列表开着时旋转 180°——旋转由 aria-expanded 驱动（CSS 认语义
+          状态，不另设属性），不碰布局 */}
       <button
         type="button"
         className="control settings-style__trigger"
@@ -130,7 +150,21 @@ export function StyleRow({ styleId, onChange, open, onOpenChange }: Props): JSX.
         aria-labelledby={LABEL_ID}
         ref={triggerRef}
       >
-        {currentTheme.label}
+        <span className="settings-style__name">{currentTheme.label}</span>
+        {/* 装饰图形：名字已经由 aria-labelledby 引的行标签说全了，图不再进无障碍树 */}
+        <svg
+          className="settings-style__chevron"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path d={CHEVRON_PATH} />
+        </svg>
       </button>
       {/* 列表只在开着时存在（没有退场动画——决策 10）。绝对定位在行下方，几何在
           共享外壳 index.css，颜色归三套风格自己的 styles.css（设计卡 §12） */}

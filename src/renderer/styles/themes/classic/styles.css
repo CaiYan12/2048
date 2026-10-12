@@ -456,26 +456,42 @@
     0 0 0 4px var(--focus);
 }
 
-/* —— 风格行（T42 · §12）——
-   触发钮是 `.control`——既有全部色对直接可用，展开与否由 `aria-expanded` 说（不换底色，
-   与入口同一判断）。展开的选项列表：底面 = 抽屉面 `--control-bg`，选项文字 = 标题/行标签
-   那支 `--ink-bright`（同一对，换一个 usage 入表）；**聚焦的选项**（DOM 焦点即高亮）底 =
-   `--control-bg-hover`；**选中的选项**底 = `--control-bg-selected`。焦点恒可见：非选中项
-   靠 hover 底、选中项靠选中底（父规格决策 14）——所以选中项在拿到焦点时也保持选中底
-   （这条规则写在 `:focus` 之后，特异性压过它）。几何在共享外壳 index.css。 */
+/* —— 风格行（T43 修订 · §12）——
+   触发钮是 `.control`（T43 起 flex: 1 占满剩余行宽——几何在共享外壳 index.css），展开与否由
+   `aria-expanded` 说（不换底色，与入口同一判断）。展开的选项列表：底面 = `--control-bg-hover`
+   （比抽屉面深一档——菜单要读作浮起来的一层，不是「行变了高」），边缘一圈 **1px `--ink-bright`
+   发丝线**（本套无投影语言，亮墨发丝线是它说「边界」的方式，与开关关态轨道同一条路子），
+   圆角 `--cell-radius`（toast 那一档）。选项文字 = 标题/行标签那支 `--ink-bright`。
+   **聚焦用环、不换底**（T43 修订，父规格决策 14）：聚焦的选项是一圈**内缩的亮墨细环**
+   （`box-shadow` inset，本套焦点语言的家常手段）——菜单面占了 hover 底，两态再挤在底色里
+   会相撞（本套只有两档暗色，第三档不存在）；**选中的选项**底 = `--control-bg-selected`
+   （配亮墨就是既有的 8.90 那对）。焦点恒可见：环或选中底，两者机制不同、永不相撞——
+   打开列表那一刻焦点就在选中项上，环与选中底同时成立且可辨（环压在选中底上仍是 8.90）。
+   几何在共享外壳 index.css。 */
 [data-style='classic'] .settings-style__list {
-  background: var(--control-bg);
+  background: var(--control-bg-hover);
+  /* 发丝线用 outline 而不是 border：不改盒子尺寸（与开关关态轨道、Claude 的细线同一条
+     路子），且闸门的 ring 探针读得到它 */
+  outline: 1px solid var(--ink-bright);
+  border-radius: var(--cell-radius);
 }
 
 [data-style='classic'] .settings-style__option {
   color: var(--ink-bright);
 }
 
+/* 聚焦 = 内缩亮墨环（box-shadow inset 2px）。`outline: 0` 是这枚环的一部分：焦点由环说，
+   浏览器不必再补一圈默认轮廓（旧版「聚焦选项 outline: none + hover 底」整条作废）。
+   环是**内缩**的：压在选项底上（非选中项落在菜单面上 6.66，选中项落在选中底上 8.90），
+   也因此永远不会探出选项盒、不会与相邻选项相叠。 */
 [data-style='classic'] .settings-style__option:focus {
-  background: var(--control-bg-hover);
+  outline: 0;
+  box-shadow: inset 0 0 0 2px var(--ink-bright);
 }
 
-[data-style='classic'] .settings-style__option[aria-selected='true'],
-[data-style='classic'] .settings-style__option[aria-selected='true']:focus {
+/* 选中 = 底（--control-bg-selected + 亮墨）。与聚焦环是两种机制：选中项拿到焦点时两者
+   同时成立（核心场景：展开即焦点落选中项）——这条规则与上面那条各写各的属性，同 specificity
+   也不冲突 */
+[data-style='classic'] .settings-style__option[aria-selected='true'] {
   background: var(--control-bg-selected);
 }
