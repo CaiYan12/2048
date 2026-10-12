@@ -145,6 +145,16 @@ open drawer re-skins the whole page live — board, tiles, fonts — without clo
     mechanism collided in Classic, which has only two dark steps to spend. Still no new colour
     values — only role names and where they point.
 
+    **Amended 2026-10-12 (T44):** the owner's second human review rejected the shipped states as
+    heavy rectangular masses — the selected option's full-width fill and the focus rings. All
+    rings and outlines on options are removed and the selected fill is retired; the list's states
+    are **background-only, two steps**: hover and keyboard focus each take one step of each
+    style's existing ramp (Classic `--control-bg` / `--focus`; Material `--control-bg` /
+    `--cell-bg`; Claude `--control-bg-hover` / `--rule`), with the focus step winning over hover
+    when both apply. The selected option is no longer visually marked — `aria-selected` still
+    announces it, the trigger's name states it, and opening the list lands focus on it. Still no
+    new colour values.
+
 ## Testing decisions
 
 - **Unit (node, no React):** the highlight mover — pure function from (current index, key, count)
