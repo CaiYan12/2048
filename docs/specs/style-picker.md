@@ -83,6 +83,11 @@ open drawer re-skins the whole page live — board, tiles, fonts — without clo
    `aria-pressed` (expansion is said by `aria-expanded`, the same judgement as the drawer entry).
    The whole row is clickable — pressing the label opens the list; stated, testable intent, not a
    `<label>`'s silent forwarding.
+
+   **Amended 2026-10-12 (T43):** the trigger fills the row's remaining width (`flex: 1`) with the
+   name left-aligned and a chevron indicator right-aligned — a select-box shape rather than a
+   content-width button. The chevron is an inline SVG in `currentColor` (the gear's route) and
+   rotates 180° while the list is open.
 4. **Options grow from the registry** (`THEMES`), same reason as the existing picker: the list is
    the capability. Option name = the theme's label; the selected option carries `aria-selected`.
    Three items, no scrolling.
@@ -127,6 +132,18 @@ open drawer re-skins the whole page live — board, tiles, fonts — without clo
     backgrounds (hover unless it is the selected option). All three styles already declare a hover
     token. Per-style specifics (radii, paddings, exact roles) go to the three design cards §12;
     the contrast gate grows by roughly three pairs per style, counted for real at implementation.
+
+    **Amended 2026-10-12 (T43):** the owner's human review of the delivered control returned that
+    it does not read as a dropdown — the menu's surface was byte-identical to the drawer face in
+    all three styles with no boundary, and the trigger carried no affordance. Now: the menu
+    surface moves one notch off the drawer face per style (Classic/Material `--control-bg-hover`,
+    Claude `--page`); each style says "on top" in its own language (Classic a bright-ink hairline,
+    Material an elevation one notch above the drawer, Claude a `--control-border` outline heavier
+    than the drawer's `--rule`); and **focus is told by a ring, not by a background** — the
+    selected option keeps `--control-bg-selected` with its bright ink. The old rule (focus = hover
+    background) is retired: the hover token is now the menu's surface, and two states told by one
+    mechanism collided in Classic, which has only two dark steps to spend. Still no new colour
+    values — only role names and where they point.
 
 ## Testing decisions
 
