@@ -507,8 +507,9 @@ T44（`docs/specs/style-picker.md` 决策 14 的 T44 修订段 + 三套设计卡
 填充」用例回到开局界面的按钮组（列表里的可见实例随选中块一起退场）。
 收官验证：typecheck 0 错、**920 unit tests / 50 files**、`npm run build` 通过、`check:contrast`
 **3 风格 147 对**、目标 e2e（style-row + drawer + contrast-computed）**190 passed**、全量 Playwright
-**892 passed / 14 skipped / 0 failed**。**人眼复核没做**——两档底色的并排观感、以及「大矩形方块拆
-干净了没有」只能由人看；headless 与「不许开真实窗口」的约定下这一半不能由 agent 代做。
+**892 passed / 14 skipped / 0 failed**。**人眼复核当时没做**——两档底色的并排观感、以及「大矩形
+方块拆干净了没有」只能由人看；headless 与「不许开真实窗口」的约定下这一半不能由 agent 代做。
+**2026-10-15 由所有者完成并验收通过**（过程见下一段）。
 
 **人眼复核第一轮（2026-10-15）**发现一处圆角场景的 UI bug 并修掉：选项是**满宽方角**、列表有
 圆角，首 / 末行的底色一画出来，方角就伸出菜单的圆角边界——伸出量取决于「圆角 − 垂直内边距」，
@@ -520,6 +521,17 @@ T44（`docs/specs/style-picker.md` 决策 14 的 T44 修订段 + 三套设计卡
 **守卫是真的**——摘掉 `overflow: hidden` 后，声明断言在三套上全红；把声明那条暂时摘掉单跑效果
 断言，Material 红（命中栈顶层即 `LI.settings-style__option`）、另两套按 `inset > 1` 的设计跳过。
 修复不新增色对（闸门仍 **147 对**）、不改 unit 条数（**920 / 50**）。
+
+**审查跟进（`t44c`）**：独立审查指出 `inset > 1` 换算下来约等于「圆角 > 8.5px」——把圆角**最大**的
+那一套调到 8.5px 以下，那条唯一的效果级守卫会**静默跳过**而声明那条照旧绿（守卫无声变空话）。已加
+`MENU_MAX_RADIUS` + 断言：圆角最大的那一套必须一直存在「该被裁掉的那一条」；**这条新守卫也验了会
+红**（把 Material 菜单圆角临时压到 6px 并同步测试常量 → 红在 `Expected > 1 / Received 0.1905`，正是
+6px 圆角的内缩量）。同轮记录了一条实测连带效果：`overflow` 会新建裁剪层，菜单内文字从 **LCD 次像素
+抗锯齿降级为灰度**（视觉不可感、不影响闸门），票据已记。
+
+**收官（2026-10-15）**：`main` = `origin/main` = **`43533ff`**（`fd07a36` 圆角裁剪 → `acf32bb`
+防退化断言的两笔 merge）。全量 Playwright **892 passed / 14 skipped / 0 failed**、typecheck 0 错、
+**920 unit / 50 files**、`check:contrast` **147 对**。**所有者验收通过，人眼复核闭环**（#47 已关）。
 
 ### Issue tracker
 
