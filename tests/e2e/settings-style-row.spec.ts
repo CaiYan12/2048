@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { STYLE_CATALOG } from '../../src/shared/styleCatalog'
 import { closeSettings, openSettings, pickStyle } from './settings-helpers'
 
@@ -625,7 +625,9 @@ for (const style of STYLE_CATALOG) {
 
       // ③ 展开那一刻焦点落在选中项上（决策 5），而列表态只剩底色：它显示的是**聚焦档**，
       //    不是选中块；选项上也没有任何环（outline 归零、box-shadow 归 none）。
-      //    先把指针移开，读「只有焦点、没有 hover」的那一档
+      //    **两条展开路径都要守**：指针（上面那次 trigger click，`:focus-visible` 为假）与
+      //    键盘（本控件的主用路径——触发钮 Enter 展开，`:focus-visible` 为真，UA 会给它补
+      //    一圈默认方框）。先读指针态：把指针移开，读「只有焦点、没有 hover」的那一档
       await page.mouse.move(0, 0)
       const selected = listBox(page).locator('[aria-selected="true"]')
       await expect(selected, `${style.label}：展开后焦点没有落在选中项上`).toBeFocused()
@@ -648,6 +650,45 @@ for (const style of STYLE_CATALOG) {
         `${style.label}：聚焦项还留着 outline（环没拆干净）`
       ).toBe(true)
       expect(focused.shadow, `${style.label}：聚焦项还留着 box-shadow（环没拆干净）`).toBe('none')
+
+      // ③b **键盘展开态**（同一枚选项、同一条不变量，但走主用路径）：指针态读不到 UA 默认环
+      //     （`:focus-visible` 为假），所以必须键盘重开一遍，否则这条守卫量错了态。收上再开，
+      //     并顺带钉住「此刻确实是 :focus-visible」——环为零是因为被压掉了，不是因为量错态
+      const readRing = (option: Locator) =>
+        option.evaluate((element) => {
+          const css = getComputedStyle(element)
+          return { outlineStyle: css.outlineStyle, outlineWidth: css.outlineWidth, shadow: css.boxShadow }
+        })
+      await page.keyboard.press('Escape')
+      await expect(listBox(page), `${style.label}：Esc 没有收上列表`).toHaveCount(0)
+      await trigger(page).focus()
+      await page.keyboard.press('Enter')
+      await expect(listBox(page), `${style.label}：键盘激活触发钮没有开出列表`).toBeVisible()
+      const kbdOption = listBox(page).locator('.settings-style__option:focus')
+      await expect(kbdOption, `${style.label}：键盘展开后焦点没有落在选项上`).toBeFocused()
+      expect(
+        await kbdOption.evaluate((element) => element.matches(':focus-visible')),
+        `${style.label}：键盘展开态没有命中 :focus-visible（这条守卫量错了态）`
+      ).toBe(true)
+      const kbdRing = await readRing(kbdOption)
+      expect(
+        kbdRing.outlineStyle === 'none' || parseFloat(kbdRing.outlineWidth) === 0,
+        `${style.label}：键盘展开态的选项还留着 outline（UA 默认环没压掉）`
+      ).toBe(true)
+      expect(kbdRing.shadow, `${style.label}：键盘展开态的选项还留着 box-shadow`).toBe('none')
+      // 键盘移动焦点之后（ArrowDown）仍是同一态——移焦点也在键盘路径上，环照旧为零
+      await page.keyboard.press('ArrowDown')
+      const kbdMoved = listBox(page).locator('.settings-style__option:focus')
+      await expect(kbdMoved, `${style.label}：ArrowDown 没有移开焦点`).toBeFocused()
+      const movedRing = await readRing(kbdMoved)
+      expect(
+        movedRing.outlineStyle === 'none' || parseFloat(movedRing.outlineWidth) === 0,
+        `${style.label}：ArrowDown 后的选项还留着 outline`
+      ).toBe(true)
+      expect(movedRing.shadow, `${style.label}：ArrowDown 后的选项还留着 box-shadow`).toBe('none')
+      // 把焦点移回选中项，交还给 ④（④ 从选中项按 ArrowDown 起步）
+      await page.keyboard.press('ArrowUp')
+      await expect(selected, `${style.label}：ArrowUp 没有把焦点移回选中项`).toBeFocused()
 
       // ④ 未聚焦、未 hover 的选项：底回到菜单面（选中块退场——`aria-selected` 照旧只归读屏）。
       //    把焦点从选中项挪到目录里的下一套，再读三枚各自的底：原选中项与「第三枚（既不聚焦
