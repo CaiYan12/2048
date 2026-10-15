@@ -137,6 +137,17 @@ const MENU_SURFACE = {
   },
 } as const
 
+/**
+ * 三套里最大的菜单圆角——一条**防退化**断言用。命中测试只在「圆角内缩量 > 1px」的那一套上跑，
+ * 而内缩量由圆角与列表垂直内边距（0.25rem）共同决定，换算下来 `内缩 > 1` 约等于「圆角 > 8.5px」。
+ * 若将来有人把圆角**最大**的那一套也调到 8.5px 以下，这条唯一的效果级守卫会**静默跳过**
+ * （声明那条照旧绿，因为 `overflow: hidden` 没动）——所以钉住：圆角最大的那一套必须一直存在
+ * 「该被裁掉的那一条」。（这条判据来自 T44 复核轮的独立审查：它指出门槛会随调参静默失效。）
+ */
+const MENU_MAX_RADIUS = Math.max(
+  ...Object.values(MENU_SURFACE).map((entry) => parseFloat(entry.radius))
+)
+
 /** 发丝线语言的两套色（Material 的边界语言是投影，不在此表）：Classic --ink-bright / Claude --control-border */
 const MENU_HAIRLINE = {
   classic: 'rgb(249, 246, 242)',
@@ -748,6 +759,14 @@ for (const style of STYLE_CATALOG) {
         corner.listRight,
         0
       )
+      // 防退化：圆角最大的那一套必须一直有「该被裁掉的那一条」，否则下面那条效果级守卫会静默
+      // 跳过（圆角调小到 8.5px 以下即失效），而声明那条照旧绿——守卫会无声地变成空话。
+      if (corner.radius === MENU_MAX_RADIUS) {
+        expect(
+          corner.inset,
+          `${style.label}：圆角最大的一套没有可裁的一条（效果级守卫会静默失效）`
+        ).toBeGreaterThan(1)
+      }
       if (corner.inset > 1) {
         const stack = await page.evaluate(
           ({ x, y }) =>
