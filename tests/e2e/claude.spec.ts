@@ -3,7 +3,8 @@ import { createBoardLayout, fitCellSize } from '../../src/renderer/components/Bo
 // T42：选风格的助手收编到共享模块（父规格决策 13）——本文件原先自己抄的 pickStyle 删除，
 // 调用方改走抽屉路径（开抽屉 → 触发钮 → 选项 → 收抽屉）；开局界面按钮组自己的两条测试
 //（选择器按得动 / 窄屏折行）保持本地查询不动——它们测的就是那组按钮
-import { closeSettings, openSettings, pickStyle } from './settings-helpers'
+// T44：只留 pickStyle（那份「选中项换成暖色填充」的用例回到开局界面量按钮组，不再开抽屉）
+import { pickStyle } from './settings-helpers'
 
 /**
  * T15 的 Claude 纵向切片：三套风格之外的第三套，从开局界面到局中、从键盘到窄屏。
@@ -243,30 +244,26 @@ test('Claude 的外壳不填色：面板透明、控件只有一圈线、板面�
 
 test('选中的那一套换成暖色填充，其余控件仍是纸面', async ({ page }) => {
   // 全壳唯一一处暖色填充是 --control-bg-selected（DESIGN.md §2）。T42 迁移：局中的
-  // aria-pressed 风格按钮摘除后，「选中的那一套」的可见实例换成抽屉风格列表里的
-  // 选中项（与 contrast.json 同一次现址迁移）——开抽屉展开列表去读它
+  // aria-pressed 风格按钮摘除后，「选中的那一套」的可见实例一度换成抽屉风格列表里的
+  // 选中项。**T44 修订**：人眼复核把列表的「选中整行填充」判了不适、整条退场（列表态只剩
+  // hover / 聚焦两档底色，见 settings-style-row.spec.ts 与设计卡 §12 的 T44 修订段）——
+  // 于是这个角色的可见实例回到**开局界面的风格按钮组**：它仍是 `.control[aria-pressed='true']`
+  // 那块暖色（选中控件的角色在别处仍在，§7 的枚举按角色计不受影响）。
   await page.goto(SEED_URL)
   await pickStyle(page, 'Claude')
-  await page.getByRole('button', { name: '开始游戏' }).click()
-  await expect(page.locator('[data-board]')).toBeVisible()
 
-  await openSettings(page)
-  await page.getByRole('button', { name: '风格' }).click()
-  await expect(page.locator('[data-style-list]')).toBeVisible()
-  const selected = await page
-    .locator('.settings-style__option[aria-selected="true"]')
+  const group = page.getByRole('group', { name: '风格' })
+  const selected = await group
+    .locator('.control[aria-pressed="true"]')
     .evaluate((el) => {
       const style = getComputedStyle(el)
       return { background: style.backgroundColor, color: style.color }
     })
-  // 列表收上（三层 Esc 的第一层）、抽屉关上，再量「其余控件」——量的是正常局中态
-  await page.keyboard.press('Escape')
-  await closeSettings(page)
   expect(selected.background).toBe('rgb(168, 72, 43)') // #a8482b
   expect(selected.color).toBe('rgb(251, 249, 244)') // --ink-bright
 
-  // 未选中的那些仍是纸面（#f0eee6，见上一条的说明）
-  const other = await page
+  // 未选中的那两套仍是纸面（--control-bg #f0eee6，见上一条的说明）
+  const other = await group
     .locator('.control[aria-pressed="false"]')
     .first()
     .evaluate((el) => getComputedStyle(el).backgroundColor)

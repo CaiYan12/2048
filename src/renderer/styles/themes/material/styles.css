@@ -461,12 +461,9 @@
    `aria-expanded` 说（不换底色）。展开的选项列表：底面 = `--control-bg-hover` `#d8cee8`
    （比抽屉面深一档），**投影比抽屉高一档**（本套说「在上」的语言就是 elevation，toast 先例；
    抽屉那一档写在 §12 的抽屉段，菜单压它之上），圆角 `--cell-radius`（toast 那一档）。
-   选项文字 = 标题/行标签那支 `--control-ink`；**选中的选项**底 = `--control-bg-selected`
-   （配白字就是开关开态那对）。**聚焦用环、不换底**（T43 修订，父规格决策 14）：聚焦的选项
-   是 `--focus` 的 **3px outline**（本套焦点环的家常手段，与 `.control:focus-visible` 同一
-   对）——菜单面占了 hover 底，两态再挤在底色里会相撞。环画在选项盒**外侧**、落在菜单面上
-   （`--focus` 压在选中底上只有 1.00:1，内缩即「两态相撞」；外侧压在菜单面上是 4.28:1），
-   于是环 ≠ 选中底、两者永不相撞。几何在共享外壳 index.css。 */
+   选项文字 = 标题/行标签那支 `--control-ink`。**列表态只剩底色、两档，无环、无选中块**
+   （T44 修订，父规格决策 14 修订段）：人眼复核把「选中整行填充」与「聚焦环」都判了不适
+   （大矩形方块不要）。hover 与键盘聚焦各一档浅步，见下面两条规则。几何在共享外壳 index.css。 */
 [data-style='material'] .settings-style__list {
   background: var(--control-bg-hover);
   border-radius: var(--cell-radius);
@@ -482,18 +479,16 @@
   color: var(--control-ink);
 }
 
-/* 聚焦 = --focus 的 3px outline（与 .control:focus-visible 同一对：outline-offset 2px）。
-   **环在选项盒外侧**：--focus 与选中底 --control-bg-selected 只有 1.00:1，内缩会掉进
-   选中底里（两态相撞）；外侧落在菜单面上是 4.28:1——打开列表那一刻焦点就在选中项上，
-   环绕着选中底、两者同时成立且可辨 */
-[data-style='material'] .settings-style__option:focus {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
+/* 列表态（T44）：hover = `--control-bg` `#e8def8`（亮一步，退回抽屉面那一档；菜单面是
+   `--control-bg-hover`，压在它上面读作「这一行被指着」）。 */
+[data-style='material'] .settings-style__option:hover {
+  background: var(--control-bg);
 }
 
-[data-style='material'] .settings-style__option[aria-selected='true'] {
-  background: var(--control-bg-selected);
-  /* 深墨压选中底过不了线，选中项的文字取白（--ink-bright，与开关开态滑块同一条
-     理由；审查修复：此前漏了这条 color，闸门浏览器层抓到声明与渲染脱钩） */
-  color: var(--ink-bright);
+/* 键盘焦点 = `--cell-bg` `#e6e0e9`（另一档浅步）。**这一条必须写在 :hover 之后**——
+   两条同 specificity，后者胜；指针与键盘同落一枚选项时以聚焦为准（承重墙，换序即破）。
+   两档都是浅步、互不相同、也都不等于菜单面；不再用环，选中态也不单独标
+   （`aria-selected` 照旧渲染，只归读屏软件与触发器名字说）。 */
+[data-style='material'] .settings-style__option:focus {
+  background: var(--cell-bg);
 }

@@ -93,19 +93,6 @@
       }
     },
     {
-      "usage": "已选中的风格按钮文字（**全壳唯一一处暖色填充**，选中的那一块陶土色。现址：风格列表的选中项 .settings-style__option[aria-selected='true']。T42 迁移：主面板的 aria-pressed 风格按钮摘除后，局中「选中控件」的可见实例换成抽屉列表里的选中项，scene/probe 随角色现址迁移）",
-      "basis": "regular",
-      "foreground": "#fbf9f4",
-      "background": "#a8482b",
-      "minimum": 4.5,
-      "ratio": 5.5,
-      "scene": "settings",
-      "probe": {
-        "selector": ".settings-style__option[aria-selected='true']",
-        "expandList": true
-      }
-    },
-    {
       "usage": "控件那一圈 1px 描边 vs 纸面。本套控件不填色，「这里有个按钮」由这一圈说，所以按 1.4.11 的非文字指示器口径量。**用 outline 画而不是 border**（border 会改盒子尺寸，见 DESIGN.md §5 / §7），于是闸门的 ring 探针读得到它；探针不带 :focus-visible——静止态才读它，Tab 之后同一边会变成焦点环（e2e 据此把环分成「静止态 / 焦点态」两步读）",
       "basis": "non-text",
       "foreground": "#857c6d",
@@ -625,7 +612,7 @@
       }
     },
     {
-      "usage": "风格列表的选项文字 vs 列表底面（--ink on --page，与抽屉标题同一对色值、换一个 usage 入表）。T42 新场景增补：列表是抽屉里新长出来的一块载字面，选项文字此前没有被任何一幕量过。**T43 修订：菜单面从抽屉的板面纸换成 --page（比板面纸深一档），background 与 ratio 跟着换**（14.60 → 13.35）。列表展开后焦点落在选中项上，但选项文字三套同色，探针取第一枚选项即可",
+      "usage": "风格列表的选项文字 vs 列表底面（--ink on --page，与抽屉标题同一对色值、换一个 usage 入表）。T42 新场景增补：列表是抽屉里新长出来的一块载字面，选项文字此前没有被任何一幕量过。**T43 修订：菜单面从抽屉的板面纸换成 --page（比板面纸深一档），background 与 ratio 跟着换**（14.60 → 13.35）。**T44：这一对是「静止态」的口径**——选中块退场后，未 hover、未聚焦的选项就落在菜单面上",
       "basis": "regular",
       "foreground": "#26241f",
       "background": "#f0eee6",
@@ -639,30 +626,30 @@
       }
     },
     {
-      "usage": "风格列表聚焦的选项那一圈环 vs 菜单面（--focus 的 3px outline，非文字口径）。**T43 修订（父规格决策 14）：聚焦高亮从「换 hover 底」改成「--focus 的环」**——菜单面本身换了 --page，两态再挤在底色里会相撞。环画在选项盒外侧、落在菜单面上（4.98:1）：--focus 与选中底是同一块暖色（1.00:1），内缩即「两态相撞」，外侧才环 ≠ 选中底。浏览器那一层展开列表（焦点先落在选中项）后按一次 ArrowDown 把焦点挪到非选中项再量",
-      "basis": "non-text",
-      "foreground": "#a8482b",
-      "background": "#f0eee6",
-      "minimum": 3,
-      "ratio": 4.98,
+      "usage": "风格列表 hover 的选项：选项文字 vs hover 底（--ink on --control-bg-hover #e3dccc）。**T44 新增**（父规格决策 14 修订段）：列表态从「环 + 选中块」改成 hover / 聚焦两档底色，hover 那一档自己过门槛。探针取指针停住的那枚选项的底色；浏览器那一层展开列表后把指针移到一枚**非聚焦**的选项上再量（聚焦档会盖住 hover 档）",
+      "basis": "regular",
+      "foreground": "#26241f",
+      "background": "#e3dccc",
+      "minimum": 4.5,
+      "ratio": 11.35,
       "scene": "settings",
       "probe": {
-        "selector": ".settings-style__option:focus",
-        "read": "ring",
-        "background": ".settings-style__list",
+        "selector": ".settings-style__option:hover",
+        "background": ".settings-style__option:hover",
         "expandList": true
       }
     },
     {
-      "usage": "风格列表选中的选项：选项文字 vs 选中底（--ink-bright on --control-bg-selected）。与目标档那一对同一条既有色对（5.50——深墨压暖色只有 2.68，选中项的文字取亮墨，与滑块同一条理由），换一个角色入表。选中项即使拿到焦点也保持选中底（焦点恒可见为两者之一），所以展开即量",
+      "usage": "风格列表聚焦的选项：选项文字 vs 聚焦底（--ink on --rule #b8af9b）。**T44 新增**（父规格决策 14 修订段）：键盘聚焦那一档（展开即落在选中项上，所以带 :focus 的探针一展开就有）。聚焦底比 hover 底再暗一档（键盘焦点要看得见），两者也都不等于菜单面——两档分净。暖色大块从列表退场（§7 的枚举按角色计不受影响）",
       "basis": "regular",
-      "foreground": "#fbf9f4",
-      "background": "#a8482b",
+      "foreground": "#26241f",
+      "background": "#b8af9b",
       "minimum": 4.5,
-      "ratio": 5.5,
+      "ratio": 7.12,
       "scene": "settings",
       "probe": {
-        "selector": ".settings-style__option[aria-selected='true']",
+        "selector": ".settings-style__option:focus",
+        "background": ".settings-style__option:focus",
         "expandList": true
       }
     }
