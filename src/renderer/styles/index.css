@@ -979,8 +979,9 @@
 
 /* 列表的几何：绝对定位在行下缘、贴触发钮那一侧，至少与行同宽。**底面 / 边界 / 圆角归
    三套风格自己的 styles.css**（设计卡 §12：逐套换一档的面、逐套各自的边界语言、逐套
-   toast 那一档圆角）——共享外壳只摆位置。聚焦的选项不再有 `outline: none`（T43 修订：
-   旧规则随「聚焦 = hover 底」一起作废），焦点由各套自己的一圈环说，见各风格 styles.css。 */
+   toast 那一档圆角）——共享外壳只摆位置。选项的**态**同样归三套（T44 修订：环与选中块
+   全拆，列表态只剩 hover / 焦点两档底色；`:focus` 必须写在 `:hover` 之后——两条同
+   specificity，后者胜，这条级联顺序是承重墙，见各风格 styles.css）。 */
 .settings-style__list {
   position: absolute;
   top: 100%;
@@ -992,6 +993,8 @@
   list-style: none;
 }
 
+/* 选项的几何共用；**态（hover / 焦点两档底色）归三套风格**——T44 起不再有环、不再有
+   选中块，也不再有 `outline: none`（旧版留给聚焦环的那条随环一起作废）。 */
 .settings-style__option {
   padding: 0.375rem 0.75rem;
   cursor: pointer;

@@ -491,6 +491,23 @@ listbox 补上被驳回的下拉框准则。触发钮 `flex: 1` 占满剩余行�
 三套风格下触发钮、菜单面、聚焦环与选中底的并排观感只能由人看；headless 与「不许开真实窗口」
 的约定下这一半不能由 agent 代做。
 
+### 风格列表态修订 (2026-10-12)
+
+T44（`docs/specs/style-picker.md` 决策 14 的 T44 修订段 + 三套设计卡 §12，GitHub #47）拆掉第二次
+人眼复核驳回的两处重态——选中整行填充与聚焦环（「大矩形方块观感尤为不适，不要」）。列表态只剩
+**底色、两档、无环无选中块**：hover 与键盘聚焦各一档（Classic `--control-bg` / `--focus`，Material
+`--control-bg` / `--cell-bg`，Claude `--control-bg-hover` / `--rule`），两档分净、也都不等于菜单面；
+`:focus` 规则写在 `:hover` 之后（同 specificity，后者胜）是**承重墙**——焦点与指针同落一枚选项时
+以聚焦为准。选项上零 `outline`、零 `box-shadow`；`aria-selected` 属性照旧渲染（读屏与行为断言点），
+只是不再有填充——「当前风格」由触发钮的名字与打开时焦点的落点说。触发钮 / 菜单面 / 边界 / 圆角
+（T43 的成果）与全部行为契约一字未动。`contrast.json` 三套各删三对（选中控件文字、聚焦环、选中项
+底）、各增两对（hover / 聚焦文字对），闸门 **150 对 → 147 对**；`claude.spec.ts` 的「选中项换成暖色
+填充」用例回到开局界面的按钮组（列表里的可见实例随选中块一起退场）。
+收官验证：typecheck 0 错、**920 unit tests / 50 files**、`npm run build` 通过、`check:contrast`
+**3 风格 147 对**、目标 e2e（style-row + drawer + contrast-computed）**190 passed**、全量 Playwright
+**892 passed / 14 skipped / 0 failed**。**人眼复核没做**——两档底色的并排观感、以及「大矩形方块拆
+干净了没有」只能由人看；headless 与「不许开真实窗口」的约定下这一半不能由 agent 代做。
+
 ### Issue tracker
 
 GitHub Issues, via the `gh` CLI. See `docs/agents/issue-tracker.md`.

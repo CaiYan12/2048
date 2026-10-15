@@ -462,12 +462,9 @@
    （比抽屉面深一档——菜单要读作浮起来的一层，不是「行变了高」），边缘一圈 **1px `--ink-bright`
    发丝线**（本套无投影语言，亮墨发丝线是它说「边界」的方式，与开关关态轨道同一条路子），
    圆角 `--cell-radius`（toast 那一档）。选项文字 = 标题/行标签那支 `--ink-bright`。
-   **聚焦用环、不换底**（T43 修订，父规格决策 14）：聚焦的选项是一圈**内缩的亮墨细环**
-   （`box-shadow` inset，本套焦点语言的家常手段）——菜单面占了 hover 底，两态再挤在底色里
-   会相撞（本套只有两档暗色，第三档不存在）；**选中的选项**底 = `--control-bg-selected`
-   （配亮墨就是既有的 8.90 那对）。焦点恒可见：环或选中底，两者机制不同、永不相撞——
-   打开列表那一刻焦点就在选中项上，环与选中底同时成立且可辨（环压在选中底上仍是 8.90）。
-   几何在共享外壳 index.css。 */
+   **列表态只剩底色、两档，无环、无选中块**（T44 修订，父规格决策 14 修订段）：人眼复核把
+   「选中整行填充」与「聚焦环」都判了不适（大矩形方块不要）。hover 与键盘聚焦各一档暗色，
+   见下面两条规则。几何在共享外壳 index.css。 */
 [data-style='classic'] .settings-style__list {
   background: var(--control-bg-hover);
   /* 发丝线用 outline 而不是 border：不改盒子尺寸（与开关关态轨道、Claude 的细线同一条
@@ -480,18 +477,16 @@
   color: var(--ink-bright);
 }
 
-/* 聚焦 = 内缩亮墨环（box-shadow inset 2px）。`outline: 0` 是这枚环的一部分：焦点由环说，
-   浏览器不必再补一圈默认轮廓（旧版「聚焦选项 outline: none + hover 底」整条作废）。
-   环是**内缩**的：压在选项底上（非选中项落在菜单面上 6.66，选中项落在选中底上 8.90），
-   也因此永远不会探出选项盒、不会与相邻选项相叠。 */
-[data-style='classic'] .settings-style__option:focus {
-  outline: 0;
-  box-shadow: inset 0 0 0 2px var(--ink-bright);
+/* 列表态（T44）：hover = `--control-bg` `#6f6055`（亮一步，退回抽屉面那一档；菜单面是
+   `--control-bg-hover`，压在它上面读作「这一行被指着」）。底色一档说 hover，一档说焦点。 */
+[data-style='classic'] .settings-style__option:hover {
+  background: var(--control-bg);
 }
 
-/* 选中 = 底（--control-bg-selected + 亮墨）。与聚焦环是两种机制：选中项拿到焦点时两者
-   同时成立（核心场景：展开即焦点落选中项）——这条规则与上面那条各写各的属性，同 specificity
-   也不冲突 */
-[data-style='classic'] .settings-style__option[aria-selected='true'] {
-  background: var(--control-bg-selected);
+/* 键盘焦点 = `--focus` `#4a443f`（暗一步，聚焦档）。**这一条必须写在 :hover 之后**——
+   两条同 specificity，后者胜；指针与键盘同落一枚选项时以聚焦为准。这条顺序是承重墙，
+   谁重排谁就破坏了「聚焦恒可见」。聚焦底与 hover 底、菜单面各是一档不同的暗色；
+   不再用环，选中态也不单独标（`aria-selected` 照旧渲染，只归读屏软件与触发器名字说）。 */
+[data-style='classic'] .settings-style__option:focus {
+  background: var(--focus);
 }

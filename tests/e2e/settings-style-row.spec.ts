@@ -35,11 +35,16 @@ import { closeSettings, openSettings, pickStyle } from './settings-helpers'
  *  10. 菜单是一块有边界的浮层：底色逐套换一档（Classic / Material `--control-bg-hover`、
  *      Claude `--page`，**不等于抽屉面**）、圆角逐套取 toast 那一档、边界逐套各自语言
  *      （Classic 亮墨发丝线 / Material 比抽屉高一档的投影 / Claude `--control-border` 细线）；
- *  11. 聚焦 = 环、选中 = 底（修订决策 14）：聚焦的选项戴各套焦点语言的一圈环（Classic
- *      内缩亮墨 `box-shadow`，Material / Claude `--focus` outline），选中项照旧
- *      `--control-bg-selected` + 亮墨；打开列表那一刻焦点就在选中项上——环与选中底
- *      **同时成立且可辨**（本票的核心场景）。逐套期望值走下面三张表，与 toast 契约
- *      逐套比投影是同一条路子；对比度比值归 contrast-computed 那一票量，这里不重复。
+ *
+ * **T44 视觉修订**（第二次人眼复核 BLOCK：「大矩形方块观感尤为不适，不要。均改为仅选项的
+ * 底色变化」；决策 14 的 T44 修订段 + 三张设计卡 §12「风格选择（T42 · T43 · T44 修订）」）
+ * 把上面第 11 条整条换掉：
+ *  11'. 列表态只剩底色、两档，无环、无选中块：hover 与键盘聚焦各一档底色（逐套见下表），
+ *      两档分净、也都不等于菜单面；聚焦的选项没有任何 outline / box-shadow；选中项
+ *      （`aria-selected="true"`）不再有填充——属性照旧渲染（读屏与行为断言点），底回到菜单面；
+ *      焦点与 hover 同落一枚选项时**以聚焦为准**（`:focus` 规则写在 `:hover` 之后，级联
+ *      顺序是承重墙——换序必红，见下面那条专门用例）。对比度比值归 contrast-computed 那一票
+ *      量，这里不重复。
  *
  * 键盘导航在局中验：棋盘动没动只有在有棋子的局里才可观测。局面确定性来自
  * `?seed=` + `?board=`（与 settings-drawer.spec.ts 同一款夹具）。
@@ -141,21 +146,27 @@ const MENU_HAIRLINE = {
 /** Material 菜单投影那一档的最大模糊（M3 elevation level 4；抽屉那一档是 8px，本表用于「高一档」的精确断言） */
 const MENU_SHADOW_BLUR = 10
 
-/** T43 逐套聚焦环（修订决策 14「聚焦 = 环」）：Classic 内缩亮墨 box-shadow，另两套 --focus outline */
-const FOCUS_RING = {
-  /** 内缩 box-shadow，--ink-bright #f9f6f2 */
-  classic: { kind: 'shadow', colour: 'rgb(249, 246, 242)' },
-  /** --focus #625b71 的 3px outline（与 .control:focus-visible 同一对） */
-  material: { kind: 'outline', colour: 'rgb(98, 91, 113)' },
-  /** --focus #a8482b 的 3px outline */
-  claude: { kind: 'outline', colour: 'rgb(168, 72, 43)' },
+/**
+ * T44 逐套两档底色（设计卡 §12「风格选择（T42 · T43 · T44 修订）」）：hover 与键盘聚焦各一档，
+ * 两档分净、也都不等于菜单面。色值逐套从各自既有 ramp 取，零新色值；`rgb()` 形式因为
+ * getComputedStyle 读回来的就是这个（与 MENU_SURFACE 同一路子）。
+ */
+const HOVER_SHADE = {
+  /** --control-bg #6f6055（亮一步，退回抽屉面那一档） */
+  classic: 'rgb(111, 96, 85)',
+  /** --control-bg #e8def8（亮一步） */
+  material: 'rgb(232, 222, 248)',
+  /** --control-bg-hover #e3dccc（暗一步） */
+  claude: 'rgb(227, 220, 204)',
 } as const
 
-/** T43 选中项的底（照旧 --control-bg-selected，逐套一个值） */
-const SELECTED_FILL = {
+const FOCUS_SHADE = {
+  /** --focus #4a443f（暗一步） */
   classic: 'rgb(74, 68, 63)',
-  material: 'rgb(103, 80, 164)',
-  claude: 'rgb(168, 72, 43)',
+  /** --cell-bg #e6e0e9（另一档浅步） */
+  material: 'rgb(230, 224, 233)',
+  /** --rule #b8af9b（再暗一档） */
+  claude: 'rgb(184, 175, 155)',
 } as const
 
 for (const style of STYLE_CATALOG) {
@@ -552,7 +563,7 @@ for (const style of STYLE_CATALOG) {
       expect(problems, `${style.label}：console / page 出错了`).toEqual([])
     })
 
-    test('菜单面与聚焦环（T43）：逐套换档的面 ≠ 抽屉面、边界逐套各自语言；聚焦 = 环、选中 = 底同时成立且可辨', async ({
+    test('菜单面与列表态（T43 · T44）：逐套换档的面 ≠ 抽屉面、边界逐套各自语言；列表态只剩两档底色、无环无选中块', async ({
       page,
     }) => {
       const problems = watchProblems(page)
@@ -561,7 +572,7 @@ for (const style of STYLE_CATALOG) {
       await trigger(page).click()
       await expect(listBox(page)).toBeVisible()
 
-      // ① 菜单面逐套换一档，且不等于抽屉面（T42 被驳回的正是逐字节同值）
+      // ① 菜单面逐套换一档，且不等于抽屉面（T42 被驳回的正是逐字节同值；T44 不动这一层）
       const surface = await listBox(page).evaluate((element) => {
         const style = getComputedStyle(element)
         return {
@@ -612,51 +623,79 @@ for (const style of STYLE_CATALOG) {
         }
       }
 
-      // ③ 聚焦 = 环、选中 = 底，且**同时成立**：展开那一刻焦点就在选中项上（决策 5 的核心场景）
+      // ③ 展开那一刻焦点落在选中项上（决策 5），而列表态只剩底色：它显示的是**聚焦档**，
+      //    不是选中块；选项上也没有任何环（outline 归零、box-shadow 归 none）。
+      //    先把指针移开，读「只有焦点、没有 hover」的那一档
+      await page.mouse.move(0, 0)
       const selected = listBox(page).locator('[aria-selected="true"]')
       await expect(selected, `${style.label}：展开后焦点没有落在选中项上`).toBeFocused()
-      const selectedRead = await selected.evaluate((element) => {
+      const focused = await selected.evaluate((element) => {
         const style = getComputedStyle(element)
         return {
           background: style.backgroundColor,
           outlineWidth: style.outlineWidth,
           outlineStyle: style.outlineStyle,
-          outlineColour: style.outlineColor,
           shadow: style.boxShadow,
         }
       })
-      expect(selectedRead.background, `${style.label}：选中项丢了选中底`).toBe(SELECTED_FILL[style.id])
-      const ring = FOCUS_RING[style.id]
-      if (ring.kind === 'shadow') {
-        expect(selectedRead.shadow, `${style.label}：聚焦项没有内缩环`).toContain(ring.colour)
-        expect(selectedRead.shadow, `${style.label}：聚焦项的环不是内缩的`).toContain('inset')
-      } else {
-        expect(selectedRead.outlineStyle, `${style.label}：聚焦项没有环`).toBe('solid')
-        expect(selectedRead.outlineColour, `${style.label}：聚焦环不是 --focus`).toBe(ring.colour)
-        expect(parseFloat(selectedRead.outlineWidth), `${style.label}：聚焦环比静止态描边还细`).toBeGreaterThan(1)
-      }
+      expect(focused.background, `${style.label}：聚焦项不是聚焦档`).toBe(FOCUS_SHADE[style.id])
+      expect(focused.background, `${style.label}：聚焦档与 hover 档同值（两档没分净）`).not.toBe(
+        HOVER_SHADE[style.id]
+      )
+      expect(focused.background, `${style.label}：聚焦档与菜单面同值`).not.toBe(expected.background)
+      expect(
+        focused.outlineStyle === 'none' || parseFloat(focused.outlineWidth) === 0,
+        `${style.label}：聚焦项还留着 outline（环没拆干净）`
+      ).toBe(true)
+      expect(focused.shadow, `${style.label}：聚焦项还留着 box-shadow（环没拆干净）`).toBe('none')
 
-      // ④ 环 ≠ 选中底（两态机制不同）：按 ArrowDown 移到目录里的下一套——它有环、没有选中底
-      //    （不能用「第一个非选中项」：激活 Material 时下一项是 Claude，而第一个非选中项是 Classic）
+      // ④ 未聚焦、未 hover 的选项：底回到菜单面（选中块退场——`aria-selected` 照旧只归读屏）。
+      //    把焦点从选中项挪到目录里的下一套，再读三枚各自的底：原选中项与「第三枚（既不聚焦
+      //    也不选中）」必须一样且完全透明（透明即透出菜单面，就是验收说的「= 菜单面」）；
+      //    聚焦的那一枚显示聚焦档。三枚各自的底都不是选中块
       await page.keyboard.press('ArrowDown')
       const other = optionAt(page, next.id)
       await expect(other, `${style.label}：ArrowDown 没有移开焦点`).toBeFocused()
-      const otherRead = await other.evaluate((element) => {
-        const style = getComputedStyle(element)
-        return {
-          background: style.backgroundColor,
-          outlineWidth: style.outlineWidth,
-          outlineStyle: style.outlineStyle,
-          outlineColour: style.outlineColor,
-          shadow: style.boxShadow,
-        }
-      })
-      expect(otherRead.background, `${style.label}：非选中项被涂了选中底`).not.toBe(SELECTED_FILL[style.id])
-      if (ring.kind === 'shadow') {
-        expect(otherRead.shadow, `${style.label}：非选中项聚焦时没有环`).toContain(ring.colour)
-      } else {
-        expect(otherRead.outlineColour, `${style.label}：非选中项聚焦时没有环`).toBe(ring.colour)
-      }
+      const rest = STYLE_CATALOG[(index + 2) % STYLE_CATALOG.length]
+      const restRead = await optionAt(page, rest.id)
+        .evaluate((element) => getComputedStyle(element).backgroundColor)
+      expect(restRead, `${style.label}：普通选项不是透明（透出菜单面）`).toBe('rgba(0, 0, 0, 0)')
+      const selectedRest = await selected.evaluate((element) => getComputedStyle(element).backgroundColor)
+      expect(
+        selectedRest,
+        `${style.label}：选中项还有填充（aria-selected 不该有底色，选中块没拆干净）`
+      ).toBe(restRead)
+      const otherRead = await other.evaluate((element) => getComputedStyle(element).backgroundColor)
+      expect(otherRead, `${style.label}：聚焦的非选中项不是聚焦档`).toBe(FOCUS_SHADE[style.id])
+
+      await closeSettings(page)
+      expect(problems, `${style.label}：console / page 出错了`).toEqual([])
+    })
+
+    test('焦点与 hover 同落一枚选项时显示聚焦档（T44 级联顺序承重墙）', async ({ page }) => {
+      const problems = watchProblems(page)
+      await startRun(page, style.id, startUrl(ACTIVE))
+      await openSettings(page)
+      await trigger(page).click()
+      await expect(listBox(page)).toBeVisible()
+
+      // 展开即焦点落在选中项上（决策 5）。先把指针移开，读一次「只有焦点、没有 hover」的底
+      const selected = listBox(page).locator('[aria-selected="true"]')
+      await expect(selected, `${style.label}：展开后焦点没有落在选中项上`).toBeFocused()
+      await page.mouse.move(0, 0)
+      const focusOnly = await selected.evaluate((element) => getComputedStyle(element).backgroundColor)
+      expect(focusOnly, `${style.label}：只有焦点时不是聚焦档`).toBe(FOCUS_SHADE[style.id])
+
+      // 把指针悬停到**同一枚**选项上：`:hover` 与 `:focus` 同时成立。两条规则同 specificity，
+      // 写在后面的 `:focus` 胜——**把两条规则换顺序，这里就会读到 hover 档**（承重墙）。
+      await selected.hover()
+      expect(
+        await selected.evaluate((element) => element.matches(':hover') && element.matches(':focus')),
+        `${style.label}：没能同时造出 hover 与 focus（这一步的铺设坏了）`
+      ).toBe(true)
+      const both = await selected.evaluate((element) => getComputedStyle(element).backgroundColor)
+      expect(both, `${style.label}：hover 与焦点同落时没有以聚焦为准`).toBe(FOCUS_SHADE[style.id])
+      expect(both, `${style.label}：同落时读到了 hover 档（级联顺序被换过）`).not.toBe(HOVER_SHADE[style.id])
 
       await closeSettings(page)
       expect(problems, `${style.label}：console / page 出错了`).toEqual([])

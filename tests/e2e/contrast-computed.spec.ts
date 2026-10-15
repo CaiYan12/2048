@@ -514,23 +514,33 @@ async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<v
     for (const pair of toggled) await expectPair(page, pair)
   }
 
-  // 风格列表（T42）：带 `expandList` 的这几对要**先把列表展开**再读——列表只在开着时
+  // 风格列表（T42 · T44）：带 `expandList` 的这几对要**先把列表展开**再读——列表只在开着时
   // 存在（没有进场动画，决策 10，展开即成形）。展开用触发钮的真实点击（可访问名来自
   // `aria-labelledby` 引用的行标签），与指针玩家同一条路。展开那一刻焦点落在**选中项**上
-  // （父规格决策 5）；选择器里带 `:focus` 的那几对量的是**非选中项**的聚焦底，所以先按
-  // 一次 ArrowDown 把焦点挪到相邻选项（三枚里只有一枚选中，从选中项出发的下一步必不是它）。
-  // 读完把列表收上（Esc——三层优先序的第一层，只收列表），后面的步骤从收着的状态开始。
+  // （父规格决策 5），于是：
+  //   · 静止态（探针不带 :hover / :focus）与聚焦态（探针带 :focus）直接读；
+  //   · hover 态（探针带 :hover）要先把指针移到一枚**非聚焦**的选项上——T44 的两档底色里
+  //     聚焦档会盖住 hover 档（级联顺序承重墙），悬停在聚焦项上读到的是聚焦底。
+  // 读完把指针移开、按 Esc 收列表（三层优先序的第一层，只收列表），后面的步骤从收着的状态开始。
   const listboxPairs = pairs.filter((pair) => pair.probe?.expandList === true)
   if (listboxPairs.length > 0) {
     await page.getByRole('button', { name: '风格' }).click()
     await expect(page.locator('[data-style-list]')).toBeVisible()
-    if (listboxPairs.some((pair) => (pair.probe?.selector ?? '').includes(':focus'))) {
-      await page.keyboard.press('ArrowDown')
-    }
     // 等焦点真的进了列表再读：展开后的落焦是 React 提交之后的一次 effect，抢在它前面
     // 读到的就是「焦点还在触发钮上」的半路
     await expect(page.locator('.settings-style__option:focus')).toHaveCount(1)
-    for (const pair of listboxPairs) await expectPair(page, pair)
+
+    const isHover = (pair: ContrastPair): boolean =>
+      (pair.probe?.selector ?? '').includes(':hover')
+    for (const pair of listboxPairs.filter((pair) => !isHover(pair))) await expectPair(page, pair)
+
+    const hoverPairs = listboxPairs.filter(isHover)
+    if (hoverPairs.length > 0) {
+      await page.locator('.settings-style__option:not(:focus)').first().hover()
+      for (const pair of hoverPairs) await expectPair(page, pair)
+      await page.mouse.move(0, 0)
+    }
+
     await page.keyboard.press('Escape')
     await expect(page.locator('[data-style-list]')).toHaveCount(0)
   }
@@ -542,9 +552,13 @@ async function checkPairs(page: Page, pairs: readonly ContrastPair[]): Promise<v
   // 原来这里只按「read === 'ring'、选择器不带 :focus-visible」筛，于是方块环也被夹进来，
   // 在没有选中方块的那一刻去读——必然是「页面上找不到这个元素」（Classic / Material 各两个视口）。
   //
-  // **风格列表的聚焦环也不归这一档**（T43）：它的选择器是 `.settings-style__option:focus`
-  // ——`:focus` 不是 `:focus-visible`，逃过上面的排除；而它带 `expandList`，归上面列表那一批
-  // （展开 → ArrowDown → 读 → Esc 收起）。列表收上之后这里再读就是「页面上找不到这个元素」。
+  // **风格列表的环这一档 T44 起不存在了**（T43 那条 `.settings-style__option:focus` 的环随
+  // 「列表态只剩两档底色」整条退场，T44 的 `:focus` 探针改成读**底色**、归上面列表那一批）。
+  // `expandList !== true` 这条排除当年正是为它加的：不是 `:focus-visible`、逃过下面的排除，
+  // 而它带 `expandList`、归上面列表那一批，列表收上后再读就是「页面上找不到这个元素」。
+  // T44 之后没有 ring 对带 `expandList` 了，这条排除当前**不再拦下任何一对**——仍然留着：
+  // 它表达的是「带 `expandList` 的环归列表那一批」这条通用不变量，将来再加不带
+  // `:focus-visible` 的列表环时它继续兜底，比「因为现在用不上就删掉」更安全。
   const tileRing = (pair: ContrastPair): boolean =>
     pair.probe?.read === 'ring' && (pair.probe?.selector ?? '').startsWith('.board__tile')
   const restingRings = pairs.filter(
