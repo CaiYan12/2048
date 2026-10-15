@@ -709,6 +709,57 @@ for (const style of STYLE_CATALOG) {
       const otherRead = await other.evaluate((element) => getComputedStyle(element).backgroundColor)
       expect(otherRead, `${style.label}：聚焦的非选中项不是聚焦档`).toBe(FOCUS_SHADE[style.id])
 
+      // ⑤ 圆角裁剪（T44 复核轮 · 2026-10-15 所有者人眼复核发现）：选项是**满宽方角**的，而
+      //    列表有圆角——首 / 末行的底色一画出来，方角就会伸出菜单的圆角边界（圆角越大越明显，
+      //    Material 的 12px 肉眼可见）。修法是共享外壳给列表 `overflow: hidden`。
+      //    这里既钉住那条声明，也在「确实有一段该被裁掉」的那一套上用**命中测试**证明裁剪真的
+      //    生效——只声明 `overflow` 是不够的，点得着就说明没裁掉。
+      const lastOption = listBox(page).locator('.settings-style__option').last()
+      await lastOption.hover()
+      const corner = await listBox(page).evaluate((element) => {
+        const listRect = element.getBoundingClientRect()
+        const options = [...element.querySelectorAll('.settings-style__option')]
+        const lastRect = options[options.length - 1].getBoundingClientRect()
+        const listStyle = getComputedStyle(element)
+        const radius = parseFloat(listStyle.borderTopLeftRadius)
+        // 探针取末行下缘往上 0.5px 那条水平线（还在行的盒子里）。圆角在该高度上的水平内缩量
+        // 就是「本该被裁掉的那一条」：内缩量 > 1px 的套才值得做命中测试。
+        const probeY = lastRect.bottom - 0.5
+        const aboveCentre = Math.max(0, probeY - (listRect.bottom - radius))
+        const inset = radius - Math.sqrt(Math.max(0, radius * radius - aboveCentre * aboveCentre))
+        return {
+          overflow: listStyle.overflow,
+          radius,
+          inset,
+          probeX: listRect.left + 1,
+          probeY,
+          rowLeft: lastRect.left,
+          rowRight: lastRect.right,
+          listLeft: listRect.left,
+          listRight: listRect.right,
+        }
+      })
+      expect(corner.overflow, `${style.label}：列表没有裁剪，行的方角会伸出圆角`).toBe('hidden')
+      expect(corner.rowLeft, `${style.label}：末行不是满宽（裁剪这条守卫的前提不成立）`).toBeCloseTo(
+        corner.listLeft,
+        0
+      )
+      expect(corner.rowRight, `${style.label}：末行不是满宽（裁剪这条守卫的前提不成立）`).toBeCloseTo(
+        corner.listRight,
+        0
+      )
+      if (corner.inset > 1) {
+        const stack = await page.evaluate(
+          ({ x, y }) =>
+            document.elementsFromPoint(x, y).map((node) => `${node.tagName}.${node.className}`),
+          { x: corner.probeX, y: corner.probeY }
+        )
+        expect(
+          stack.some((entry) => entry.includes('settings-style__option')),
+          `${style.label}：圆角外的那一角仍点得着选项（裁剪没生效）——命中栈 ${stack.join(' > ')}`
+        ).toBe(false)
+      }
+
       await closeSettings(page)
       expect(problems, `${style.label}：console / page 出错了`).toEqual([])
     })

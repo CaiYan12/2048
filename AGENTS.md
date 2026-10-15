@@ -510,6 +510,17 @@ T44（`docs/specs/style-picker.md` 决策 14 的 T44 修订段 + 三套设计卡
 **892 passed / 14 skipped / 0 failed**。**人眼复核没做**——两档底色的并排观感、以及「大矩形方块拆
 干净了没有」只能由人看；headless 与「不许开真实窗口」的约定下这一半不能由 agent 代做。
 
+**人眼复核第一轮（2026-10-15）**发现一处圆角场景的 UI bug 并修掉：选项是**满宽方角**、列表有
+圆角，首 / 末行的底色一画出来，方角就伸出菜单的圆角边界——伸出量取决于「圆角 − 垂直内边距」，
+圆角越大越明显。修法是共享外壳给列表加 `overflow: hidden`（裁剪，不是滚动；只裁后代，列表自己的
+发丝线 `outline` 与投影不受影响）。实测：列表垂直内边距 4px，Material 的 12px 圆角在末行下缘那一
+高度上水平内缩约 3px（肉眼可见），Classic 6px 只 0.34px、Claude 4px 恰好不内缩，所以那两套看不
+出来——**机制三套共通，故裁剪写在共享外壳**。守卫两条：列表 `overflow` 必须为 `hidden`；且在圆角
+内缩量 >1px 的那一套上用**命中测试**证明圆角外那一角点不到选项（只声明 `overflow` 不算数）。
+**守卫是真的**——摘掉 `overflow: hidden` 后，声明断言在三套上全红；把声明那条暂时摘掉单跑效果
+断言，Material 红（命中栈顶层即 `LI.settings-style__option`）、另两套按 `inset > 1` 的设计跳过。
+修复不新增色对（闸门仍 **147 对**）、不改 unit 条数（**920 / 50**）。
+
 ### Issue tracker
 
 GitHub Issues, via the `gh` CLI. See `docs/agents/issue-tracker.md`.
