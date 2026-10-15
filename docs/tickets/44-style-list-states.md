@@ -98,3 +98,62 @@ typecheck 0 错 · unit **920 / 50** · build ✓ · 闸门 **3 风格 150 对**
 工作树 `.claude/worktrees/t44`（分支 `t44`，基线 = `main`）。实现 → 独立审查（新眼睛，自己重跑
 闸门与 e2e、逐套量两档底色并验级联顺序承重墙）→ 审查通过后 `merge --no-ff` 进 `main`（单票一刀，
 无集成分支）。票据 Evidence 在实现票内回填。
+
+## Evidence（实现回填 · 2026-10-15 · 提交 `f32f5a2`，分支 `t44`）
+
+**四道闸门**：typecheck 0 错 · unit **920 / 50**（与基线同数，本票不改纯逻辑）·
+`npm run build` 通过 · `check:contrast` **3 风格 147 对**（基线 150）。三套各**删三对 / 增两对**：
+删「选中控件文字」对、「聚焦环」`ring` 对、「选中项底」对；增 hover / 聚焦两档文字对。所有 `ratio`
+用 `scripts/check-contrast.mjs` 的 `contrastRatio` 复算，无手算。
+
+**目标 e2e**（`settings-style-row` + `settings-drawer` + `contrast-computed`，后台 headless）：
+**190 passed**（基线 184 + 本票新增 3 个「级联顺序」用例 × 2 视口）。
+**全量 Playwright**（后台 headless）：**892 passed / 14 skipped / 0 failed**（票据基线
+886 / 14 / 0；+6 即新增用例，skip 数不变）。
+
+**逐套实测**（`getComputedStyle` 读渲染值，比值用 `contrastRatio` 复算）：
+
+| | Classic | Material | Claude |
+|---|---|---|---|
+| 菜单面（T43，本票不动） | `#5f564e`（`--control-bg-hover`） | `#d8cee8`（`--control-bg-hover`） | `#f0eee6`（`--page`） |
+| hover 档 | `#6f6055`（`--control-bg`）**5.60** | `#e8def8`（`--control-bg`）**13.24** | `#e3dccc`（`--control-bg-hover`）**11.35** |
+| 聚焦档 | `#4a443f`（`--focus`）**8.90** | `#e6e0e9`（`--cell-bg`）**13.21** | `#b8af9b`（`--rule`）**7.12** |
+| 选中项（未聚焦 / 未 hover）底 | 透明（透出菜单面） | 透明 | 透明 |
+| 选项上的环 / `box-shadow` | 无 | 无 | 无 |
+
+逐套的 hover 档、聚焦档、菜单面三者互不相同（e2e 逐套断 `≠`，不是同义反复）。
+
+**级联顺序承重墙怎么测**（新增用例「焦点与 hover 同落一枚选项时显示聚焦档」）：展开列表后焦点落在
+选中项上；先 `page.mouse.move(0, 0)` 读一次「只有焦点、没有 hover」的底 = 聚焦档；再 `selected.hover()`
+把指针悬停到**同一枚**选项上，用 `element.matches(':hover') && element.matches(':focus')` 证明确实同时
+成立，再读计算底 = 聚焦档（并断 `≠ hover 档`）。把 `styles.css` 里 `:focus` 与 `:hover` 两条换序，这条
+用例即红。
+
+**`settings-style-row.spec.ts` 断言变动清单**（逐条说明为什么，没有一条为变绿而放松）：
+- 「菜单面与聚焦环（T43）」改成「菜单面与列表态（T43 · T44）」：①② 菜单面 / 边界 / 圆角三条**原样
+  保留**（T43 的成果本票不动）；③④ 换新口径——原「选中底 = `--control-bg-selected` + 亮墨、聚焦 = 环」
+  两条断言随实现退场（选中块与环都不存在了），改为断「聚焦项 = 聚焦档、零 `outline`、零 `box-shadow`」
+  与「未聚焦未 hover 的选项底透明（= 菜单面）」「选中项的底与普通选项相同」。
+- 新增「焦点与 hover 同落一枚选项时显示聚焦档」（承重墙）。
+- 其余行为断言（`aria-selected`、三层 Esc、焦点进列表、箭头循环 + Home/End、Enter 收列表回焦、Tab 收
+  列表、整行可点、换肤不丢焦点、触发钮形状 / chevron / 旋转、菜单面 / 边界 / 圆角）**一条未动**。
+
+**`claude.spec.ts` 的连带改动**（票据未列、实现时发现，报告于此）：`'选中的那一套换成暖色填充，其余
+控件仍是纸面'` 原来量的是抽屉列表里的选中项（T42 迁移的现址）。本票把选中块拆了，那一处不再是暖色
+填充，用例改到**开局界面的风格按钮组**（`.control[aria-pressed='true']` 仍是那块 `--control-bg-selected`
+暖色，§7 按角色计不受影响）——是现址迁移的收口，不是放松。同时删掉本文件里随之不再使用的
+`openSettings` / `closeSettings` 导入。
+
+**`contrast-computed.spec.ts` 的改动**：listbox 批次新增「hover 那几对要先把指针移到一枚**非聚焦**选项上
+再读」（聚焦档会盖住 hover 档）；`restingRings` 的 `expandList !== true` 排除本票后**不再拦下任何一对**
+（T43 那条唯一的 ring + expandList 对已退场）——**保留**为通用不变量（带 `expandList` 的环归列表批次），
+注释写明理由。
+
+**`tests/unit/contrast.test.ts`**：Claude 暖色对 **8 → 5**（T42 加的选中项底、T43 加的聚焦环、更早的
+「已选中风格按钮文字」三对随列表态退场），注释按 T44 脉络改写。
+
+**没有被验证的**：两档底色的并排观感、hover 与聚焦在灰度上是否分得开、以及「大矩形方块拆干净了没有」
+——这些要人眼；headless 与「不许开真实窗口」的约定下 agent 不能代做（同 T43）。另：本票只移除了
+`--control-bg-selected` 在**抽屉列表选中项**上的那一处用法，令牌本身三套都仍声明且仍被别处使用（开局
+界面按下态按钮 / 开关开态轨道），一个令牌都没删。
+
